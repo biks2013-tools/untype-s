@@ -59,6 +59,7 @@ Expected result:
 - During a warm push-to-talk session with the key released, the System panel may show `Audio: muted by push-to-talk <n>%`; this confirms the microphone path is receiving PCM while the audio gate sends silence to the provider.
 - The event log records a privacy-safe push-to-talk source such as `quartz-event-tap`, `local-monitor`, `global-monitor`, or `ui-button`; if only `ui-button` works, macOS is not delivering the keyboard hook to the launching app.
 - A bottom-center non-activating overlay appears while recording, shows live/committed text, does not take focus, and clears/hides after release.
+- Holding the configured hotkey must not produce repeated `push-to-talk pressed`, `ui-hotkey-release`, or `no text was submitted` cycles while the key remains down; repeated cycles indicate key-repeat is being treated as fresh push-to-talk presses.
 - The overlay shows compact `R`, `T`, `C`, and `I` operator indicators and updates them when the matching operator hotkeys are pressed during recording.
 - If global key release detection is blocked, the UI shows an Accessibility/Input Monitoring warning and pressing the hotkey again stops the fallback recording session.
 

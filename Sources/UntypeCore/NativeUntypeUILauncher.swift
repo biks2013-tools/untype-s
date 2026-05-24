@@ -1354,8 +1354,8 @@ private final class UntypeHotkeyMonitor {
             return false
         }
         if event.type == .keyDown {
-            if event.isARepeat && !state.isPressed() {
-                return false
+            if event.isARepeat, descriptor.matches(event) {
+                return true
             }
             if state.isPressed(), let key = descriptor.eventKey(event), let operatorKey = OperatorKey.hotkeyKey(key) {
                 dispatch(.toggleOperator(operatorKey, source: source))
@@ -1534,6 +1534,9 @@ private final class UntypeQuartzHotkeyEventTap {
             return false
         }
         if type == .keyDown {
+            if descriptor.matches(event), event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                return true
+            }
             if state.isPressed(),
                let key = descriptor.eventKey(event),
                let operatorKey = OperatorKey.hotkeyKey(key)
@@ -1588,7 +1591,7 @@ private extension OperatorKey {
     }
 }
 
-private struct UntypeHotkeyDescriptor {
+private struct UntypeHotkeyDescriptor: Sendable {
     let key: String
     let keyCode: CGKeyCode?
     let commandOrControl: Bool

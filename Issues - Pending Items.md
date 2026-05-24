@@ -19,6 +19,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-24 - Push-to-talk overlay flashing loop fixed
+Resolved a follow-up issue where the push-to-talk overlay could flash repeatedly while holding the physical hotkey. The attempted physical key-state reconciliation could falsely synthesize release while the key was still held; macOS key-repeat then delivered additional key-down events that restarted push-to-talk, causing repeated early `ui-hotkey-release` cycles and `no text was submitted` warnings. The reconciliation poll was removed, and both Quartz and AppKit hotkey paths now ignore autorepeated key-down events for the configured push-to-talk key. Normal `keyUp`/`flagsChanged` release handling and the explicit press-to-toggle fallback remain.
+
 ### 2026-05-24 - Push-to-talk release now falls back to latest partial when Soniox never finalizes
 Resolved the live UI behavior where Soniox produced accurate `transcript.partial` text after release but never delivered a final transcript before the runtime timeout, leaving no monitor output, clipboard copy, or focused-input insertion. The runtime now keeps the latest visible partial transcript in memory for the active session and, after provider finalization times out with no final text, submits that partial through the normal protocol/refinement/clipboard/input pipeline with an explicit warning. If no partial exists, the no-text warning remains. Added regression coverage for release fallback submission. `swift test` passes.
 
