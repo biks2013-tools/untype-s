@@ -1,0 +1,170 @@
+# untype-s Project Design
+
+## Purpose
+`untype-s` is the Swift-native replacement project for the TypeScript `untype` implementation at `~/aiwork/coding-platform/untype`. The final product must expose the installed command `untype` and preserve the public CLI, configuration, transcription, voice-agent protocol, macOS integration, and UI behavior documented by the source project.
+
+## Source Artifacts
+- Refined request: `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-swift-drop-in-replacement.md`
+- Investigation: `~/aiwork/coding-platform/untype-s/docs/reference/investigation-swift-drop-in-replacement.md`
+- Source scan: `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-source-untype.md`
+- Source study: `~/aiwork/coding-platform/untype-s/docs/reference/source-study-untype.md`
+- Compatibility checklist: `~/aiwork/coding-platform/untype-s/docs/reference/compatibility-checklist-swift-drop-in-replacement.md`
+- Verification report: `~/aiwork/coding-platform/untype-s/docs/reference/verification-report-swift-drop-in-replacement.md`
+- Push-to-talk release diagnostics fix:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-push-to-talk-release-no-output.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-push-to-talk-release-no-output.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-002-push-to-talk-release-no-output.md`
+- Research:
+  - `~/aiwork/coding-platform/untype-s/docs/research/avfoundation-audio-capture.md`
+  - `~/aiwork/coding-platform/untype-s/docs/research/soniox-websocket-swift.md`
+  - `~/aiwork/coding-platform/untype-s/docs/research/elevenlabs-realtime-stt-swift.md`
+  - `~/aiwork/coding-platform/untype-s/docs/research/macos-ui-hotkey-overlay.md`
+  - `~/aiwork/coding-platform/untype-s/docs/research/swift-testing-distribution.md`
+
+## Architecture
+The project uses Swift Package Manager as the authoritative build structure. The executable product is named `untype`; the repository name `untype-s` is only the project folder name.
+
+The minimum supported platform is macOS 14. `Package.swift` declares `.macOS(.v14)`, and the audio permission implementation intentionally uses the modern macOS 14 `AVAudioApplication` permission API path researched in `docs/research/avfoundation-audio-capture.md`.
+
+Planned module boundaries:
+- `untype`: thin executable entry point.
+- `UntypeCore`: shared errors, exit codes, version, runtime events, and compatibility types.
+- `UntypeConfig`: CLI schema, env-chain resolution, typed parsers, expiry warnings.
+- `UntypeCLI`: command dispatch, stdout/stderr routing, renderer, process exit mapping, signal handling.
+- `UntypeProtocol`: marker matching, state machine, JSONL writer, settings persistence.
+- `UntypeProviders`: provider-neutral transcriber protocol plus Soniox and ElevenLabs adapters.
+- `UntypeAudio`: audio-source protocol and native AVFoundation capture.
+- `UntypeLLM`: Azure OpenAI and Google refiners plus accepted provider stubs.
+- `UntypeMacOS`: focused input, permission diagnostics, hotkey/event tap, overlay support.
+- `UntypeUI`: SwiftUI/AppKit UI replacement for `untype ui`.
+
+Initial implementation may combine some modules while the skeleton stabilizes, but the public boundaries above are the target decomposition for autonomous implementation work.
+
+## Design Decisions
+- SwiftPM-first architecture follows the investigation recommendation in `docs/reference/investigation-swift-drop-in-replacement.md`.
+- CLI/protocol/provider parity is the first implementation milestone, but the project is not considered a final drop-in replacement until `untype ui` parity is complete.
+- Native AVFoundation capture replaces the source project's `sox` subprocess. `sox` must not be used as a hidden fallback.
+- Soniox and ElevenLabs are implemented as direct WebSocket adapters over a mockable transport boundary.
+- Azure OpenAI and Google LLM refiners are implemented for parity; the other six accepted LLM provider names remain explicit stubs until approved.
+- UI parity uses SwiftUI for views and AppKit for lifecycle, non-activating overlay, and macOS event/permission details.
+- Tests use `swift test`; live provider and macOS permission checks are documented manual smoke tests under `test_scripts/`.
+
+## Configuration
+The configuration precedence chain is:
+1. CLI flag
+2. `<cwd>/.env`
+3. `~/.tool-agents/untype/.env`
+4. Shell environment
+
+Missing required values raise typed errors. The project must not invent fallback values for required settings.
+
+The current Swift configuration resolver implements the source CLI/config surface for STT provider selection (`soniox`, `elevenlabs`), provider-specific model/endpoint/language defaults, language and sample-rate validation, endpoint detection, output mode, protocol marker/operator defaults, hybrid protocol-output validation, LLM provider/model startup validation, API-key expiry warnings, source-compatible `.env` parsing behavior, and the legacy `~/.tool-agents/mic-tool-ts/` migration guard. This design follows the source contract documented in `docs/reference/source-study-untype.md` and the CLI/config phase in `docs/design/plan-001-swift-drop-in-replacement.md`.
+
+## Rendering
+The current Swift renderer implements the source output modes:
+- `overwrite`: TTY-only carriage-return rendering for partials, wrapped-row cleanup, final-line commit, refined-output commit, and dispose cleanup.
+- `append`: pipe-safe line-per-partial/final rendering with duplicate partial suppression.
+- `final-only`: suppresses partials and emits committed finals only.
+
+When `overwrite` is requested for a non-TTY destination, the renderer downgrades to `append` so piped output does not contain carriage returns. The renderer also filters `<end>` and `<fin>` marker tokens before output.
+
+## Voice-Agent Protocol Runtime
+The current Swift protocol runtime implements the source-compatible, provider-independent voice-agent primitives:
+- marker normalization and matching for state commands, section submit/cancel markers, Greek guard aliases, slash-style markers, and literal-next behavior;
+- operator state changes for `refine`, `translate`, `clipboard`, and `input`, including runtime toggles and status reports;
+- section lifecycle handling with stable `sec_000001`-style identifiers, spoken cancellation, shutdown cancellation, and optional shutdown submission;
+- JSONL event writing with source event names and monotonically increasing `seq` values;
+- non-secret protocol settings persistence at `~/.tool-agents/untype/state.json` with mode `0600`, storing only operator booleans and translation policy.
+- session/controller routing for partial/final transcript events across `dictation`, `agent-protocol`, and `hybrid` modes;
+- source-compatible section processing order: raw section submission, optional refinement, optional translation, processed event/rendering, clipboard delivery, and focused-input delivery;
+- fail-open protocol warnings for missing LLM operators and focused-input delivery failures.
+- provider-neutral session orchestration that starts/stops mockable audio and realtime transcriber implementations, forwards PCM audio to STT, forwards STT partial/final events into the protocol controller, supports push-to-talk pending submission, persists non-secret protocol settings on shutdown, and emits typed session lifecycle events.
+
+The runtime now includes a concrete AVFoundation audio source behind the existing `RuntimeAudioSource` boundary. It preflights macOS microphone permission with typed `microphone_permission` failures, installs an `AVAudioEngine` input tap, converts captured input to mono 16-bit PCM at the configured sample rate, and reports capture/conversion failures as typed `microphone_capture` errors. Runtime startup starts microphone capture before waiting for the realtime STT WebSocket to finish connecting, so the UI can show audio activity while provider startup is still in progress. Synthetic conversion tests cover the PCM16 converter; live permission/capture smoke testing remains pending. The smoke procedure is documented in `test_scripts/microphone-live-smoke.md`.
+
+The CLI now builds a live `TranscriptionSessionRuntime` through `UntypeRuntimeFactory`: it loads persisted non-secret protocol settings, applies them only to defaults, creates the renderer and optional protocol JSONL writer, selects `AVFoundationAudioSource`, selects the configured Soniox or ElevenLabs transcriber, starts the session, waits asynchronously for `SIGINT` or `SIGTERM`, submits pending provider output on shutdown, persists the latest non-secret protocol settings, and maps recorded runtime failures back to typed exit codes. Agent-protocol mode writes JSONL protocol events to stdout when no `--protocol-output` is configured; hybrid mode continues to require a protocol output file.
+
+## macOS Clipboard and Focused Input
+The protocol controller now uses concrete macOS delivery implementations in the live runtime:
+- `MacOSClipboardWriter` writes processed section output directly to `NSPasteboard.general` without passing text through process arguments.
+- `FocusedInputDelivery` launches a sibling `untype-input-helper` executable with arguments limited to `send --method <method>` and writes processed text through the helper process stdin.
+- `untype-input-helper` is a Swift executable target that preserves the source helper contract: `diagnose`, `send --method auto|ax-value|unicode-events|paste-keycode`, one JSON result line on stdout, diagnostics on stderr, exit code `0` for success, and exit code `2` for expected delivery failures.
+- The helper attempts Accessibility AX value insertion first, then Unicode key events for shorter text, then a clipboard-preserving Command-V paste fallback. Accessibility denial returns `accessibility_not_trusted` with an actionable message.
+- Focused-input failures remain fail-open protocol warnings so transcription sessions continue when the target control is unavailable or permissions are missing.
+
+Automated tests verify helper JSON parsing, expected failure handling, stdin-only text delivery, command parsing, and injected clipboard writing. The live focused-input permission and delivery smoke procedure is documented in `test_scripts/focused-input-smoke.md`; manual execution remains pending.
+
+## LLM Refinement and Translation
+The current Swift LLM layer preserves the source project's two implemented provider contracts without adding runtime dependencies:
+- `AzureOpenAIRefiner` calls the Azure OpenAI Chat Completions REST endpoint with the configured endpoint, deployment, API version, `api-key` header, system prompt, user transcript, and `temperature=0.2`.
+- `GoogleRefiner` calls Gemini `generateContent` with `systemInstruction`, a single user content part, the configured model, API key query parameter, and `temperature=0.2`.
+- Both refiners use a mockable HTTP client boundary, trim successful text, map HTTP 401/403 to auth failures, map other non-2xx responses to server failures, map malformed JSON or missing output text to response-shape failures, and cancel in-flight requests on dispose.
+- `LLMRefinerFactory` returns nil when LLM refinement is disabled, constructs concrete Azure OpenAI or Google refiners when enabled, and raises configuration errors for the six accepted-but-unimplemented provider names (`openai`, `anthropic`, `azure-ai-inference`, `ollama`, `litellm`, `openai-compat`).
+- `UntypeRuntimeFactory` wires separate refinement and translation refiner instances into the voice-agent protocol controller. The translator reuses the selected provider with the source-compatible translation system prompt.
+
+Runtime LLM failures remain fail-open at the protocol controller boundary: refinement or translation errors do not terminate the transcription session, and verbose diagnostics include the failure kind. Startup LLM configuration failures remain fatal configuration errors with exit code `2`.
+
+## Soniox Provider Adapter
+The current Swift Soniox adapter implements the provider-facing WebSocket frame contract behind a mockable `RealtimeWebSocketClient` boundary:
+- concrete live transport over `URLSessionWebSocketTask`, including an async receive loop that routes text frames into the adapter and maps receive failures to typed Soniox network errors;
+- startup sends one JSON configuration frame with API key, model, `pcm_s16le`, sample rate, mono channel count, endpoint detection, and either language hints or language identification;
+- audio chunks are sent as binary WebSocket frames only after the socket is connected;
+- manual commit sends the source-compatible `{"type":"finalize"}` control frame and shutdown sends the empty finish sentinel before closing;
+- incoming JSON result frames are parsed for tokens, marker tokens `<end>` and `<fin>` are filtered, finalized text is merged defensively to tolerate repeated prefixes, and endpoint/finalized/finished messages flush committed final text;
+- Soniox server errors and transport failures are mapped to typed `soniox_auth`, `soniox_network`, or `soniox_protocol` errors.
+
+The adapter is verified with mocked transport tests. Live Soniox smoke testing remains pending. The live smoke procedure is documented in `test_scripts/soniox-live-smoke.md`.
+
+After push-to-talk release diagnostics exposed a live Soniox timeout, the direct Swift parser was corrected to process `tokens` before handling a same-frame `endpoint`, `finalized`, or `finished` marker. This preserves final tokens when the WebSocket server combines semantic finalization and token payloads in one JSON message, allowing the runtime to receive a final transcript instead of leaving only post-release partial lines.
+
+## ElevenLabs Provider Adapter
+The current Swift ElevenLabs adapter implements the provider-facing WebSocket frame contract behind the same mockable `RealtimeWebSocketClient` boundary:
+- concrete live transport support over `URLSessionWebSocketTask` via a `URLRequest` that sets the source-compatible `xi-api-key` header;
+- realtime URL construction with `model_id`, `audio_format=pcm_<sampleRate>`, `sample_rate`, VAD/manual `commit_strategy`, `include_timestamps=false`, and optional `language_code` when the configured language is not `auto`;
+- audio chunks are sent as JSON text frames with `message_type=input_audio_chunk`, base64 PCM payloads, and the configured sample rate;
+- manual commit sends an empty base64 audio payload with `commit=true`, and shutdown attempts a best-effort final commit before closing;
+- incoming JSON events route non-empty partial transcripts to partial output and trimmed committed transcripts to final output for both timestamped and non-timestamped event names;
+- ElevenLabs server errors and transport failures are mapped to typed `elevenlabs_auth`, `elevenlabs_network`, or `elevenlabs_protocol` errors.
+
+The adapter is verified with mocked transport tests. Live ElevenLabs smoke testing remains pending. The live smoke procedure is documented in `test_scripts/elevenlabs-live-smoke.md`.
+
+## Native UI Mode
+`untype ui` now dispatches to a SwiftUI/AppKit launcher instead of returning a placeholder error. The UI is implemented inside the SwiftPM executable process and reuses the existing Swift runtime factory rather than spawning the CLI or parsing terminal output.
+
+The current UI phase includes:
+- a native monitoring window with credential status, provider/session settings, protocol operator switches, LLM settings, push-to-talk controls, transcript display, and bounded event log;
+- a right-side settings pane built from aligned label/control rows inside material-backed glass sections, keeping status values, pickers, text fields, steppers, toggles, and push-to-talk actions visually consistent;
+- initial UI state loading through the same config chain as the CLI, with persisted UI settings converted to CLI-equivalent arguments and an inspection-only LLM validation mode so missing LLM secrets can be reported in the UI without blocking configuration display;
+- non-secret UI settings persistence at `~/.tool-agents/untype/ui-state.json` with mode `0600` under a `0700` config directory;
+- credential inspection that reports API-key name, configured/missing status, source tier, and expiry value without exposing API-key values;
+- transient macOS permission inspection that reports Microphone authorization and Accessibility trust in the UI without persisting those host-specific status values;
+- a UI-specific runtime factory path that routes transcript events through a typed `UITranscriptEvent` renderer and protocol/diagnostic text into the UI;
+- microphone audio activity reporting that emits privacy-safe PCM peak/byte-count snapshots from the runtime and displays `Audio: waiting`, `silent`, `active`, or `muted by push-to-talk` in the UI before any STT transcript arrives;
+- a clearable grouped transcript timeline that keeps partial text separate from committed turns, groups raw dictated text and processed output in the same turn, and clears only visible UI history without stopping the session or persisting transcript text;
+- a primary Quartz `CGEvent` tap for system-wide push-to-talk press/release handling and hotkey suppression, with AppKit `NSEvent` monitors retained as the fallback path and visible status text when the tap cannot start;
+- `R`/`T`/`C`/`I` operator toggles while recording, routed through the same runtime operator channel as UI switches;
+- source-compatible active-session editing rules: provider, model, languages, sample rate, endpoint detection, protocol mode, translation policy, LLM, and push-to-talk settings are locked while a manual, warm, or recording session is active, while the four protocol operator switches remain editable and route to the active protocol controller;
+- source-style push-to-talk sessions: enabling push-to-talk starts a hotkey-owned warm runtime with the audio gate closed, pressing the hotkey opens the gate and clears any stale live partial, releasing closes the gate, waits for provider final text, submits the current turn for refine/translate/clipboard/focused-input processing, stops that provider session, then starts a fresh warm runtime for the next press;
+- startup-safe warm-session stopping: `Stop Warm Session` cancels a hotkey-owned session even while it is still in `starting`, resets the UI to idle when no runtime has been assigned yet, and prevents provider startup from racing back to `listening` after a concurrent stop;
+- a Push to Talk press/release fallback button that uses the same hotkey-owned runtime and overlay path when macOS does not deliver keyboard hook events;
+- UI mode enters AppKit directly on the executable's initial main thread instead of wrapping the blocking `NSApplication.run()` call in `MainActor.run`; UI session startup and callbacks use background tasks plus AppKit main-queue dispatch so the native event loop can advance runtime startup to `listening`;
+- privacy-safe hotkey diagnostics that record whether a press/release came from the Quartz event tap, local monitor, global monitor, or UI button without logging transcript text or secrets;
+- release-time diagnostics for the push-to-talk output pipeline: UI-owned sessions now show when release requests provider final text, when submitted text enters protocol processing, when processing completes, and when no provider final text arrives before the finalization timeout. Operator attempts and failures for refine, translate, clipboard, and focused input are privacy-safe UI diagnostics, and release/operator warnings are surfaced in the transcript timeline so the monitor is not silent when output cannot be produced.
+- finalization fallback for realtime providers that keep returning partial hypotheses after release: the runtime remembers the latest visible partial transcript in memory for the active session and, only after provider finalization times out without any final text, submits that latest partial through the normal protocol path with an explicit warning. After the release submission commits, late provider partial callbacks are suppressed for that ending provider session so stale partial lines do not appear around the processed output.
+- a tabbed monitoring area that separates the transcript timeline from the event log so each monitor view can use the full available vertical space while preserving the existing transcript controls and event auto-scroll behavior.
+- a bottom-center non-activating `NSPanel` overlay at status-bar window level that shows recording/processed text while push-to-talk is active, displays compact `R`/`T`/`C`/`I` operator indicators, positions on the screen containing the pointer, and clears its text when hidden.
+
+The UI uses `ConfigResolver(requireProtocolOutputForHybrid: false)` only for UI-owned configuration display and sessions so hybrid protocol events can be rendered in the window without requiring a JSONL file path. CLI behavior is unchanged: `--interaction-mode hybrid` still requires `--protocol-output`. Runtime sessions still use strict provider validation; the inspection-only LLM validation path is limited to initial UI settings loading so it does not provide fallback credentials or silently run with missing secrets.
+
+The UI process installs a native AppKit application menu instead of relying on default window behavior. The menu restores standard macOS shortcuts for UI mode, including `Command+Q` for Quit, `Command+W` for Close Window, and standard Edit menu actions for text controls.
+
+The main session button now reflects the active capture state with source-style labels: `Start Listening`, `Stop Listening`, `Stop Warm Session`, and `Stop Recording`.
+
+Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
+
+## CLI Voice Command Responsiveness
+The CLI and UI runtime now ask the active STT provider to commit as soon as a partial transcript contains an actionable protocol marker such as `command status`, `command send`, or `command cancel`. Finalized transcripts still remain the only place where protocol actions execute, but this partial-triggered commit avoids the live CLI appearing unresponsive when the provider keeps voice commands in partial output until VAD, endpoint detection, or shutdown. The runtime deduplicates repeated partial snapshots so a single visible command does not repeatedly commit the provider.
+
+## Open Design Gaps
+- Distribution target is local Swift executable first; app bundle/signing/notarization are required for final UI release planning but not resolved yet.
+- UI parity is partially implemented; live macOS permission verification, final visual review, and distribution packaging remain before final drop-in replacement.
