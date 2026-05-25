@@ -415,6 +415,53 @@ private let runtimeMarkers = MarkerConfig(
     ))))
 }
 
+@Test func sessionRuntimeThrottlesRepeatedAudioActivityButEmitsCategoryChanges() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let gate = MockAudioGate()
+    let clock = ManualClock(Date(timeIntervalSince1970: 0))
+    var sessionEvents: [TranscriptionSessionEvent] = []
+    let controller = VoiceAgentProtocolController(
+        mode: .dictation,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: nil,
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false),
+        translationPolicy: .opposite
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            audioGate: gate,
+            audioActivityInterval: 1,
+            audioActivityNow: { clock.current },
+            emit: { sessionEvents.append($0) }
+        )
+    )
+
+    try await runtime.start()
+    await audio.emitAudio(Data([0x00, 0x40]))
+    await audio.emitAudio(Data([0x00, 0x40]))
+    clock.advance(by: 1.1)
+    await audio.emitAudio(Data([0x00, 0x40]))
+    gate.close()
+    await audio.emitAudio(Data([0x00, 0x40]))
+
+    let audioEvents = sessionEvents.compactMap { event -> AudioActivitySnapshot? in
+        if case .audioActivity(let snapshot) = event {
+            return snapshot
+        }
+        return nil
+    }
+    #expect(audioEvents == [
+        AudioActivitySnapshot(peak: 0.5, byteCount: 2, mutedByGate: false),
+        AudioActivitySnapshot(peak: 0.5, byteCount: 2, mutedByGate: false),
+        AudioActivitySnapshot(peak: 0.5, byteCount: 2, mutedByGate: true)
+    ])
+}
+
 @Test func sessionRuntimeRecordsAudioPushFailureAndStops() async throws {
     let audio = MockAudioSource()
     let transcriber = MockTranscriber()
@@ -546,6 +593,27 @@ private final class MockAudioGate: RuntimeAudioGate, @unchecked Sendable {
     func close() {
         lock.lock()
         openState = false
+        lock.unlock()
+    }
+}
+
+private final class ManualClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+
+    init(_ value: Date) {
+        self.value = value
+    }
+
+    var current: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        value = value.addingTimeInterval(interval)
         lock.unlock()
     }
 }

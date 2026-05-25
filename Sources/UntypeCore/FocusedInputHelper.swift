@@ -139,20 +139,23 @@ public enum FocusedInputHelperMain {
         } catch let error as FocusedInputDeliveryError where error.code == "accessibility_not_trusted" {
             throw error
         } catch {
-            fputs("ax-value unavailable; trying unicode-events.\n", stderr)
+            fputs("ax-value unavailable; trying paste-keycode.\n", stderr)
+        }
+
+        do {
+            return try pasteWithKeyCode(text)
+        } catch {
+            fputs("paste-keycode unavailable; trying unicode-events.\n", stderr)
         }
 
         if text.utf16.count <= unicodeAutoThreshold {
-            do {
-                return try unicodeType(text)
-            } catch {
-                fputs("unicode-events unavailable; trying paste-keycode.\n", stderr)
-            }
-        } else {
-            fputs("unicode-events skipped for long text; trying paste-keycode.\n", stderr)
+            return try unicodeType(text)
         }
 
-        return try pasteWithKeyCode(text)
+        throw FocusedInputDeliveryError(
+            message: "paste-keycode failed and unicode-events was skipped for long text.",
+            code: "focused_input_delivery_failed"
+        )
     }
 
     private static func accessibilityTrusted(prompt: Bool = false) -> Bool {

@@ -145,6 +145,12 @@ public struct AudioActivitySnapshot: Sendable, Equatable {
     }
 }
 
+private enum AudioActivityCategory: Sendable, Equatable {
+    case active
+    case silent
+    case muted
+}
+
 public struct TranscriptionSessionRuntimeOptions {
     public let verbose: Bool
     public let readyMessage: String
@@ -153,6 +159,8 @@ public struct TranscriptionSessionRuntimeOptions {
     public let audioGate: RuntimeAudioGate?
     public let finalTranscriptWaitNanoseconds: UInt64
     public let submissionDiagnosticsEnabled: Bool
+    public let audioActivityInterval: TimeInterval
+    public let audioActivityNow: @Sendable () -> Date
     public let emit: (_ event: TranscriptionSessionEvent) -> Void
     public let saveProtocolSettings: (_ snapshot: ProtocolSettingsSnapshot) throws -> Void
 
@@ -164,6 +172,8 @@ public struct TranscriptionSessionRuntimeOptions {
         audioGate: RuntimeAudioGate? = nil,
         finalTranscriptWaitNanoseconds: UInt64 = 1_500_000_000,
         submissionDiagnosticsEnabled: Bool = false,
+        audioActivityInterval: TimeInterval = 0.25,
+        audioActivityNow: @escaping @Sendable () -> Date = Date.init,
         emit: @escaping (_ event: TranscriptionSessionEvent) -> Void = { _ in },
         saveProtocolSettings: @escaping (_ snapshot: ProtocolSettingsSnapshot) throws -> Void = { _ in }
     ) {
@@ -174,9 +184,16 @@ public struct TranscriptionSessionRuntimeOptions {
         self.audioGate = audioGate
         self.finalTranscriptWaitNanoseconds = finalTranscriptWaitNanoseconds
         self.submissionDiagnosticsEnabled = submissionDiagnosticsEnabled
+        self.audioActivityInterval = audioActivityInterval
+        self.audioActivityNow = audioActivityNow
         self.emit = emit
         self.saveProtocolSettings = saveProtocolSettings
     }
+}
+
+private struct GatedAudioChunk: Sendable {
+    let data: Data
+    let mutedByGate: Bool
 }
 
 public final class TranscriptionSessionRuntime {
@@ -196,6 +213,8 @@ public final class TranscriptionSessionRuntime {
     private var latestPartialTranscript: String?
     private var pendingSubmissionInProgress = false
     private var suppressLateProviderPartials = false
+    private var lastAudioActivityCategory: AudioActivityCategory?
+    private var lastAudioActivityEmittedAt = Date.distantPast
     private let finalTranscriptWaiter = FinalTranscriptWaiter()
 
     public init(
@@ -266,8 +285,8 @@ public final class TranscriptionSessionRuntime {
                     }
                     do {
                         let gated = self.audioChunkForGate(pcm)
-                        self.emitAudioActivity(raw: pcm, gated: gated)
-                        try await self.transcriber.pushAudio(gated)
+                        self.emitAudioActivity(raw: pcm, mutedByGate: gated.mutedByGate)
+                        try await self.transcriber.pushAudio(gated.data)
                     } catch {
                         self.record(error)
                         await self.stop(reason: "audio-push-error")
@@ -516,19 +535,47 @@ public final class TranscriptionSessionRuntime {
         }
     }
 
-    private func audioChunkForGate(_ pcm: Data) -> Data {
+    private func audioChunkForGate(_ pcm: Data) -> GatedAudioChunk {
         guard let audioGate = options.audioGate, !audioGate.isOpen() else {
-            return pcm
+            return GatedAudioChunk(data: pcm, mutedByGate: false)
         }
-        return Data(repeating: 0, count: pcm.count)
+        return GatedAudioChunk(data: Data(repeating: 0, count: pcm.count), mutedByGate: true)
     }
 
-    private func emitAudioActivity(raw: Data, gated: Data) {
+    private func emitAudioActivity(raw: Data, mutedByGate: Bool) {
+        let peak = Self.peakAmplitude(raw)
+        let category = Self.audioActivityCategory(peak: peak, mutedByGate: mutedByGate)
+        let now = options.audioActivityNow()
+        guard shouldEmitAudioActivity(category: category, now: now) else {
+            return
+        }
+        lastAudioActivityCategory = category
+        lastAudioActivityEmittedAt = now
         options.emit(.audioActivity(AudioActivitySnapshot(
-            peak: Self.peakAmplitude(raw),
+            peak: peak,
             byteCount: raw.count,
-            mutedByGate: raw.count == gated.count && raw != gated
+            mutedByGate: mutedByGate
         )))
+    }
+
+    private func shouldEmitAudioActivity(category: AudioActivityCategory, now: Date) -> Bool {
+        guard options.audioActivityInterval > 0 else {
+            return true
+        }
+        guard lastAudioActivityCategory == category else {
+            return true
+        }
+        return now.timeIntervalSince(lastAudioActivityEmittedAt) >= options.audioActivityInterval
+    }
+
+    private static func audioActivityCategory(peak: Double, mutedByGate: Bool) -> AudioActivityCategory {
+        if mutedByGate {
+            return .muted
+        }
+        if peak <= 0.01 {
+            return .silent
+        }
+        return .active
     }
 
     private static func peakAmplitude(_ pcm: Data) -> Double {

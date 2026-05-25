@@ -38,6 +38,10 @@
   - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-fix-history-release-disappearing-transcript.md`
   - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-fix-history-release-disappearing-transcript.md`
   - `~/aiwork/coding-platform/untype-s/docs/design/plan-014-fix-history-release-disappearing-transcript.md`
+- Native UI modernization proposal:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-macos-ui-modernization-proposal.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/macos-ui-guidelines-modernization-research.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-016-macos-ui-modernization-proposal.md`
 - Research:
   - `~/aiwork/coding-platform/untype-s/docs/research/avfoundation-audio-capture.md`
   - `~/aiwork/coding-platform/untype-s/docs/research/soniox-websocket-swift.md`
@@ -113,7 +117,7 @@ The protocol controller now uses concrete macOS delivery implementations in the 
 - `MacOSClipboardWriter` writes processed section output directly to `NSPasteboard.general` without passing text through process arguments.
 - `FocusedInputDelivery` launches a sibling `untype-input-helper` executable with arguments limited to `send --method <method>` and writes processed text through the helper process stdin.
 - `untype-input-helper` is a Swift executable target that preserves the source helper contract: `diagnose`, `send --method auto|ax-value|unicode-events|paste-keycode`, one JSON result line on stdout, diagnostics on stderr, exit code `0` for success, and exit code `2` for expected delivery failures.
-- The helper attempts Accessibility AX value insertion first, then Unicode key events for shorter text, then a clipboard-preserving Command-V paste fallback. Accessibility denial returns `accessibility_not_trusted` with an actionable message.
+- The helper attempts Accessibility AX value insertion first, then a clipboard-preserving Command-V paste fallback, then Unicode key events only as a short-text compatibility fallback. This keeps the default path from simulating one key pair per character in browser/editor fields. Accessibility denial returns `accessibility_not_trusted` with an actionable message.
 - Focused-input failures remain fail-open protocol warnings so transcription sessions continue when the target control is unavailable or permissions are missing.
 
 Automated tests verify helper JSON parsing, expected failure handling, stdin-only text delivery, command parsing, and injected clipboard writing. The live focused-input permission and delivery smoke procedure is documented in `test_scripts/focused-input-smoke.md`; manual execution remains pending.
@@ -164,7 +168,7 @@ The current UI phase includes:
 - transient macOS permission inspection that reports Microphone authorization and Accessibility trust in the UI without persisting those host-specific status values;
 - a UI-specific runtime factory path that routes transcript events through a typed `UITranscriptEvent` renderer and protocol/diagnostic text into the UI;
 - microphone audio activity reporting that emits privacy-safe PCM peak/byte-count snapshots from the runtime and displays `Audio: waiting`, `silent`, `active`, or `muted by push-to-talk` in the UI before any STT transcript arrives;
-- throttled UI event-log audio diagnostics that record `audio.input` lines from those snapshots, including whether the provider receives microphone audio or silence because the push-to-talk gate is closed;
+- throttled runtime audio activity emission and UI event-log diagnostics that record `audio.input` lines from those snapshots, including whether the provider receives microphone audio or silence because the push-to-talk gate is closed. Repeated same-category audio activity is rate-limited before it reaches SwiftUI, while active/silent/muted category changes still surface immediately;
 - a clearable grouped transcript timeline that keeps partial text separate from committed turns, groups raw dictated text and processed output in the same turn, and clears only visible UI history without stopping the session or persisting transcript text;
 - explicit transcript and event export controls in the monitoring tabs. Transcript and Events each expose `Copy` and `Save` actions when content exists. Copy writes the current extracted plain text to the macOS pasteboard, while Save opens a user-chosen `NSSavePanel` destination and writes UTF-8 text atomically. Transcript export includes committed turns, bubble labels/statuses, and live partial text; event export preserves the retained event log lines in chronological order. This remains explicit user-triggered persistence only, matching the scope in `docs/reference/refined-request-transcript-events-export-copy.md` and the integration points in `docs/reference/codebase-scan-transcript-events-export-copy.md`;
 - a primary Quartz `CGEvent` tap for system-wide push-to-talk press/release handling and hotkey suppression, with AppKit `NSEvent` monitors retained as the fallback path and visible status text when the tap cannot start;
@@ -191,6 +195,19 @@ The UI process installs a native AppKit application menu instead of relying on d
 The main session button now reflects the active capture state with source-style labels: `Start Listening`, `Stop Listening`, `Stop Warm Session`, and `Stop Recording`.
 
 Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
+
+### Proposed macOS UI Modernization
+The proposed next UI direction is documented in `docs/design/plan-016-macos-ui-modernization-proposal.md` and is grounded in the current source review plus Apple Human Interface Guidelines research in `docs/reference/macos-ui-guidelines-modernization-research.md`.
+
+The proposal keeps the existing native SwiftUI/AppKit runtime model, privacy boundaries, settings persistence, active-session editability rules, transcript/history/events data model, export semantics, and non-activating push-to-talk overlay. It recommends reorganizing the visual shell into a more conventional macOS structure:
+- a native toolbar for frequent actions and session control;
+- leading source-list navigation for Transcript, History, and Events;
+- a main content work area for the selected monitor surface;
+- a trailing inspector-style settings pane for credentials, system status, provider, protocol, LLM, and push-to-talk configuration;
+- compact status pills for session, capture, audio, output, and permissions;
+- a cleaner material-backed dictation HUD for push-to-talk overlay feedback.
+
+The modernization proposal is not implemented yet. It should be treated as the design baseline for any future UI polish or redesign work under FR-19.
 
 ## CLI Voice Command Responsiveness
 The CLI and UI runtime now ask the active STT provider to commit as soon as a partial transcript contains an actionable protocol marker such as `command status`, `command send`, or `command cancel`. Finalized transcripts still remain the only place where protocol actions execute, but this partial-triggered commit avoids the live CLI appearing unresponsive when the provider keeps voice commands in partial output until VAD, endpoint detection, or shutdown. The runtime deduplicates repeated partial snapshots so a single visible command does not repeatedly commit the provider.

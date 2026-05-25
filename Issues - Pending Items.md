@@ -19,6 +19,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-25 - High CPU and focused-input lag reduced
+Resolved a performance issue where active UI sessions could update SwiftUI audio status on every microphone buffer even though the visible audio event log was throttled. Runtime audio activity emission is now throttled with immediate category-change updates, and muted-gate detection no longer compares full audio `Data` buffers. Focused-input auto delivery now tries AX insertion first, then the faster clipboard-preserving paste path, leaving per-character Unicode events as the compatibility fallback for short text only. This addresses the observed CPU usage and browser/editor lag while preserving existing focused-input privacy guarantees. Added regression coverage for audio activity throttling and category-change emission. `swift test` passes.
+
 ### 2026-05-25 - Push-to-talk release transcript/history retention fixed
 Resolved a UI regression where releasing the talk button could briefly record raw and refined/translated output, then lose it from both Transcript and History when the app automatically started the next warm push-to-talk runtime. The root cause was `startSession(...)` replacing the whole `UntypeUITimelineState` on every runtime start. Runtime starts now clear only stale live partial text, while committed raw and processed turns remain retained until explicit Clear or app termination. Added regression coverage that partial cleanup preserves committed Transcript and History content. `swift test` passes.
 
