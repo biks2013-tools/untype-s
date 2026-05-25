@@ -18,6 +18,18 @@
   - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-transcript-events-export-copy.md`
   - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-transcript-events-export-copy.md`
   - `~/aiwork/coding-platform/untype-s/docs/design/plan-006-transcript-events-export-copy.md`
+- Overlay wrapping correction:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-overlay-position-wrap-correction.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-overlay-position-wrap-correction.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-010-overlay-text-wrap-restoration.md`
+- Overlay bottom indicator adjustment:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-overlay-bottom-indicators.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-overlay-position-wrap-correction.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-011-overlay-bottom-indicators.md`
+- UI window state persistence:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-ui-window-state-persistence.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-ui-window-state-persistence.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-012-ui-window-state-persistence.md`
 - Research:
   - `~/aiwork/coding-platform/untype-s/docs/research/avfoundation-audio-capture.md`
   - `~/aiwork/coding-platform/untype-s/docs/research/soniox-websocket-swift.md`
@@ -137,9 +149,9 @@ The adapter is verified with mocked transport tests. Live ElevenLabs smoke testi
 
 The current UI phase includes:
 - a native monitoring window with credential status, provider/session settings, protocol operator switches, LLM settings, push-to-talk controls, transcript display, and bounded event log;
-- a collapsible right-side settings pane built from aligned label/control rows inside material-backed glass sections, keeping status values, pickers, text fields, steppers, toggles, and push-to-talk actions visually consistent while allowing the monitor area to use the full window width;
+- a collapsible right-side settings pane built from aligned label/control rows inside material-backed glass sections, keeping status values, pickers, text fields, steppers, toggles, and push-to-talk actions visually consistent while allowing the monitor area to use the full window width; the hidden/visible state is restored across UI launches;
 - initial UI state loading through the same config chain as the CLI, with persisted UI settings converted to CLI-equivalent arguments and an inspection-only LLM validation mode so missing LLM secrets can be reported in the UI without blocking configuration display;
-- non-secret UI settings persistence at `~/.tool-agents/untype/ui-state.json` with mode `0600` under a `0700` config directory;
+- non-secret UI settings persistence at `~/.tool-agents/untype/ui-state.json` with mode `0600` under a `0700` config directory, including main window width/height, settings-pane visibility, and selected monitor tab while excluding transient credential status, permission status, transcript text, event-log content, and secrets;
 - credential inspection that reports API-key name, configured/missing status, source tier, and expiry value without exposing API-key values;
 - transient macOS permission inspection that reports Microphone authorization and Accessibility trust in the UI without persisting those host-specific status values;
 - a UI-specific runtime factory path that routes transcript events through a typed `UITranscriptEvent` renderer and protocol/diagnostic text into the UI;
@@ -159,8 +171,8 @@ The current UI phase includes:
 - key-repeat guarded push-to-talk handling: the hotkey monitor ignores autorepeated key-down events for the configured push-to-talk key in both Quartz and AppKit paths, preventing a held key from repeatedly restarting sessions if release handling is delayed or fallback state changes. Normal `keyUp`/`flagsChanged` release handling remains the source of truth, with the explicit press-to-toggle fallback retained when the event tap cannot start.
 - release-time diagnostics for the push-to-talk output pipeline: UI-owned sessions now show when release requests provider final text, when submitted text enters protocol processing, when processing completes, and when no provider final text arrives before the finalization timeout. Operator attempts and failures for refine, translate, clipboard, and focused input are privacy-safe UI diagnostics, and release/operator warnings are surfaced in the transcript timeline so the monitor is not silent when output cannot be produced.
 - finalization fallback for realtime providers that keep returning partial hypotheses after release: the runtime remembers the latest visible partial transcript in memory for the active session and, only after provider finalization times out without any final text, submits that latest partial through the normal protocol path with an explicit warning. After the release submission commits, late provider partial callbacks are suppressed for that ending provider session so stale partial lines do not appear around the processed output.
-- a tabbed monitoring area that separates the transcript timeline from the event log so each monitor view can use the full available vertical space while preserving the existing transcript controls and event auto-scroll behavior.
-- a bottom-center non-activating `NSPanel` overlay at status-bar window level that shows compact recording/processed text while push-to-talk is active, displays compact `R`/`T`/`C`/`I` operator indicators, positions on the screen containing the pointer, and clears its text when hidden.
+- a tabbed monitoring area that separates the transcript timeline from the event log so each monitor view can use the full available vertical space while preserving the existing transcript controls and event auto-scroll behavior. The selected `Transcript` or `Events` tab is restored across UI launches.
+- a bottom-center non-activating `NSPanel` overlay at status-bar window level that shows compact recording/processed text while push-to-talk is active, keeps a stable configured width, wraps transcript text when it exceeds the available overlay text width, increases height upward from a stored bottom-left anchor only when additional wrapped lines need space, displays compact `R`/`T`/`C`/`I` operator indicators in a bottom-left row whose bottom edge sits 5 px above the overlay bottom, displays the phase/recording indicator on the same bottom row with a 20 px right-side inset, positions on the screen containing the pointer when first shown, and clears its text and anchor when hidden.
 
 The UI uses `ConfigResolver(requireProtocolOutputForHybrid: false)` only for UI-owned configuration display and sessions so hybrid protocol events can be rendered in the window without requiring a JSONL file path. CLI behavior is unchanged: `--interaction-mode hybrid` still requires `--protocol-output`. Runtime sessions still use strict provider validation; the inspection-only LLM validation path is limited to initial UI settings loading so it does not provide fallback credentials or silently run with missing secrets.
 

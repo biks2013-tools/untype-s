@@ -62,6 +62,7 @@ Expected result:
 - During warm push-to-talk, the Events tab should show `audio.input: muted by push-to-talk <n>%; ... provider receives silence`; this is expected until the hotkey or fallback button opens the gate.
 - The event log records a privacy-safe push-to-talk source such as `quartz-event-tap`, `local-monitor`, `global-monitor`, or `ui-button`; if only `ui-button` works, macOS is not delivering the keyboard hook to the launching app.
 - A bottom-center non-activating overlay appears while recording, shows live/committed text, does not take focus, and clears/hides after release.
+- Long overlay text wraps within the overlay width. The overlay should not move while the text still fits the current height; when a new wrapped line needs space, it grows upward from the same bottom-left anchor captured when the overlay first appeared.
 - Holding the configured hotkey must not produce repeated `push-to-talk pressed`, `ui-hotkey-release`, or `no text was submitted` cycles while the key remains down; repeated cycles indicate key-repeat is being treated as fresh push-to-talk presses.
 - Click `Hide Settings` and `Show Settings` to confirm the right settings sidebar collapses and expands without stopping the active session.
 - The overlay shows compact `R`, `T`, `C`, and `I` operator indicators and updates them when the matching operator hotkeys are pressed during recording.

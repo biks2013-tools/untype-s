@@ -24,6 +24,10 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var accessibilityStatus: String
     public var hotkeyEnabled: Bool
     public var hotkey: String
+    public var windowWidth: Double
+    public var windowHeight: Double
+    public var settingsExpanded: Bool
+    public var selectedMonitorTab: String
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
@@ -48,7 +52,11 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         microphoneStatus: "unknown",
         accessibilityStatus: "unknown",
         hotkeyEnabled: false,
-        hotkey: "Control+`"
+        hotkey: "Control+`",
+        windowWidth: 1180,
+        windowHeight: 760,
+        settingsExpanded: true,
+        selectedMonitorTab: "transcript"
     )
 
     public func normalized() throws -> UntypeUISettings {
@@ -60,8 +68,15 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         let model = try normalizeNonEmpty(model, field: "model")
         let llmModel = try normalizeNonEmpty(llmModel, field: "llmModel")
         let hotkey = try normalizeHotkey(hotkey)
+        let selectedMonitorTab = try normalizeMonitorTab(selectedMonitorTab)
         guard (8_000...48_000).contains(sampleRate) else {
             throw UntypeError.invalidConfiguration("sampleRate must be an integer between 8000 and 48000. Got: \(sampleRate).")
+        }
+        guard windowWidth >= 860 else {
+            throw UntypeError.invalidConfiguration("windowWidth must be at least 860. Got: \(windowWidth).")
+        }
+        guard windowHeight >= 620 else {
+            throw UntypeError.invalidConfiguration("windowHeight must be at least 620. Got: \(windowHeight).")
         }
 
         var next = self
@@ -74,6 +89,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         next.llmProvider = llmProvider
         next.llmModel = llmModel
         next.hotkey = hotkey
+        next.selectedMonitorTab = selectedMonitorTab
         next.apiKeyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
         next.apiKeyStatus = nonEmptyStatus(apiKeyStatus, fallback: "unknown")
         next.expiryStatus = nonEmptyStatus(expiryStatus, fallback: "not set")
@@ -133,6 +149,18 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let hotkey = patch.hotkey {
             next.hotkey = hotkey
+        }
+        if let windowWidth = patch.windowWidth {
+            next.windowWidth = windowWidth
+        }
+        if let windowHeight = patch.windowHeight {
+            next.windowHeight = windowHeight
+        }
+        if let settingsExpanded = patch.settingsExpanded {
+            next.settingsExpanded = settingsExpanded
+        }
+        if let selectedMonitorTab = patch.selectedMonitorTab {
+            next.selectedMonitorTab = selectedMonitorTab
         }
         return try next.normalized()
     }
@@ -211,6 +239,10 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var llmModel: String?
     public var hotkeyEnabled: Bool?
     public var hotkey: String?
+    public var windowWidth: Double?
+    public var windowHeight: Double?
+    public var settingsExpanded: Bool?
+    public var selectedMonitorTab: String?
 
     public init(
         provider: String? = nil,
@@ -228,7 +260,11 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         llmProvider: String? = nil,
         llmModel: String? = nil,
         hotkeyEnabled: Bool? = nil,
-        hotkey: String? = nil
+        hotkey: String? = nil,
+        windowWidth: Double? = nil,
+        windowHeight: Double? = nil,
+        settingsExpanded: Bool? = nil,
+        selectedMonitorTab: String? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -246,6 +282,10 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.llmModel = llmModel
         self.hotkeyEnabled = hotkeyEnabled
         self.hotkey = hotkey
+        self.windowWidth = windowWidth
+        self.windowHeight = windowHeight
+        self.settingsExpanded = settingsExpanded
+        self.selectedMonitorTab = selectedMonitorTab
     }
 }
 
@@ -460,7 +500,11 @@ public enum UntypeUISettingsStore {
             microphoneStatus: current.microphoneStatus,
             accessibilityStatus: current.accessibilityStatus,
             hotkeyEnabled: current.hotkeyEnabled,
-            hotkey: current.hotkey
+            hotkey: current.hotkey,
+            windowWidth: current.windowWidth,
+            windowHeight: current.windowHeight,
+            settingsExpanded: current.settingsExpanded,
+            selectedMonitorTab: current.selectedMonitorTab
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -507,6 +551,33 @@ private struct PersistedUISettings: Codable {
     let llmModel: String
     let hotkeyEnabled: Bool
     let hotkey: String
+    let windowWidth: Double?
+    let windowHeight: Double?
+    let settingsExpanded: Bool?
+    let selectedMonitorTab: String?
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case model
+        case languages
+        case sampleRate
+        case endpointDetection
+        case protocolMode
+        case refine
+        case translate
+        case clipboard
+        case focusedInput
+        case translationPolicy
+        case llmEnabled
+        case llmProvider
+        case llmModel
+        case hotkeyEnabled
+        case hotkey
+        case windowWidth
+        case windowHeight
+        case settingsExpanded
+        case selectedMonitorTab
+    }
 
     init(settings: UntypeUISettings) {
         self.provider = settings.provider
@@ -525,9 +596,14 @@ private struct PersistedUISettings: Codable {
         self.llmModel = settings.llmModel
         self.hotkeyEnabled = settings.hotkeyEnabled
         self.hotkey = settings.hotkey
+        self.windowWidth = settings.windowWidth
+        self.windowHeight = settings.windowHeight
+        self.settingsExpanded = settings.settingsExpanded
+        self.selectedMonitorTab = settings.selectedMonitorTab
     }
 
     func toRuntimeSettings(path: String) throws -> UntypeUISettings {
+        let defaults = UntypeUISettings.default
         do {
             return try UntypeUISettings.default.merged(UntypeUISettingsPatch(
                 provider: provider,
@@ -545,7 +621,11 @@ private struct PersistedUISettings: Codable {
                 llmProvider: llmProvider,
                 llmModel: llmModel,
                 hotkeyEnabled: hotkeyEnabled,
-                hotkey: hotkey
+                hotkey: hotkey,
+                windowWidth: windowWidth ?? defaults.windowWidth,
+                windowHeight: windowHeight ?? defaults.windowHeight,
+                settingsExpanded: settingsExpanded ?? defaults.settingsExpanded,
+                selectedMonitorTab: selectedMonitorTab ?? defaults.selectedMonitorTab
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")
@@ -704,6 +784,14 @@ private func normalizeHotkeyKey(_ value: String) throws -> String {
         return trimmed.capitalized
     }
     throw UntypeError.invalidConfiguration("Unsupported hotkey key: \(value).")
+}
+
+private func normalizeMonitorTab(_ value: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if normalized == "transcript" || normalized == "events" {
+        return normalized
+    }
+    throw UntypeError.invalidConfiguration("selectedMonitorTab must be transcript or events. Got: \(value).")
 }
 
 private func nonEmptyStatus(_ value: String, fallback: String) -> String {

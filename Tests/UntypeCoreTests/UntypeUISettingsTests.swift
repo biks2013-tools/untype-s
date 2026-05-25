@@ -30,7 +30,11 @@ import Testing
         model: "stt-rt-v4",
         languages: ["el", "en"],
         hotkeyEnabled: true,
-        hotkey: "Control+`"
+        hotkey: "Control+`",
+        windowWidth: 1320,
+        windowHeight: 840,
+        settingsExpanded: false,
+        selectedMonitorTab: "events"
     ))
     settings.apiKeyName = "SONIOX_API_KEY"
     settings.apiKeyStatus = "configured"
@@ -46,6 +50,14 @@ import Testing
 
     #expect(loaded.provider == "soniox")
     #expect(loaded.hotkeyEnabled)
+    #expect(loaded.windowWidth == 1320)
+    #expect(loaded.windowHeight == 840)
+    #expect(!loaded.settingsExpanded)
+    #expect(loaded.selectedMonitorTab == "events")
+    #expect(raw.contains("\"windowWidth\""))
+    #expect(raw.contains("\"windowHeight\""))
+    #expect(raw.contains("\"settingsExpanded\""))
+    #expect(raw.contains("\"selectedMonitorTab\""))
     #expect(!raw.contains("configured"))
     #expect(!raw.contains("shell env"))
     #expect(!raw.contains("2026-06-01"))
@@ -53,6 +65,78 @@ import Testing
     #expect(!raw.contains("authorized"))
     #expect(!raw.contains("trusted"))
     #expect(raw.contains("\"push_to_talk\""))
+}
+
+@Test func uiSettingsStoreRejectsInvalidPersistedMonitorTab() throws {
+    let temp = UITemporaryDirectory()
+    let config = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+    try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+    try """
+    {
+      "version" : 1,
+      "saved_at" : "2026-05-25T10:00:00Z",
+      "settings" : {
+        "clipboard" : false,
+        "endpointDetection" : true,
+        "focusedInput" : false,
+        "hotkey" : "Control+`",
+        "hotkeyEnabled" : false,
+        "languages" : [
+          "el",
+          "en"
+        ],
+        "llmEnabled" : true,
+        "llmModel" : "gpt-5.4",
+        "llmProvider" : "azure-openai",
+        "model" : "stt-rt-v4",
+        "protocolMode" : "dictation",
+        "provider" : "soniox",
+        "refine" : false,
+        "sampleRate" : 16000,
+        "selectedMonitorTab" : "diagnostics",
+        "settingsExpanded" : true,
+        "translate" : false,
+        "translationPolicy" : "opposite",
+        "windowHeight" : 760,
+        "windowWidth" : 1180
+      }
+    }
+    """.write(
+        to: UntypeUISettingsStore.path(home: temp.url),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    #expect(throws: UntypeError.self) {
+        _ = try UntypeUISettingsStore.load(home: temp.url)
+    }
+}
+
+@Test func uiSettingsLoadForUIPreservesPersistedWindowAndMonitorState() throws {
+    let temp = UITemporaryDirectory()
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        windowWidth: 1440,
+        windowHeight: 900,
+        settingsExpanded: false,
+        selectedMonitorTab: "events"
+    ))
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+
+    let result = UntypeUISettingsStore.loadForUI(
+        cwd: temp.url,
+        home: temp.url,
+        shell: ["SONIOX_API_KEY": "secret-value"],
+        permissionStatus: {
+            UntypePermissionStatus(microphone: "authorized", accessibility: "trusted")
+        }
+    )
+
+    #expect(result.settings.windowWidth == 1440)
+    #expect(result.settings.windowHeight == 900)
+    #expect(!result.settings.settingsExpanded)
+    #expect(result.settings.selectedMonitorTab == "events")
 }
 
 @Test func uiSettingsCredentialRefreshReportsSourceWithoutSecretValue() throws {

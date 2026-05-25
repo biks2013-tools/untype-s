@@ -49,7 +49,7 @@ private func dispatchToUI(_ work: @escaping @MainActor @Sendable () -> Void) {
 }
 
 @MainActor
-private final class UntypeAppDelegate: NSObject, NSApplicationDelegate {
+private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var exitCode: Int32 = ExitCode.success.rawValue
     private var model: UntypeUIModel?
     private var window: NSWindow?
@@ -70,7 +70,12 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate {
 
         let content = UntypeRootView(model: model)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: model.settings.windowWidth,
+                height: model.settings.windowHeight
+            ),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -78,9 +83,20 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate {
         window.title = "untype"
         window.minSize = NSSize(width: 860, height: 620)
         window.contentView = NSHostingView(rootView: content)
+        window.delegate = self
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
+        }
+        model?.updateLayout(
+            windowWidth: Double(window.contentLayoutRect.width),
+            windowHeight: Double(window.contentLayoutRect.height)
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -209,6 +225,25 @@ private final class UntypeUIModel: ObservableObject {
             reconcileHotkeyWarmSession(restartExistingHotkeySession: !isProtocolSwitchOnlyChange(previous: previous, next: settings))
             overlay?.refreshOperators()
             appendEvent("config.saved: settings updated")
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    func updateLayout(
+        windowWidth: Double? = nil,
+        windowHeight: Double? = nil,
+        settingsExpanded: Bool? = nil,
+        selectedMonitorTab: String? = nil
+    ) {
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(
+                windowWidth: windowWidth,
+                windowHeight: windowHeight,
+                settingsExpanded: settingsExpanded,
+                selectedMonitorTab: selectedMonitorTab
+            ))
+            try UntypeUISettingsStore.save(settings)
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
         }
@@ -773,19 +808,18 @@ private final class WeakUntypeUIModelBox: @unchecked Sendable {
 @MainActor
 private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
-    @State private var settingsExpanded = true
 
     var body: some View {
         HStack(spacing: 0) {
             mainPane
-            if settingsExpanded {
+            if model.settings.settingsExpanded {
                 Divider()
                 settingsPane
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .frame(minWidth: 860, minHeight: 620)
-        .animation(.easeInOut(duration: 0.16), value: settingsExpanded)
+        .animation(.easeInOut(duration: 0.16), value: model.settings.settingsExpanded)
     }
 
     private var mainPane: some View {
@@ -806,8 +840,8 @@ private struct UntypeRootView: View {
                 Button("Refresh") {
                     model.refreshCredentials()
                 }
-                Button(settingsExpanded ? "Hide Settings" : "Show Settings") {
-                    settingsExpanded.toggle()
+                Button(model.settings.settingsExpanded ? "Hide Settings" : "Show Settings") {
+                    model.updateLayout(settingsExpanded: !model.settings.settingsExpanded)
                 }
             }
 
@@ -818,17 +852,19 @@ private struct UntypeRootView: View {
     }
 
     private var monitorPane: some View {
-        TabView {
+        TabView(selection: monitorTabBinding) {
             transcriptPane
                 .padding(.top, 8)
                 .tabItem {
                     Text("Transcript")
                 }
+                .tag("transcript")
             eventsPane
                 .padding(.top, 8)
                 .tabItem {
                     Text("Events")
                 }
+                .tag("events")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1221,6 +1257,13 @@ private struct UntypeRootView: View {
         )
     }
 
+    private var monitorTabBinding: Binding<String> {
+        Binding(
+            get: { model.settings.selectedMonitorTab },
+            set: { model.updateLayout(selectedMonitorTab: $0) }
+        )
+    }
+
     private func binding<T>(_ keyPath: WritableKeyPath<UntypeUISettings, T>) -> Binding<T> {
         Binding(
             get: { model.settings[keyPath: keyPath] },
@@ -1271,6 +1314,8 @@ private final class UntypeOverlayController: ObservableObject {
     private weak var model: UntypeUIModel?
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
+    private let layout = UntypeOverlayLayout()
+    private var bottomLeftAnchor: CGPoint?
     @Published private var phase = "idle"
     @Published private var text = ""
     @Published private var operatorVersion = 0
@@ -1283,15 +1328,19 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         self.phase = phase
         self.text = text
+        let wasVisible = panel?.isVisible == true
         if panel == nil {
             createPanel()
         }
-        positionPanel()
-        panel?.orderFrontRegardless()
+        applyPanelFrameIfNeeded()
+        if !wasVisible {
+            panel?.orderFrontRegardless()
+        }
     }
 
     func refreshOperators() {
         operatorVersion += 1
+        applyPanelFrameIfNeeded()
     }
 
     func hideAfterDelay() {
@@ -1308,6 +1357,7 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         text = ""
         phase = "idle"
+        bottomLeftAnchor = nil
         panel?.orderOut(nil)
     }
 
@@ -1315,11 +1365,12 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         panel?.close()
         panel = nil
+        bottomLeftAnchor = nil
     }
 
     private func createPanel() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 96),
+            contentRect: NSRect(x: 0, y: 0, width: layout.width, height: layout.height),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -1333,25 +1384,53 @@ private final class UntypeOverlayController: ObservableObject {
         panel.isReleasedWhenClosed = false
         panel.hasShadow = true
         panel.animationBehavior = .utilityWindow
-        panel.contentView = NSHostingView(rootView: UntypeOverlayView(controller: self))
+        let hostingView = NSHostingView(rootView: UntypeOverlayView(controller: self))
+        hostingView.frame = NSRect(x: 0, y: 0, width: layout.width, height: layout.height)
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.wantsLayer = true
+        hostingView.layer?.masksToBounds = true
+        panel.contentView = hostingView
         self.panel = panel
     }
 
-    private func positionPanel() {
+    private func applyPanelFrameIfNeeded() {
         guard let panel else {
             return
         }
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
+        let screen = overlayScreen()
         guard let screen else {
             return
         }
-        let frame = screen.visibleFrame
-        let size = panel.frame.size
-        panel.setFrameOrigin(NSPoint(
-            x: frame.midX - size.width / 2,
-            y: frame.minY + 46
-        ))
+        if panel.isVisible {
+            let currentFrame = panel.frame
+            let anchor = bottomLeftAnchor ?? CGPoint(x: currentFrame.minX, y: currentFrame.minY)
+            bottomLeftAnchor = anchor
+            let targetFrame = layout.anchoredPanelFrame(
+                bottomLeft: anchor,
+                text: text,
+                in: screen.visibleFrame,
+                currentHeight: currentFrame.height
+            )
+            if !framesMatch(currentFrame, targetFrame) {
+                panel.setFrame(targetFrame, display: true)
+            }
+            return
+        }
+        let frame = layout.initialPanelFrame(in: screen.visibleFrame, text: text)
+        bottomLeftAnchor = CGPoint(x: frame.minX, y: frame.minY)
+        panel.setFrame(frame, display: true)
+    }
+
+    private func framesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        abs(lhs.minX - rhs.minX) < 0.5
+            && abs(lhs.minY - rhs.minY) < 0.5
+            && abs(lhs.width - rhs.width) < 0.5
+            && abs(lhs.height - rhs.height) < 0.5
+    }
+
+    private func overlayScreen() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
     }
 
     fileprivate var overlayPhase: String {
@@ -1360,6 +1439,10 @@ private final class UntypeOverlayController: ObservableObject {
 
     fileprivate var overlayText: String {
         text
+    }
+
+    fileprivate var overlaySize: CGSize {
+        panel?.frame.size ?? CGSize(width: layout.width, height: layout.height)
     }
 
     fileprivate var operatorSnapshot: [(label: String, enabled: Bool)] {
@@ -1380,20 +1463,15 @@ private struct UntypeOverlayView: View {
     @ObservedObject var controller: UntypeOverlayController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Circle()
-                    .fill(controller.overlayPhase == "recording" ? Color.red : Color.green)
-                    .frame(width: 9, height: 9)
-                Text(controller.overlayPhase)
-                    .font(.caption.weight(.semibold))
-                    .textCase(.uppercase)
-                Spacer()
-            }
+        ZStack(alignment: .topLeading) {
             Text(controller.overlayText.isEmpty ? " " : controller.overlayText)
                 .font(.system(.caption, design: .monospaced))
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 16)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 31)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             HStack(spacing: 6) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in
                     Text(item.label)
@@ -1403,12 +1481,27 @@ private struct UntypeOverlayView: View {
                         .background(item.enabled ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
-                Spacer()
             }
+            .padding(.leading, 16)
+            .padding(.bottom, 5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(controller.overlayPhase == "recording" ? Color.red : Color.green)
+                    .frame(width: 9, height: 9)
+                Text(controller.overlayPhase)
+                    .font(.caption.weight(.semibold))
+                    .textCase(.uppercase)
+            }
+            .frame(height: 18)
+            .padding(.trailing, 20)
+            .padding(.bottom, 5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
-        .padding(16)
+        .frame(width: controller.overlaySize.width, height: controller.overlaySize.height, alignment: .topLeading)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipped()
         .shadow(radius: 18)
     }
 }

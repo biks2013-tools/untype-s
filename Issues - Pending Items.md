@@ -19,6 +19,32 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-25 - Native UI window state persistence added
+Resolved the UI preference gap where `untype ui` always opened with the default window size, settings pane visibility, and selected monitor tab. The existing non-secret `ui-state.json` persistence now stores main window width/height, settings-pane hidden/visible state, and selected monitor tab. AppKit restores the saved content size on launch and records resize changes through the window delegate; SwiftUI binds settings visibility and monitor tab selection directly to persisted model state. Tests verify the new layout fields are saved/restored while credential status, permission status, secrets, transcript text, and event-log content remain excluded. `swift test` passes.
+
+### 2026-05-25 - Push-to-talk overlay bottom indicators aligned
+Resolved the overlay placement adjustment for protocol and recording indicators. The `R`/`T`/`C`/`I` operator indicators now render in a bottom-left row with their bottom side 5 px above the overlay bottom, and the phase/recording indicator renders at the bottom right on the same vertical row. The transcript region now reserves the bottom indicator row so wrapped transcription text remains above it. `swift test` passes.
+
+Follow-up adjustment: the phase/recording indicator was shifted 20 px left from the overlay right edge while remaining on the same bottom row as the operator indicators. `swift test` passes.
+
+### 2026-05-25 - Push-to-talk overlay wrapping restored
+Resolved an overlay regression where the previous fixed-size correction prevented long transcribed text from wrapping and instead constrained the visible transcript to a single tail-truncated line. The overlay layout again measures transcript text against the available overlay text width, the SwiftUI transcript label renders multiline text, and visible panel growth uses the stored bottom-left anchor so additional wrapped lines add space upward without moving the bottom edge. Added regression coverage for wrapped growth, anchored upward expansion, and preserving an expanded visible height when later text is shorter. `swift test` passes.
+
+### 2026-05-25 - Push-to-talk overlay text-driven resizing removed
+Resolved the follow-up request to completely remove overlay window resizing based on transcribed text length or growth. The overlay layout no longer measures transcript text height, no longer exposes variable-height frame updates, and the visible overlay update path now leaves the `NSPanel` frame unchanged while transcription text changes. The overlay still opens at its fixed configured size in its bottom-center position and retains the phase label plus operator indicators. `swift test` passes.
+
+Follow-up correction: the fixed-size panel was no longer explicitly reframed, but the hosted SwiftUI overlay content could still grow from transcript text and make the overlay appear to move while transcribing. The hosting view and SwiftUI body are now constrained to the fixed panel size and clipped, transcript text is single-line tail-truncated inside the fixed panel, and repeated visible updates no longer re-order the window. `swift test` passes.
+
+### 2026-05-25 - Push-to-talk overlay downward sliding corrected
+Resolved a corrective follow-up where the overlay could appear to slide downward during live transcription updates. The visible update path now applies one stored-anchor frame policy: updates that still fit the current height leave the panel frame unchanged, wrapped text growth reuses the bottom-left anchor captured when the overlay first appeared, and any detected AppKit frame drift is restored to that stored anchor instead of becoming the next position. This preserves the requested behavior: long transcript text wraps inside the stable-width overlay and additional wrapped lines expand the panel upward. `swift test` passes.
+
+### 2026-05-25 - Push-to-talk overlay wraps and grows upward
+Resolved an overlay readability gap where long live transcript text could be constrained by a fixed-height panel and fixed line limit. The overlay now wraps long text within a stable panel width, removes the fixed three-line cap, computes the required panel height from the text layout, and anchors the bottom edge so additional wrapped lines grow upward while phase and operator indicators remain visible. `swift test` passes.
+
+Follow-up correction: the overlay frame is no longer reapplied on every text update. If updated speech still fits within the current wrapped line count, the panel is left in place; when the measured height changes, the resize preserves the current bottom-left origin so the new space is added upward rather than shifting the window downward.
+
+Second follow-up correction: the live resize path now stores the overlay's bottom-left anchor when the panel first appears and reuses that same anchor for all visible growth. The panel only increases height while visible; it no longer shrinks or derives its next anchor from a potentially drifted AppKit frame during speech updates.
+
 ### 2026-05-25 - Native UI transcript and event export added
 Resolved a UI workflow gap where transcript timeline content and event-log diagnostics could be selected manually but not extracted through explicit whole-content actions. The Transcript and Events tabs now expose `Copy` and `Save` controls when content exists. Transcript export includes committed turns, labels, statuses, and live partial text; event export includes the retained bounded event log in chronological order. Copy writes to the macOS pasteboard, Save writes UTF-8 text to a user-selected file, and both actions leave the active session state unchanged. `swift test` passes.
 
