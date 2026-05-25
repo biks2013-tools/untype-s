@@ -3,6 +3,7 @@ import ApplicationServices
 import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 public enum NativeUntypeUILauncher {
     public static func launchBlockingOnCurrentThread() throws -> Int32 {
@@ -180,7 +181,10 @@ private final class UntypeUIModel: ObservableObject {
     private var warmSessionRecycleTask: Task<Void, Never>?
     private var restartWarmSessionAfterStop = false
     private var warmSessionRecycleInFlight = false
+    private var lastAudioEventCategory: String?
+    private var lastAudioEventLoggedAt = Date.distantPast
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
+    private let audioEventInterval: TimeInterval = 2
 
     init() {
         let result = UntypeUISettingsStore.loadForUI()
@@ -307,6 +311,30 @@ private final class UntypeUIModel: ObservableObject {
         overlay?.hideAfterDelay()
     }
 
+    var canExportTranscript: Bool {
+        transcriptExportDocument != nil
+    }
+
+    var canExportEvents: Bool {
+        eventsExportDocument != nil
+    }
+
+    func copyTranscriptExport() {
+        copyExport(transcriptExportDocument)
+    }
+
+    func saveTranscriptExport() {
+        saveExport(transcriptExportDocument)
+    }
+
+    func copyEventsExport() {
+        copyExport(eventsExportDocument)
+    }
+
+    func saveEventsExport() {
+        saveExport(eventsExportDocument)
+    }
+
     func stopFromApplicationQuit() {
         clearWarmSessionRecycleTimer()
         if let runtime {
@@ -314,6 +342,55 @@ private final class UntypeUIModel: ObservableObject {
                 await runtime.stop(reason: "ui-quit", submitPending: false)
             }
         }
+    }
+
+    private var transcriptExportDocument: UntypeUIExportDocument? {
+        UntypeUIExportDocument.transcript(from: timeline)
+    }
+
+    private var eventsExportDocument: UntypeUIExportDocument? {
+        UntypeUIExportDocument.events(from: events)
+    }
+
+    private func copyExport(_ document: UntypeUIExportDocument?) {
+        let router = UntypeUIExportActionRouter(
+            copyText: MacOSClipboardWriter.writeToSystemPasteboard,
+            saveDocument: { _ in }
+        )
+        do {
+            let copied = try router.copy(document)
+            appendEvent("export.copied: \(copied.kind.displayName)")
+        } catch UntypeUIExportActionError.emptyContent {
+            return
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    private func saveExport(_ document: UntypeUIExportDocument?) {
+        guard let document, document.hasContent else {
+            return
+        }
+        do {
+            if try writeExportDocumentWithSavePanel(document) {
+                appendEvent("export.saved: \(document.kind.displayName)")
+            }
+        } catch {
+            appendEvent("diagnostic.warning: Could not save \(document.kind.displayName): \(error.localizedDescription)")
+        }
+    }
+
+    private func writeExportDocumentWithSavePanel(_ document: UntypeUIExportDocument) throws -> Bool {
+        let panel = NSSavePanel()
+        panel.title = "Save \(document.kind.displayName.capitalized)"
+        panel.nameFieldStringValue = document.suggestedFileName
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.plainText]
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return false
+        }
+        try document.text.write(to: url, atomically: true, encoding: .utf8)
+        return true
     }
 
     private func startSession(owner: UntypeUISessionOwner, audioGate: RuntimeAudioGate? = nil) {
@@ -416,6 +493,10 @@ private final class UntypeUIModel: ObservableObject {
                 if let failure {
                     self.appendEvent("session.error: \(uiDiagnosticLine(failure))")
                     self.timeline.commitError(uiDiagnosticLine(failure))
+                    if self.restartWarmSessionAfterStop {
+                        self.appendEvent("diagnostic.warning: [untype] warm push-to-talk restart skipped after runtime failure")
+                    }
+                    self.restartWarmSessionAfterStop = false
                 }
                 self.runtime = nil
                 self.sessionOwner = nil
@@ -601,7 +682,9 @@ private final class UntypeUIModel: ObservableObject {
                 timeline.commitError(message)
             }
         case .audioActivity(let snapshot):
-            audioStatus = audioStatusLabel(snapshot)
+            let label = audioStatusLabel(snapshot)
+            audioStatus = label
+            appendAudioActivityEvent(snapshot, label: label)
         }
     }
 
@@ -643,6 +726,28 @@ private final class UntypeUIModel: ObservableObject {
     private func audioStatusLabel(_ snapshot: AudioActivitySnapshot) -> String {
         UntypeUIAudioStatusFormatter.label(for: snapshot)
     }
+
+    private func appendAudioActivityEvent(_ snapshot: AudioActivitySnapshot, label: String) {
+        let category = audioActivityCategory(snapshot)
+        let now = Date()
+        guard category != lastAudioEventCategory || now.timeIntervalSince(lastAudioEventLoggedAt) >= audioEventInterval else {
+            return
+        }
+        lastAudioEventCategory = category
+        lastAudioEventLoggedAt = now
+        let route = snapshot.mutedByGate ? "provider receives silence" : "provider receives microphone audio"
+        appendEvent("audio.input: \(label); mic bytes \(snapshot.byteCount); \(route)")
+    }
+
+    private func audioActivityCategory(_ snapshot: AudioActivitySnapshot) -> String {
+        if snapshot.mutedByGate {
+            return "muted"
+        }
+        if snapshot.peak <= 0.01 {
+            return "silent"
+        }
+        return "active"
+    }
 }
 
 private final class UIEventTextOutput: TextOutput {
@@ -668,14 +773,19 @@ private final class WeakUntypeUIModelBox: @unchecked Sendable {
 @MainActor
 private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
+    @State private var settingsExpanded = true
 
     var body: some View {
         HStack(spacing: 0) {
             mainPane
-            Divider()
-            settingsPane
+            if settingsExpanded {
+                Divider()
+                settingsPane
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
         .frame(minWidth: 860, minHeight: 620)
+        .animation(.easeInOut(duration: 0.16), value: settingsExpanded)
     }
 
     private var mainPane: some View {
@@ -695,6 +805,9 @@ private struct UntypeRootView: View {
                 .keyboardShortcut("r", modifiers: [.command])
                 Button("Refresh") {
                     model.refreshCredentials()
+                }
+                Button(settingsExpanded ? "Hide Settings" : "Show Settings") {
+                    settingsExpanded.toggle()
                 }
             }
 
@@ -731,6 +844,14 @@ private struct UntypeRootView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button("Copy") {
+                    model.copyTranscriptExport()
+                }
+                .disabled(!model.canExportTranscript)
+                Button("Save") {
+                    model.saveTranscriptExport()
+                }
+                .disabled(!model.canExportTranscript)
                 Button("Clear") {
                     model.clearTranscriptTimeline()
                 }
@@ -767,8 +888,24 @@ private struct UntypeRootView: View {
 
     private var eventsPane: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Events")
-                .font(.headline)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Events")
+                        .font(.headline)
+                    Text(model.events.isEmpty ? "No events yet" : "\(model.events.count) retained events")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Copy") {
+                    model.copyEventsExport()
+                }
+                .disabled(!model.canExportEvents)
+                Button("Save") {
+                    model.saveEventsExport()
+                }
+                .disabled(!model.canExportEvents)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
@@ -1182,7 +1319,7 @@ private final class UntypeOverlayController: ObservableObject {
 
     private func createPanel() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 118),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 96),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -1243,7 +1380,7 @@ private struct UntypeOverlayView: View {
     @ObservedObject var controller: UntypeOverlayController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Circle()
                     .fill(controller.overlayPhase == "recording" ? Color.red : Color.green)
@@ -1254,8 +1391,8 @@ private struct UntypeOverlayView: View {
                 Spacer()
             }
             Text(controller.overlayText.isEmpty ? " " : controller.overlayText)
-                .font(.system(size: 20, weight: .medium))
-                .lineLimit(2)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in

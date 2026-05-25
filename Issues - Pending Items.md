@@ -19,6 +19,15 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-25 - Native UI transcript and event export added
+Resolved a UI workflow gap where transcript timeline content and event-log diagnostics could be selected manually but not extracted through explicit whole-content actions. The Transcript and Events tabs now expose `Copy` and `Save` controls when content exists. Transcript export includes committed turns, labels, statuses, and live partial text; event export includes the retained bounded event log in chronological order. Copy writes to the macOS pasteboard, Save writes UTF-8 text to a user-selected file, and both actions leave the active session state unchanged. `swift test` passes.
+
+### 2026-05-25 - Warm push-to-talk restart skipped after provider failure
+Resolved a UI failure loop where a hotkey-owned push-to-talk session could immediately restart after a transcriber/provider error and hit the same provider failure again. The UI now records the runtime failure, adds a warning that warm restart was skipped, clears the pending warm restart flag, and requires an intentional retry after the provider/account issue is fixed. This specifically prevents repeated loops for fatal provider responses such as Soniox `organization_balance_exhausted`.
+
+### 2026-05-25 - Native UI audio diagnostics and compact monitor controls added
+Resolved a UI diagnostics gap where listening could appear active without making it clear whether microphone audio was arriving or whether the STT provider was receiving silence because the push-to-talk gate was closed. The native UI now logs throttled `audio.input` events from existing runtime audio activity snapshots, including raw microphone byte counts, active/silent/muted status, and whether the provider receives microphone audio or silence. Added a collapsible/expandable right settings sidebar to give the monitor more space and reduced push-to-talk overlay transcript text to compact event-style typography. `swift test` passes.
+
 ### 2026-05-24 - Push-to-talk overlay flashing loop fixed
 Resolved a follow-up issue where the push-to-talk overlay could flash repeatedly while holding the physical hotkey. The attempted physical key-state reconciliation could falsely synthesize release while the key was still held; macOS key-repeat then delivered additional key-down events that restarted push-to-talk, causing repeated early `ui-hotkey-release` cycles and `no text was submitted` warnings. The reconciliation poll was removed, and both Quartz and AppKit hotkey paths now ignore autorepeated key-down events for the configured push-to-talk key. Normal `keyUp`/`flagsChanged` release handling and the explicit press-to-toggle fallback remain.
 

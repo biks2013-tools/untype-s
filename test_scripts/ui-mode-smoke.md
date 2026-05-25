@@ -36,10 +36,12 @@ Expected result:
 - Session state transitions through `starting`, `listening`, `stopping`, and `idle`.
 - The event log shows `starting microphone capture`, `microphone capture started`, `connecting <provider> realtime stream`, and then `<provider> realtime stream connected` when the STT WebSocket is ready.
 - The header and System panel show `Audio: waiting` before microphone chunks arrive, then `Audio: silent <n>%` or `Audio: active <n>%` while the provider may still be connecting. If this stays `waiting`, the UI runtime has not received microphone PCM.
+- The Events tab shows throttled `audio.input` lines while audio chunks arrive. `provider receives microphone audio` means the STT provider is receiving real mic PCM; `provider receives silence` means the microphone is active but the push-to-talk gate is intentionally closed.
 - Partial text appears as a live partial row, final text becomes a committed dictated-text row, and processed/refined text appears as a follow-up row in the same grouped turn.
 - The `Clear` action removes only the visible transcript timeline and live partial text; it does not stop the active session or change protocol operator state.
 - Session-shaping settings remain locked until the session returns to idle; refine, translate, clipboard, and focused-input switches stay editable and affect the active protocol controller.
 - Typed provider/microphone/configuration failures appear as UI event warnings or errors.
+- If a provider returns a fatal transcriber error, the UI must not repeatedly restart the warm push-to-talk session; it should leave the error visible and require the user to retry after resolving the provider issue.
 - Non-secret protocol settings are still written through the existing protocol state store on graceful stop.
 
 ## Push-To-Talk and Overlay Check
@@ -57,9 +59,11 @@ Expected result:
 - Releasing the hotkey waits for provider final text, submits the current turn, attempts enabled refine/translate/clipboard/focused-input delivery, stops that provider session, then returns to a fresh warm session for the next press.
 - Each new hotkey press starts a fresh content collection turn; stale partial text from the previous press must not remain as the active live partial.
 - During a warm push-to-talk session with the key released, the System panel may show `Audio: muted by push-to-talk <n>%`; this confirms the microphone path is receiving PCM while the audio gate sends silence to the provider.
+- During warm push-to-talk, the Events tab should show `audio.input: muted by push-to-talk <n>%; ... provider receives silence`; this is expected until the hotkey or fallback button opens the gate.
 - The event log records a privacy-safe push-to-talk source such as `quartz-event-tap`, `local-monitor`, `global-monitor`, or `ui-button`; if only `ui-button` works, macOS is not delivering the keyboard hook to the launching app.
 - A bottom-center non-activating overlay appears while recording, shows live/committed text, does not take focus, and clears/hides after release.
 - Holding the configured hotkey must not produce repeated `push-to-talk pressed`, `ui-hotkey-release`, or `no text was submitted` cycles while the key remains down; repeated cycles indicate key-repeat is being treated as fresh push-to-talk presses.
+- Click `Hide Settings` and `Show Settings` to confirm the right settings sidebar collapses and expands without stopping the active session.
 - The overlay shows compact `R`, `T`, `C`, and `I` operator indicators and updates them when the matching operator hotkeys are pressed during recording.
 - If global key release detection is blocked, the UI shows an Accessibility/Input Monitoring warning and pressing the hotkey again stops the fallback recording session.
 

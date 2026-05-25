@@ -51,6 +51,36 @@ public struct UntypeUITimelineState: Equatable, Sendable {
         turns.reduce(0) { $0 + $1.bubbles.count } + (partial == nil ? 0 : 1)
     }
 
+    public func exportPlainText() -> String {
+        var sections: [String] = []
+        for (index, turn) in turns.enumerated() {
+            let exportedBubbles = turn.bubbles.compactMap { bubble -> String? in
+                let text = bubble.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else {
+                    return nil
+                }
+                return "[\(bubble.label) | \(bubble.status)]\n\(text)"
+            }
+            guard !exportedBubbles.isEmpty else {
+                continue
+            }
+            let turnState = turn.sealed ? "closed" : "open"
+            let heading = "Turn \(index + 1) | \(turn.time) | \(turnState)"
+            sections.append(([heading] + exportedBubbles).joined(separator: "\n"))
+        }
+        if let partial {
+            let text = partial.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                sections.append([
+                    "Live partial | \(partial.time)",
+                    "[\(partial.label) | \(partial.status)]",
+                    text
+                ].joined(separator: "\n"))
+            }
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
     public mutating func updatePartial(_ text: String, status: String = "streaming") {
         if partial != nil {
             partial?.text = text

@@ -14,6 +14,10 @@
   - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-push-to-talk-release-no-output.md`
   - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-push-to-talk-release-no-output.md`
   - `~/aiwork/coding-platform/untype-s/docs/design/plan-002-push-to-talk-release-no-output.md`
+- Transcript/events export copy:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-transcript-events-export-copy.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-transcript-events-export-copy.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-006-transcript-events-export-copy.md`
 - Research:
   - `~/aiwork/coding-platform/untype-s/docs/research/avfoundation-audio-capture.md`
   - `~/aiwork/coding-platform/untype-s/docs/research/soniox-websocket-swift.md`
@@ -133,18 +137,21 @@ The adapter is verified with mocked transport tests. Live ElevenLabs smoke testi
 
 The current UI phase includes:
 - a native monitoring window with credential status, provider/session settings, protocol operator switches, LLM settings, push-to-talk controls, transcript display, and bounded event log;
-- a right-side settings pane built from aligned label/control rows inside material-backed glass sections, keeping status values, pickers, text fields, steppers, toggles, and push-to-talk actions visually consistent;
+- a collapsible right-side settings pane built from aligned label/control rows inside material-backed glass sections, keeping status values, pickers, text fields, steppers, toggles, and push-to-talk actions visually consistent while allowing the monitor area to use the full window width;
 - initial UI state loading through the same config chain as the CLI, with persisted UI settings converted to CLI-equivalent arguments and an inspection-only LLM validation mode so missing LLM secrets can be reported in the UI without blocking configuration display;
 - non-secret UI settings persistence at `~/.tool-agents/untype/ui-state.json` with mode `0600` under a `0700` config directory;
 - credential inspection that reports API-key name, configured/missing status, source tier, and expiry value without exposing API-key values;
 - transient macOS permission inspection that reports Microphone authorization and Accessibility trust in the UI without persisting those host-specific status values;
 - a UI-specific runtime factory path that routes transcript events through a typed `UITranscriptEvent` renderer and protocol/diagnostic text into the UI;
 - microphone audio activity reporting that emits privacy-safe PCM peak/byte-count snapshots from the runtime and displays `Audio: waiting`, `silent`, `active`, or `muted by push-to-talk` in the UI before any STT transcript arrives;
+- throttled UI event-log audio diagnostics that record `audio.input` lines from those snapshots, including whether the provider receives microphone audio or silence because the push-to-talk gate is closed;
 - a clearable grouped transcript timeline that keeps partial text separate from committed turns, groups raw dictated text and processed output in the same turn, and clears only visible UI history without stopping the session or persisting transcript text;
+- explicit transcript and event export controls in the monitoring tabs. Transcript and Events each expose `Copy` and `Save` actions when content exists. Copy writes the current extracted plain text to the macOS pasteboard, while Save opens a user-chosen `NSSavePanel` destination and writes UTF-8 text atomically. Transcript export includes committed turns, bubble labels/statuses, and live partial text; event export preserves the retained event log lines in chronological order. This remains explicit user-triggered persistence only, matching the scope in `docs/reference/refined-request-transcript-events-export-copy.md` and the integration points in `docs/reference/codebase-scan-transcript-events-export-copy.md`;
 - a primary Quartz `CGEvent` tap for system-wide push-to-talk press/release handling and hotkey suppression, with AppKit `NSEvent` monitors retained as the fallback path and visible status text when the tap cannot start;
 - `R`/`T`/`C`/`I` operator toggles while recording, routed through the same runtime operator channel as UI switches;
 - source-compatible active-session editing rules: provider, model, languages, sample rate, endpoint detection, protocol mode, translation policy, LLM, and push-to-talk settings are locked while a manual, warm, or recording session is active, while the four protocol operator switches remain editable and route to the active protocol controller;
 - source-style push-to-talk sessions: enabling push-to-talk starts a hotkey-owned warm runtime with the audio gate closed, pressing the hotkey opens the gate and clears any stale live partial, releasing closes the gate, waits for provider final text, submits the current turn for refine/translate/clipboard/focused-input processing, stops that provider session, then starts a fresh warm runtime for the next press;
+- provider-failure handling for warm push-to-talk sessions: if the provider/transcriber records a runtime failure while a hotkey-owned session is stopping, the UI records the error and skips automatic warm-session restart so fatal provider errors do not loop;
 - startup-safe warm-session stopping: `Stop Warm Session` cancels a hotkey-owned session even while it is still in `starting`, resets the UI to idle when no runtime has been assigned yet, and prevents provider startup from racing back to `listening` after a concurrent stop;
 - a Push to Talk press/release fallback button that uses the same hotkey-owned runtime and overlay path when macOS does not deliver keyboard hook events;
 - UI mode enters AppKit directly on the executable's initial main thread instead of wrapping the blocking `NSApplication.run()` call in `MainActor.run`; UI session startup and callbacks use background tasks plus AppKit main-queue dispatch so the native event loop can advance runtime startup to `listening`;
@@ -153,7 +160,7 @@ The current UI phase includes:
 - release-time diagnostics for the push-to-talk output pipeline: UI-owned sessions now show when release requests provider final text, when submitted text enters protocol processing, when processing completes, and when no provider final text arrives before the finalization timeout. Operator attempts and failures for refine, translate, clipboard, and focused input are privacy-safe UI diagnostics, and release/operator warnings are surfaced in the transcript timeline so the monitor is not silent when output cannot be produced.
 - finalization fallback for realtime providers that keep returning partial hypotheses after release: the runtime remembers the latest visible partial transcript in memory for the active session and, only after provider finalization times out without any final text, submits that latest partial through the normal protocol path with an explicit warning. After the release submission commits, late provider partial callbacks are suppressed for that ending provider session so stale partial lines do not appear around the processed output.
 - a tabbed monitoring area that separates the transcript timeline from the event log so each monitor view can use the full available vertical space while preserving the existing transcript controls and event auto-scroll behavior.
-- a bottom-center non-activating `NSPanel` overlay at status-bar window level that shows recording/processed text while push-to-talk is active, displays compact `R`/`T`/`C`/`I` operator indicators, positions on the screen containing the pointer, and clears its text when hidden.
+- a bottom-center non-activating `NSPanel` overlay at status-bar window level that shows compact recording/processed text while push-to-talk is active, displays compact `R`/`T`/`C`/`I` operator indicators, positions on the screen containing the pointer, and clears its text when hidden.
 
 The UI uses `ConfigResolver(requireProtocolOutputForHybrid: false)` only for UI-owned configuration display and sessions so hybrid protocol events can be rendered in the window without requiring a JSONL file path. CLI behavior is unchanged: `--interaction-mode hybrid` still requires `--protocol-output`. Runtime sessions still use strict provider validation; the inspection-only LLM validation path is limited to initial UI settings loading so it does not provide fallback credentials or silently run with missing secrets.
 

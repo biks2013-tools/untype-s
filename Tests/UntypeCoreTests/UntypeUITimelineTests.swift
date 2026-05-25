@@ -43,3 +43,31 @@ import Testing
     #expect(timeline.visibleItemCount == 0)
     #expect(timeline.clearedSinceRaw)
 }
+
+@Test func uiTimelineExportsCommittedTurnsAndLivePartialInReadingOrder() {
+    var timeline = UntypeUITimelineState()
+
+    timeline.commitFinal("Open the design docs.", status: "en", time: "10:00:00")
+    timeline.commitProcessed("Open the design documentation.", status: "refined", time: "10:00:01")
+    timeline.sealCurrentTurn()
+    timeline.updatePartial("starting next request")
+
+    #expect(timeline.exportPlainText() == """
+    Turn 1 | 10:00:00 | closed
+    [Dictated text | en]
+    Open the design docs.
+    [Processed output | refined]
+    Open the design documentation.
+
+    Live partial | Live
+    [Partial transcript | streaming]
+    starting next request
+    """)
+}
+
+@Test func uiTimelineExportOmitsEmptyTimelineContent() {
+    let timeline = UntypeUITimelineState()
+
+    #expect(timeline.exportPlainText() == "")
+    #expect(UntypeUIExportDocument.transcript(from: timeline) == nil)
+}
