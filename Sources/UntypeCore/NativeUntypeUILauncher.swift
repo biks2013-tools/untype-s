@@ -436,7 +436,7 @@ private final class UntypeUIModel: ObservableObject {
         isRunning = true
         audioStatus = "waiting"
         latestTranscript = ""
-        timeline = UntypeUITimelineState()
+        timeline.clearPartial()
         sessionOwner = owner
         appendEvent("session.state: starting")
         let currentSettings = settings
@@ -687,11 +687,24 @@ private final class UntypeUIModel: ObservableObject {
             appendEvent("transcript.turn_boundary")
         case .processed(let text):
             latestTranscript = text
-            timeline.commitProcessed(text)
+            timeline.commitProcessed(text, status: processedTranscriptStatus())
             appendEvent("transcript.processed: \(text)")
             if hotkeyPressed {
                 overlay?.show(phase: "processed", text: text)
             }
+        }
+    }
+
+    private func processedTranscriptStatus() -> String {
+        switch (settings.refine, settings.translate) {
+        case (true, true):
+            return "refined + translated"
+        case (true, false):
+            return "refined"
+        case (false, true):
+            return "translated"
+        case (false, false):
+            return "processed"
         }
     }
 
@@ -859,6 +872,12 @@ private struct UntypeRootView: View {
                     Text("Transcript")
                 }
                 .tag("transcript")
+            historyPane
+                .padding(.top, 8)
+                .tabItem {
+                    Text("History")
+                }
+                .tag("history")
             eventsPane
                 .padding(.top, 8)
                 .tabItem {
@@ -967,6 +986,52 @@ private struct UntypeRootView: View {
         }
     }
 
+    private var historyPane: some View {
+        let history = model.timeline.conversationHistory
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("History")
+                        .font(.headline)
+                    Text(history.isEmpty ? "No conversation history yet" : "\(history.count) retained conversations")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Clear") {
+                    model.clearTranscriptTimeline()
+                }
+                .disabled(model.timeline.visibleItemCount == 0)
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if history.isEmpty {
+                            Text("No conversations recorded in this session.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 140, alignment: .center)
+                        } else {
+                            ForEach(history) { turn in
+                                conversationHistoryTurnView(turn)
+                                    .id(turn.id)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                }
+                .onChange(of: model.timeline.conversationHistoryItemCount) { _, _ in
+                    if let last = model.timeline.conversationHistory.last {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
+            }
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
     private func timelineTurnView(_ turn: UntypeUITimelineTurn) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -981,6 +1046,64 @@ private struct UntypeRootView: View {
                 timelineBubbleView(bubble)
             }
         }
+    }
+
+    private func conversationHistoryTurnView(_ turn: UntypeUIConversationHistoryTurn) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(turn.title)
+                    .font(.caption.weight(.semibold))
+                Text(turn.time)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(turn.status)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            if let userText = turn.userText {
+                conversationHistorySection(
+                    title: "User said",
+                    status: "recorded",
+                    text: userText,
+                    background: Color(nsColor: .controlBackgroundColor)
+                )
+            }
+            ForEach(turn.records) { record in
+                conversationHistorySection(
+                    title: record.label,
+                    status: record.status,
+                    text: record.text,
+                    background: record.kind == .issue ? Color.orange.opacity(0.16) : Color.green.opacity(0.12)
+                )
+            }
+        }
+        .padding(9)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func conversationHistorySection(
+        title: String,
+        status: String,
+        text: String,
+        background: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(status)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            Text(text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(8)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func timelineBubbleView(_ bubble: UntypeUITimelineBubble) -> some View {

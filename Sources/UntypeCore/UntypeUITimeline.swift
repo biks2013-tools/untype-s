@@ -29,6 +29,28 @@ public struct UntypeUILivePartial: Identifiable, Equatable, Sendable {
     public var text: String
 }
 
+public enum UntypeUIConversationHistoryRecordKind: String, Sendable {
+    case output
+    case issue
+}
+
+public struct UntypeUIConversationHistoryRecord: Identifiable, Equatable, Sendable {
+    public let id: Int
+    public var kind: UntypeUIConversationHistoryRecordKind
+    public var label: String
+    public var status: String
+    public var text: String
+}
+
+public struct UntypeUIConversationHistoryTurn: Identifiable, Equatable, Sendable {
+    public let id: Int
+    public var title: String
+    public var time: String
+    public var status: String
+    public var userText: String?
+    public var records: [UntypeUIConversationHistoryRecord]
+}
+
 public struct UntypeUITimelineState: Equatable, Sendable {
     public private(set) var turns: [UntypeUITimelineTurn]
     public private(set) var partial: UntypeUILivePartial?
@@ -49,6 +71,54 @@ public struct UntypeUITimelineState: Equatable, Sendable {
 
     public var visibleItemCount: Int {
         turns.reduce(0) { $0 + $1.bubbles.count } + (partial == nil ? 0 : 1)
+    }
+
+    public var conversationHistory: [UntypeUIConversationHistoryTurn] {
+        var history: [UntypeUIConversationHistoryTurn] = []
+        for (index, turn) in turns.enumerated() {
+            let rawText = joinedText(
+                turn.bubbles.filter { $0.kind == .raw }.map(\.text)
+            )
+            let records = turn.bubbles
+                .filter { $0.kind == .processed || $0.kind == .error }
+                .map { bubble in
+                    UntypeUIConversationHistoryRecord(
+                        id: bubble.id,
+                        kind: bubble.kind == .error ? .issue : .output,
+                        label: conversationRecordLabel(for: bubble),
+                        status: bubble.status,
+                        text: bubble.text
+                    )
+                }
+            if rawText == nil && records.isEmpty {
+                continue
+            }
+            history.append(UntypeUIConversationHistoryTurn(
+                id: turn.id,
+                title: "Conversation \(index + 1)",
+                time: turn.time,
+                status: turn.sealed ? "closed" : "open",
+                userText: rawText,
+                records: records
+            ))
+        }
+        if let partial, !partial.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            history.append(UntypeUIConversationHistoryTurn(
+                id: partial.id,
+                title: "Live conversation",
+                time: partial.time,
+                status: partial.status,
+                userText: partial.text,
+                records: []
+            ))
+        }
+        return history
+    }
+
+    public var conversationHistoryItemCount: Int {
+        conversationHistory.reduce(0) { count, turn in
+            count + (turn.userText == nil ? 0 : 1) + turn.records.count
+        }
     }
 
     public func exportPlainText() -> String {
@@ -210,6 +280,25 @@ public struct UntypeUITimelineState: Equatable, Sendable {
             return normalizedCurrent
         }
         return "\(normalizedCurrent) \(normalizedNext)"
+    }
+
+    private func joinedText(_ values: [String]) -> String? {
+        let text = values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        return text.isEmpty ? nil : text
+    }
+
+    private func conversationRecordLabel(for bubble: UntypeUITimelineBubble) -> String {
+        switch bubble.kind {
+        case .processed:
+            return "Refine / Translate record"
+        case .error:
+            return "Session record"
+        case .raw:
+            return bubble.label
+        }
     }
 
     private static func shortTime() -> String {

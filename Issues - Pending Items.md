@@ -19,6 +19,12 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-25 - Push-to-talk release transcript/history retention fixed
+Resolved a UI regression where releasing the talk button could briefly record raw and refined/translated output, then lose it from both Transcript and History when the app automatically started the next warm push-to-talk runtime. The root cause was `startSession(...)` replacing the whole `UntypeUITimelineState` on every runtime start. Runtime starts now clear only stale live partial text, while committed raw and processed turns remain retained until explicit Clear or app termination. Added regression coverage that partial cleanup preserves committed Transcript and History content. `swift test` passes.
+
+### 2026-05-25 - Native UI session conversation history tab added
+Resolved a UI observability gap where the current session's conversation history could only be inferred from the Transcript and Events tabs. The native UI now includes a `History` monitor tab derived from the existing in-memory grouped transcript timeline. It shows each retained conversation turn, what the user dictated, recorded refine/translate processed output, and session warning records when present. The selected `History` tab can be restored as non-secret layout state, but conversation-history content remains memory-only and is cleared with the transcript timeline. `swift test` passes.
+
 ### 2026-05-25 - Native UI window state persistence added
 Resolved the UI preference gap where `untype ui` always opened with the default window size, settings pane visibility, and selected monitor tab. The existing non-secret `ui-state.json` persistence now stores main window width/height, settings-pane hidden/visible state, and selected monitor tab. AppKit restores the saved content size on launch and records resize changes through the window delegate; SwiftUI binds settings visibility and monitor tab selection directly to persisted model state. Tests verify the new layout fields are saved/restored while credential status, permission status, secrets, transcript text, and event-log content remain excluded. `swift test` passes.
 

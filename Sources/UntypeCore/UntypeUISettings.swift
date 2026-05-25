@@ -788,10 +788,10 @@ private func normalizeHotkeyKey(_ value: String) throws -> String {
 
 private func normalizeMonitorTab(_ value: String) throws -> String {
     let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized == "transcript" || normalized == "events" {
+    if normalized == "transcript" || normalized == "history" || normalized == "events" {
         return normalized
     }
-    throw UntypeError.invalidConfiguration("selectedMonitorTab must be transcript or events. Got: \(value).")
+    throw UntypeError.invalidConfiguration("selectedMonitorTab must be transcript, history, or events. Got: \(value).")
 }
 
 private func nonEmptyStatus(_ value: String, fallback: String) -> String {

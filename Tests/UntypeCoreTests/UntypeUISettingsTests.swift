@@ -114,6 +114,18 @@ import Testing
     }
 }
 
+@Test func uiSettingsAcceptsHistoryAsPersistedMonitorTab() throws {
+    let temp = UITemporaryDirectory()
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        selectedMonitorTab: "history"
+    ))
+
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    #expect(loaded.selectedMonitorTab == "history")
+}
+
 @Test func uiSettingsLoadForUIPreservesPersistedWindowAndMonitorState() throws {
     let temp = UITemporaryDirectory()
     let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
