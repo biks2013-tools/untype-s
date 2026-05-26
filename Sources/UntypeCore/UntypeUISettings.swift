@@ -28,6 +28,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var windowHeight: Double
     public var settingsExpanded: Bool
     public var selectedMonitorTab: String
+    public var selectedEventsFilter: String
+    public var compactWindow: Bool
+    public var appearance: String
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
@@ -56,7 +59,10 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         windowWidth: 1180,
         windowHeight: 760,
         settingsExpanded: true,
-        selectedMonitorTab: "transcript"
+        selectedMonitorTab: "transcript",
+        selectedEventsFilter: "all",
+        compactWindow: false,
+        appearance: "system"
     )
 
     public func normalized() throws -> UntypeUISettings {
@@ -90,6 +96,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         next.llmModel = llmModel
         next.hotkey = hotkey
         next.selectedMonitorTab = selectedMonitorTab
+        next.selectedEventsFilter = try normalizeEventsFilter(selectedEventsFilter)
+        next.appearance = try normalizeAppearance(appearance)
         next.apiKeyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
         next.apiKeyStatus = nonEmptyStatus(apiKeyStatus, fallback: "unknown")
         next.expiryStatus = nonEmptyStatus(expiryStatus, fallback: "not set")
@@ -161,6 +169,15 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let selectedMonitorTab = patch.selectedMonitorTab {
             next.selectedMonitorTab = selectedMonitorTab
+        }
+        if let selectedEventsFilter = patch.selectedEventsFilter {
+            next.selectedEventsFilter = selectedEventsFilter
+        }
+        if let compactWindow = patch.compactWindow {
+            next.compactWindow = compactWindow
+        }
+        if let appearance = patch.appearance {
+            next.appearance = appearance
         }
         return try next.normalized()
     }
@@ -243,6 +260,9 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var windowHeight: Double?
     public var settingsExpanded: Bool?
     public var selectedMonitorTab: String?
+    public var selectedEventsFilter: String?
+    public var compactWindow: Bool?
+    public var appearance: String?
 
     public init(
         provider: String? = nil,
@@ -264,7 +284,10 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         windowWidth: Double? = nil,
         windowHeight: Double? = nil,
         settingsExpanded: Bool? = nil,
-        selectedMonitorTab: String? = nil
+        selectedMonitorTab: String? = nil,
+        selectedEventsFilter: String? = nil,
+        compactWindow: Bool? = nil,
+        appearance: String? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -286,6 +309,9 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.windowHeight = windowHeight
         self.settingsExpanded = settingsExpanded
         self.selectedMonitorTab = selectedMonitorTab
+        self.selectedEventsFilter = selectedEventsFilter
+        self.compactWindow = compactWindow
+        self.appearance = appearance
     }
 }
 
@@ -504,7 +530,10 @@ public enum UntypeUISettingsStore {
             windowWidth: current.windowWidth,
             windowHeight: current.windowHeight,
             settingsExpanded: current.settingsExpanded,
-            selectedMonitorTab: current.selectedMonitorTab
+            selectedMonitorTab: current.selectedMonitorTab,
+            selectedEventsFilter: current.selectedEventsFilter,
+            compactWindow: current.compactWindow,
+            appearance: current.appearance
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -555,6 +584,9 @@ private struct PersistedUISettings: Codable {
     let windowHeight: Double?
     let settingsExpanded: Bool?
     let selectedMonitorTab: String?
+    let selectedEventsFilter: String?
+    let compactWindow: Bool?
+    let appearance: String?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -577,6 +609,9 @@ private struct PersistedUISettings: Codable {
         case windowHeight
         case settingsExpanded
         case selectedMonitorTab
+        case selectedEventsFilter
+        case compactWindow
+        case appearance
     }
 
     init(settings: UntypeUISettings) {
@@ -600,6 +635,9 @@ private struct PersistedUISettings: Codable {
         self.windowHeight = settings.windowHeight
         self.settingsExpanded = settings.settingsExpanded
         self.selectedMonitorTab = settings.selectedMonitorTab
+        self.selectedEventsFilter = settings.selectedEventsFilter
+        self.compactWindow = settings.compactWindow
+        self.appearance = settings.appearance
     }
 
     func toRuntimeSettings(path: String) throws -> UntypeUISettings {
@@ -625,7 +663,10 @@ private struct PersistedUISettings: Codable {
                 windowWidth: windowWidth ?? defaults.windowWidth,
                 windowHeight: windowHeight ?? defaults.windowHeight,
                 settingsExpanded: settingsExpanded ?? defaults.settingsExpanded,
-                selectedMonitorTab: selectedMonitorTab ?? defaults.selectedMonitorTab
+                selectedMonitorTab: selectedMonitorTab ?? defaults.selectedMonitorTab,
+                selectedEventsFilter: selectedEventsFilter ?? defaults.selectedEventsFilter,
+                compactWindow: compactWindow ?? defaults.compactWindow,
+                appearance: appearance ?? defaults.appearance
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")
@@ -792,6 +833,23 @@ private func normalizeMonitorTab(_ value: String) throws -> String {
         return normalized
     }
     throw UntypeError.invalidConfiguration("selectedMonitorTab must be transcript, history, or events. Got: \(value).")
+}
+
+private func normalizeEventsFilter(_ value: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let allowed: Set<String> = ["all", "warnings", "provider", "audio", "hotkey", "protocol"]
+    if allowed.contains(normalized) {
+        return normalized
+    }
+    throw UntypeError.invalidConfiguration("selectedEventsFilter must be one of \(allowed.sorted().joined(separator: ", ")). Got: \(value).")
+}
+
+private func normalizeAppearance(_ value: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if normalized == "system" || normalized == "light" || normalized == "dark" {
+        return normalized
+    }
+    throw UntypeError.invalidConfiguration("appearance must be system, light, or dark. Got: \(value).")
 }
 
 private func nonEmptyStatus(_ value: String, fallback: String) -> String {

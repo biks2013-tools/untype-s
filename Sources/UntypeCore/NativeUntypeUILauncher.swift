@@ -55,6 +55,11 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var window: NSWindow?
     private var overlay: UntypeOverlayController?
     private var hotkeyMonitor: UntypeHotkeyMonitor?
+    private var compactCancellable: AnyCancellable?
+    private var wasCompactWindow: Bool = false
+
+    private static let miniSize = NSSize(width: 440, height: 260)
+    private static let mainMinSize = NSSize(width: 860, height: 620)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureApplicationMenu()
@@ -69,31 +74,68 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         model.configureHotkeyServices()
 
         let content = UntypeRootView(model: model)
+        let initialCompact = model.settings.compactWindow
+        wasCompactWindow = initialCompact
+        let contentRect = NSRect(
+            x: 0,
+            y: 0,
+            width: initialCompact ? Self.miniSize.width : model.settings.windowWidth,
+            height: initialCompact ? Self.miniSize.height : model.settings.windowHeight
+        )
         let window = NSWindow(
-            contentRect: NSRect(
-                x: 0,
-                y: 0,
-                width: model.settings.windowWidth,
-                height: model.settings.windowHeight
-            ),
+            contentRect: contentRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "untype"
-        window.minSize = NSSize(width: 860, height: 620)
+        window.minSize = initialCompact ? Self.miniSize : Self.mainMinSize
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
         window.contentView = NSHostingView(rootView: content)
         window.delegate = self
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
+
+        // React to compact-window toggles from the toolbar.
+        compactCancellable = model.$settings
+            .map(\.compactWindow)
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] compact in
+                self?.applyCompactWindow(compact)
+            }
+    }
+
+    private func applyCompactWindow(_ compact: Bool) {
+        guard let window, let model else { return }
+        if compact == wasCompactWindow { return }
+        wasCompactWindow = compact
+        if compact {
+            window.minSize = Self.miniSize
+            var frame = window.frame
+            frame.origin.y += frame.size.height - Self.miniSize.height
+            frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: Self.miniSize)).size
+            window.setFrame(frame, display: true, animate: true)
+        } else {
+            window.minSize = Self.mainMinSize
+            let target = NSSize(width: model.settings.windowWidth, height: model.settings.windowHeight)
+            var frame = window.frame
+            frame.origin.y -= target.height - frame.size.height
+            frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
+            window.setFrame(frame, display: true, animate: true)
+        }
     }
 
     func windowDidResize(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else {
             return
         }
-        model?.updateLayout(
+        // Only persist resize while not in compact mode — compact-window size is fixed.
+        guard let model, !model.settings.compactWindow else { return }
+        model.updateLayout(
             windowWidth: Double(window.contentLayoutRect.width),
             windowHeight: Double(window.contentLayoutRect.height)
         )
@@ -234,14 +276,20 @@ private final class UntypeUIModel: ObservableObject {
         windowWidth: Double? = nil,
         windowHeight: Double? = nil,
         settingsExpanded: Bool? = nil,
-        selectedMonitorTab: String? = nil
+        selectedMonitorTab: String? = nil,
+        selectedEventsFilter: String? = nil,
+        compactWindow: Bool? = nil,
+        appearance: String? = nil
     ) {
         do {
             settings = try settings.merged(UntypeUISettingsPatch(
                 windowWidth: windowWidth,
                 windowHeight: windowHeight,
                 settingsExpanded: settingsExpanded,
-                selectedMonitorTab: selectedMonitorTab
+                selectedMonitorTab: selectedMonitorTab,
+                selectedEventsFilter: selectedEventsFilter,
+                compactWindow: compactWindow,
+                appearance: appearance
             ))
             try UntypeUISettingsStore.save(settings)
         } catch {
@@ -821,97 +869,396 @@ private final class WeakUntypeUIModelBox: @unchecked Sendable {
 @MainActor
 private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
+    @State private var showOnboarding: Bool = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            mainPane
-            if model.settings.settingsExpanded {
-                Divider()
-                settingsPane
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+        Group {
+            if model.settings.compactWindow {
+                UntypeMiniView(model: model)
+                    .toolbar { compactToolbarContent }
+            } else {
+                NavigationSplitView(columnVisibility: .constant(.all)) {
+                    sidebarPane
+                        .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
+                } detail: {
+                    HStack(spacing: 0) {
+                        contentPane
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if model.settings.settingsExpanded {
+                            Divider()
+                            settingsPane
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
+                    }
+                }
+                .navigationSplitViewStyle(.balanced)
+                .frame(minWidth: 860, minHeight: 620)
+                .toolbar { toolbarContent }
             }
         }
-        .frame(minWidth: 860, minHeight: 620)
         .animation(.easeInOut(duration: 0.16), value: model.settings.settingsExpanded)
+        .animation(.easeInOut(duration: 0.18), value: model.settings.compactWindow)
+        .preferredColorScheme(preferredColorScheme)
+        .onAppear(perform: evaluateOnboarding)
+        .onChange(of: model.settings.apiKeyStatus) { _, _ in evaluateOnboarding() }
+        .onChange(of: model.settings.microphoneStatus) { _, _ in evaluateOnboarding() }
+        .onChange(of: model.settings.accessibilityStatus) { _, _ in evaluateOnboarding() }
+        .sheet(isPresented: $showOnboarding) {
+            UntypeOnboardingView(model: model) {
+                showOnboarding = false
+            }
+        }
     }
 
-    private var mainPane: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("untype")
-                        .font(.title2.weight(.semibold))
-                    Text("Session: \(model.sessionState) · Capture: \(model.captureState) · Audio: \(model.audioStatus)")
-                        .font(.caption)
+    private var preferredColorScheme: ColorScheme? {
+        switch model.settings.appearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
+    private func evaluateOnboarding() {
+        if model.settings.compactWindow {
+            showOnboarding = false
+            return
+        }
+        if UntypeOnboardingView.recentlySkipped() {
+            return
+        }
+        let micOK = UntypeStatusToneMap.microphone(model.settings.microphoneStatus) == .ok
+        let axOK = UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus) == .ok
+        let credOK = UntypeStatusToneMap.credential(model.settings.apiKeyStatus) == .ok
+        if !(micOK && axOK && credOK) {
+            showOnboarding = true
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var compactToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                model.updateLayout(compactWindow: false)
+            } label: {
+                Image(systemName: "rectangle.expand.vertical")
+            }
+            .help("Exit Compact Mode")
+            .keyboardShortcut("m", modifiers: [.command, .option])
+        }
+    }
+
+    // MARK: Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: 6) {
+                UntypeBrandMark(size: 20)
+                Text("untype")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            UntypeRecordButton(
+                isRecording: model.isRunning,
+                titleIdle: model.primarySessionButtonTitle,
+                titleRecording: model.primarySessionButtonTitle
+            ) {
+                model.isRunning ? model.stopPrimarySession() : model.startManualSession()
+            }
+            .keyboardShortcut("r", modifiers: [.command])
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                model.refreshCredentials()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .help("Refresh credentials and permission status")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Picker("Appearance", selection: appearanceBinding) {
+                    Label("System", systemImage: "circle.lefthalf.filled").tag("system")
+                    Label("Light", systemImage: "sun.max").tag("light")
+                    Label("Dark", systemImage: "moon.fill").tag("dark")
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: appearanceIcon)
+            }
+            .help("Appearance: \(model.settings.appearance.capitalized)")
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                model.updateLayout(settingsExpanded: !model.settings.settingsExpanded)
+            } label: {
+                Image(systemName: model.settings.settingsExpanded ? "sidebar.right" : "sidebar.squares.right")
+            }
+            .help(model.settings.settingsExpanded ? "Hide Inspector" : "Show Inspector")
+            .keyboardShortcut("\\", modifiers: [.command])
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                model.updateLayout(compactWindow: true)
+            } label: {
+                Image(systemName: "rectangle.compress.vertical")
+            }
+            .help("Enter Compact Mode")
+            .keyboardShortcut("m", modifiers: [.command, .option])
+        }
+    }
+
+    private var appearanceBinding: Binding<String> {
+        Binding(
+            get: { model.settings.appearance },
+            set: { model.updateLayout(appearance: $0) }
+        )
+    }
+
+    private var appearanceIcon: String {
+        switch model.settings.appearance {
+        case "light": return "sun.max"
+        case "dark": return "moon.fill"
+        default: return "circle.lefthalf.filled"
+        }
+    }
+
+    private var statusStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(model.settings.provider)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(UntypeDesignTokens.accentAmber)
+                    Text("·")
+                        .foregroundStyle(.secondary)
+                    Text(model.settings.protocolMode)
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Button(model.primarySessionButtonTitle) {
-                    model.isRunning ? model.stopPrimarySession() : model.startManualSession()
-                }
-                .keyboardShortcut("r", modifiers: [.command])
-                Button("Refresh") {
-                    model.refreshCredentials()
-                }
-                Button(model.settings.settingsExpanded ? "Hide Settings" : "Show Settings") {
-                    model.updateLayout(settingsExpanded: !model.settings.settingsExpanded)
-                }
-            }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.thinMaterial, in: Capsule(style: .continuous))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06))
+                )
 
-            monitorPane
+                UntypeStatusPill(
+                    symbol: model.isRunning ? "record.circle.fill" : "circle",
+                    label: "Session",
+                    value: model.sessionState,
+                    tone: UntypeStatusToneMap.session(isRunning: model.isRunning, isHotkeyPressed: model.hotkeyPressed)
+                )
+                UntypeStatusPill(
+                    symbol: "waveform",
+                    label: "Audio",
+                    value: model.audioStatus,
+                    tone: UntypeStatusToneMap.audio(model.audioStatus)
+                )
+                UntypeStatusPill(
+                    symbol: outputSymbol,
+                    label: "Output",
+                    value: outputLabel,
+                    tone: outputTone
+                )
+                UntypeStatusPill(
+                    symbol: "lock.shield",
+                    label: "Permissions",
+                    value: permissionLabel,
+                    tone: permissionTone
+                )
+            }
+            .padding(.vertical, 2)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var monitorPane: some View {
-        TabView(selection: monitorTabBinding) {
-            transcriptPane
-                .padding(.top, 8)
-                .tabItem {
-                    Text("Transcript")
-                }
-                .tag("transcript")
-            historyPane
-                .padding(.top, 8)
-                .tabItem {
-                    Text("History")
-                }
-                .tag("history")
-            eventsPane
-                .padding(.top, 8)
-                .tabItem {
-                    Text("Events")
-                }
-                .tag("events")
+    private var outputSymbol: String {
+        switch (model.settings.clipboard, model.settings.focusedInput) {
+        case (true, true): return "doc.on.clipboard"
+        case (true, false): return "doc.on.doc"
+        case (false, true): return "keyboard"
+        default: return "circle.slash"
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var outputLabel: String {
+        switch (model.settings.clipboard, model.settings.focusedInput) {
+        case (true, true): return "clipboard + input"
+        case (true, false): return "clipboard"
+        case (false, true): return "focused input"
+        default: return "off"
+        }
+    }
+
+    private var outputTone: UntypeStatusTone {
+        (model.settings.clipboard || model.settings.focusedInput) ? .accent : .off
+    }
+
+    private var permissionLabel: String {
+        let micOK = model.settings.microphoneStatus.lowercased().contains("grant") || model.settings.microphoneStatus.lowercased().contains("ok") || model.settings.microphoneStatus.lowercased().contains("authorized")
+        let axOK = model.settings.accessibilityStatus.lowercased().contains("trust") || model.settings.accessibilityStatus.lowercased().contains("grant") || model.settings.accessibilityStatus.lowercased().contains("ok")
+        if !micOK { return "needs mic" }
+        if !axOK { return "needs ax" }
+        return "ok"
+    }
+
+    private var permissionTone: UntypeStatusTone {
+        permissionLabel == "ok" ? .ok : .warn
+    }
+
+    // MARK: Sidebar
+
+    private var sidebarPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            UntypeSectionHeader("Monitor")
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+            sidebarRow("Transcript", systemImage: "text.alignleft", tag: "transcript", liveTone: model.isRunning ? .recording : nil)
+            sidebarRow("History", systemImage: "clock.arrow.circlepath", tag: "history")
+            sidebarRow("Events", systemImage: "list.bullet.indent", tag: "events")
+
+            UntypeSectionHeader("Status")
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+
+            VStack(alignment: .leading, spacing: 6) {
+                statusLine("Microphone", value: model.settings.microphoneStatus, tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus))
+                statusLine("Accessibility", value: model.settings.accessibilityStatus, tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus))
+                statusLine(model.settings.apiKeyName, value: model.settings.apiKeyStatus, tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus))
+                statusLine("Hotkey", value: model.settings.hotkeyEnabled ? model.settings.hotkey : "disabled", tone: model.settings.hotkeyEnabled ? .accent : .off)
+            }
+            .padding(10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous))
+            .padding(.horizontal, 8)
+
+            Spacer()
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func sidebarRow(_ title: String, systemImage: String, tag: String, liveTone: UntypeStatusTone? = nil) -> some View {
+        Button {
+            model.updateLayout(selectedMonitorTab: tag)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: 18)
+                    .foregroundStyle(model.settings.selectedMonitorTab == tag ? UntypeDesignTokens.accentAmber : Color.secondary)
+                Text(title)
+                    .font(.system(size: 13, weight: model.settings.selectedMonitorTab == tag ? .semibold : .medium))
+                    .foregroundStyle(model.settings.selectedMonitorTab == tag ? Color.primary : Color.secondary)
+                Spacer()
+                if let liveTone, tag == "transcript" {
+                    Text("LIVE")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(liveTone.color)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(liveTone.color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(model.settings.selectedMonitorTab == tag ? UntypeDesignTokens.accentAmber.opacity(0.14) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+    }
+
+    private func statusLine(_ key: String, value: String, tone: UntypeStatusTone) -> some View {
+        HStack(spacing: 6) {
+            UntypeStatusDot(tone: tone, size: 6)
+            Text(key)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 6)
+            Text(value)
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(tone == .warn ? UntypeDesignTokens.warnGold : Color.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    // MARK: Content
+
+    private var contentPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            statusStrip
+            switch model.settings.selectedMonitorTab {
+            case "history":
+                historyPane
+            case "events":
+                eventsPane
+            default:
+                transcriptPane
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
     private var transcriptPane: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Transcript")
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .semibold))
                     Text(model.timeline.visibleItemCount == 0 ? "No transcript yet" : "\(model.timeline.visibleItemCount) transcript items")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Copy") {
+                HStack(spacing: 8) {
+                    UntypeWaveformView(isActive: model.isRunning, barCount: 24, height: 22)
+                    Text(audioLevelLabel)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(model.isRunning ? UntypeDesignTokens.recordingRed : .secondary)
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            HStack(spacing: 8) {
+                UntypeOperatorChip(letter: "R", label: "Refine", isOn: model.settings.refine, isRecording: model.isRunning) {
+                    model.toggleOperator(.refine)
+                }
+                UntypeOperatorChip(letter: "T", label: "Translate", isOn: model.settings.translate, isRecording: model.isRunning) {
+                    model.toggleOperator(.translate)
+                }
+                UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: model.isRunning) {
+                    model.toggleOperator(.clipboard)
+                }
+                UntypeOperatorChip(letter: "I", label: "Input", isOn: model.settings.focusedInput, isRecording: model.isRunning) {
+                    model.toggleOperator(.input)
+                }
+                Spacer()
+                Button {
                     model.copyTranscriptExport()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
                 .disabled(!model.canExportTranscript)
-                Button("Save") {
+                Button {
                     model.saveTranscriptExport()
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
                 }
                 .disabled(!model.canExportTranscript)
-                Button("Clear") {
+                Button {
                     model.clearTranscriptTimeline()
+                } label: {
+                    Label("Clear", systemImage: "trash")
                 }
                 .disabled(model.timeline.visibleItemCount == 0)
             }
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
@@ -942,70 +1289,157 @@ private struct UntypeRootView: View {
     }
 
     private var eventsPane: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        let filter = model.settings.selectedEventsFilter
+        let filtered = filteredEvents(model.events, filter: filter)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Events")
-                        .font(.headline)
-                    Text(model.events.isEmpty ? "No events yet" : "\(model.events.count) retained events")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(model.events.isEmpty
+                        ? "No events yet"
+                        : "\(filtered.count) of \(model.events.count) shown")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Copy") {
+                Button {
                     model.copyEventsExport()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
                 .disabled(!model.canExportEvents)
-                Button("Save") {
+                Button {
                     model.saveEventsExport()
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
                 }
                 .disabled(!model.canExportEvents)
             }
+
+            HStack(spacing: 6) {
+                ForEach(Self.eventsFilterChoices, id: \.value) { choice in
+                    eventsFilterChip(label: choice.label, value: choice.value)
+                }
+            }
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(model.events.enumerated()), id: \.offset) { index, line in
-                            Text(line)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(line.contains("warning") || line.contains("error") ? .orange : .primary)
-                                .textSelection(.enabled)
-                                .id(index)
+                        if filtered.isEmpty {
+                            Text(model.events.isEmpty ? "No events yet." : "No events match the \(filter) filter.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
+                        } else {
+                            ForEach(Array(filtered.enumerated()), id: \.offset) { index, line in
+                                Text(line)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .foregroundStyle(eventLineColor(line))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(index)
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                 }
-                .onChange(of: model.events.count) { _, count in
+                .onChange(of: filtered.count) { _, count in
                     if count > 0 {
                         proxy.scrollTo(count - 1, anchor: .bottom)
                     }
                 }
             }
-            .background(Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06))
+            )
         }
+    }
+
+    private static let eventsFilterChoices: [(label: String, value: String)] = [
+        ("All", "all"),
+        ("Warnings", "warnings"),
+        ("Provider", "provider"),
+        ("Audio", "audio"),
+        ("Hotkey", "hotkey"),
+        ("Protocol", "protocol")
+    ]
+
+    private func eventsFilterChip(label: String, value: String) -> some View {
+        let isOn = model.settings.selectedEventsFilter == value
+        return Button {
+            model.updateLayout(selectedEventsFilter: value)
+        } label: {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isOn ? Color.primary : Color.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isOn ? UntypeDesignTokens.accentAmber.opacity(0.18) : Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(isOn ? UntypeDesignTokens.accentAmber.opacity(0.45) : Color.primary.opacity(0.10))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filter events by \(label)")
+    }
+
+    private func filteredEvents(_ events: [String], filter: String) -> [String] {
+        switch filter {
+        case "warnings":
+            return events.filter { $0.localizedCaseInsensitiveContains("warning") || $0.localizedCaseInsensitiveContains("error") }
+        case "provider":
+            return events.filter {
+                let lower = $0.lowercased()
+                return lower.contains("soniox") || lower.contains("elevenlabs") || lower.contains("llm") || lower.contains("provider") || lower.contains("stt")
+            }
+        case "audio":
+            return events.filter { $0.localizedCaseInsensitiveContains("audio") || $0.localizedCaseInsensitiveContains("capture") || $0.localizedCaseInsensitiveContains("mic") }
+        case "hotkey":
+            return events.filter { $0.localizedCaseInsensitiveContains("hotkey") || $0.localizedCaseInsensitiveContains("ptt") || $0.localizedCaseInsensitiveContains("push") }
+        case "protocol":
+            return events.filter { $0.localizedCaseInsensitiveContains("protocol") || $0.localizedCaseInsensitiveContains("operator") || $0.localizedCaseInsensitiveContains("section") }
+        default:
+            return events
+        }
+    }
+
+    private func eventLineColor(_ line: String) -> Color {
+        let lower = line.lowercased()
+        if lower.contains("error") { return UntypeDesignTokens.recordingRed }
+        if lower.contains("warning") { return UntypeDesignTokens.warnGold }
+        return .primary
     }
 
     private var historyPane: some View {
         let history = model.timeline.conversationHistory
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("History")
-                        .font(.headline)
+                        .font(.system(size: 15, weight: .semibold))
                     Text(history.isEmpty ? "No conversation history yet" : "\(history.count) retained conversations")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Clear") {
+                Button {
                     model.clearTranscriptTimeline()
+                } label: {
+                    Label("Clear", systemImage: "trash")
                 }
                 .disabled(model.timeline.visibleItemCount == 0)
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 14) {
                         if history.isEmpty {
                             Text("No conversations recorded in this session.")
                                 .font(.callout)
@@ -1019,7 +1453,7 @@ private struct UntypeRootView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(12)
                 }
                 .onChange(of: model.timeline.conversationHistoryItemCount) { _, _ in
                     if let last = model.timeline.conversationHistory.last {
@@ -1027,131 +1461,231 @@ private struct UntypeRootView: View {
                     }
                 }
             }
-            .background(Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06))
+            )
         }
     }
 
     private func timelineTurnView(_ turn: UntypeUITimelineTurn) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(turn.time)
-                    .font(.caption2)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Text(turn.sealed ? "closed" : "open")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(turn.sealed ? Color.secondary : UntypeDesignTokens.accentAmber)
             }
-            ForEach(turn.bubbles) { bubble in
-                timelineBubbleView(bubble)
+            .frame(width: 44, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(turn.bubbles) { bubble in
+                    timelineBubbleView(bubble)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private func conversationHistoryTurnView(_ turn: UntypeUIConversationHistoryTurn) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text(turn.title)
-                    .font(.caption.weight(.semibold))
+        HStack(alignment: .top, spacing: 12) {
+            // Left gutter: time + status
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(turn.time)
-                    .font(.caption2)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Text(turn.status)
-                    .font(.caption2.weight(.medium))
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(historyStatusColor(turn.status))
+                    .textCase(.uppercase)
+            }
+            .frame(width: 56, alignment: .trailing)
+
+            // Main column
+            VStack(alignment: .leading, spacing: 6) {
+                Text(turn.title)
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                if let userText = turn.userText {
+                    conversationHistorySection(
+                        title: "User said",
+                        status: "recorded",
+                        text: userText,
+                        accent: .secondary,
+                        background: Color.primary.opacity(0.04)
+                    )
+                }
+                ForEach(turn.records) { record in
+                    conversationHistorySection(
+                        title: record.label,
+                        status: record.status,
+                        text: record.text,
+                        accent: record.kind == .issue ? UntypeDesignTokens.warnGold : UntypeDesignTokens.accentAmber,
+                        background: record.kind == .issue ? UntypeDesignTokens.warnGold.opacity(0.12) : UntypeDesignTokens.accentAmber.opacity(0.08)
+                    )
+                }
             }
-            if let userText = turn.userText {
-                conversationHistorySection(
-                    title: "User said",
-                    status: "recorded",
-                    text: userText,
-                    background: Color(nsColor: .controlBackgroundColor)
-                )
-            }
-            ForEach(turn.records) { record in
-                conversationHistorySection(
-                    title: record.label,
-                    status: record.status,
-                    text: record.text,
-                    background: record.kind == .issue ? Color.orange.opacity(0.16) : Color.green.opacity(0.12)
-                )
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(9)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.05))
+        )
     }
 
     private func conversationHistorySection(
         title: String,
         status: String,
         text: String,
+        accent: Color,
         background: Color
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(status)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+        let isLong = text.count > 280
+        return Group {
+            if isLong {
+                DisclosureGroup {
+                    Text(text)
+                        .font(.system(size: 13))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(.top, 4)
+                } label: {
+                    historyRowHeader(title: title, status: status, accent: accent, preview: String(text.prefix(120)))
+                }
+                .padding(8)
+                .background(background, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerSmall, style: .continuous))
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    historyRowHeader(title: title, status: status, accent: accent, preview: nil)
+                    Text(text)
+                        .font(.system(size: 13))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .padding(8)
+                .background(background, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerSmall, style: .continuous))
             }
-            Text(text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
         }
-        .padding(8)
-        .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func historyRowHeader(title: String, status: String, accent: Color, preview: String?) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(accent)
+                .textCase(.uppercase)
+                .tracking(0.5)
+            if let preview {
+                Text("· \(preview)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer()
+            Text(status)
+                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func historyStatusColor(_ status: String) -> Color {
+        let lower = status.lowercased()
+        if lower.contains("warn") || lower.contains("issue") || lower.contains("error") { return UntypeDesignTokens.warnGold }
+        if lower.contains("closed") || lower.contains("done") || lower.contains("recorded") { return UntypeDesignTokens.accentAmber }
+        return .secondary
     }
 
     private func timelineBubbleView(_ bubble: UntypeUITimelineBubble) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(bubble.label)
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(bubble.status)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+        Group {
+            switch bubble.kind {
+            case .raw:
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("RAW")
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Text(bubble.text)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            case .processed:
+                VStack(alignment: .leading, spacing: 4) {
+                    if !bubble.label.isEmpty || !bubble.status.isEmpty {
+                        HStack(spacing: 6) {
+                            Text(bubble.label)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(UntypeDesignTokens.accentAmber)
+                                .textCase(.uppercase)
+                            Text(bubble.status)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(bubble.text)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.leading, 10)
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(UntypeDesignTokens.accentAmber)
+                        .frame(width: 2)
+                }
+            case .error:
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(UntypeDesignTokens.warnGold)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(bubble.label.isEmpty ? "Issue" : bubble.label)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(UntypeDesignTokens.warnGold)
+                            .textCase(.uppercase)
+                        Text(bubble.text)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(9)
+                .background(UntypeDesignTokens.warnGold.opacity(0.12), in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerSmall, style: .continuous))
             }
-            Text(bubble.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
         }
-        .padding(9)
-        .background(bubbleBackground(bubble.kind))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private func livePartialView(_ partial: UntypeUILivePartial) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(partial.label)
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(partial.status)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .center, spacing: 0) {
+                UntypeStatusDot(tone: model.isRunning ? .recording : .off, size: 7)
+                    .padding(.top, 5)
             }
-            Text(partial.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .padding(9)
-        .background(Color.accentColor.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
+            .frame(width: 44, alignment: .trailing)
 
-    private func bubbleBackground(_ kind: UntypeUITimelineBubbleKind) -> Color {
-        switch kind {
-        case .raw:
-            return Color(nsColor: .controlBackgroundColor)
-        case .processed:
-            return Color.green.opacity(0.12)
-        case .error:
-            return Color.orange.opacity(0.16)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.isRunning ? "LIVE · PARTIAL" : "IDLE · WAITING")
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(model.isRunning ? UntypeDesignTokens.recordingRed : .secondary)
+                    .tracking(0.7)
+                Text(partial.text.isEmpty ? "Press the hotkey or click Start Listening to begin." : partial.text)
+                    .font(.system(size: 14))
+                    .italic(partial.text.isEmpty)
+                    .foregroundStyle(partial.text.isEmpty ? Color.secondary : Color.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -1161,28 +1695,23 @@ private struct UntypeRootView: View {
         let operatorControlsDisabled = !availability.protocolOperatorControlsEnabled
 
         return ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                glassSection("Credentials") {
-                    VStack(alignment: .leading, spacing: 7) {
-                        statusRow("Key", model.settings.apiKeyName)
-                        statusRow("Status", model.settings.apiKeyStatus)
-                        statusRow("Source", model.settings.storageStatus)
-                        statusRow("Expiry", model.settings.expiryStatus)
-                    }
+            VStack(alignment: .leading, spacing: 14) {
+                // Session — read-only summary
+                inspectorGroup("Session") {
+                    inspectorStatusRow("State", value: model.sessionState, tone: UntypeStatusToneMap.session(isRunning: model.isRunning, isHotkeyPressed: model.hotkeyPressed))
+                    inspectorMonoRow("Mode", value: model.settings.protocolMode)
+                    inspectorMonoRow("STT provider", value: model.settings.provider)
+                    inspectorMonoRow("Model", value: model.settings.model)
+                    inspectorMonoRow("Languages", value: model.settings.languages.joined(separator: " · "))
+                    inspectorMonoRow("Sample rate", value: "\(model.settings.sampleRate) Hz")
+                    inspectorMonoRow("Endpoint detection", value: model.settings.endpointDetection ? "on" : "off")
+                    inspectorMonoRow("Audio", value: model.audioStatus)
                 }
 
-                glassSection("System") {
-                    VStack(alignment: .leading, spacing: 7) {
-                        statusRow("Microphone", model.settings.microphoneStatus)
-                        statusRow("Audio", model.audioStatus)
-                        statusRow("Accessibility", model.settings.accessibilityStatus)
-                        statusRow("Input", model.settings.inputStatus)
-                    }
-                }
-
-                glassSection("Provider") {
+                // Provider
+                inspectorGroup("Provider") {
                     VStack(alignment: .leading, spacing: 8) {
-                        formRow("STT") {
+                        inspectorFieldRow("STT") {
                             Picker("", selection: binding(\.provider)) {
                                 Text("Soniox").tag("soniox")
                                 Text("ElevenLabs").tag("elevenlabs")
@@ -1190,28 +1719,27 @@ private struct UntypeRootView: View {
                             .labelsHidden()
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        formRow("Model") {
+                        inspectorFieldRow("Model") {
                             TextField("", text: binding(\.model))
                                 .textFieldStyle(.roundedBorder)
                         }
-                        formRow("Languages") {
+                        inspectorFieldRow("Languages") {
                             TextField("", text: languagesBinding)
                                 .textFieldStyle(.roundedBorder)
                         }
-                        formRow("Sample") {
-                            Stepper("\(model.settings.sampleRate)", value: sampleRateBinding, in: 8_000...48_000, step: 1_000)
+                        inspectorFieldRow("Sample") {
+                            Stepper("\(model.settings.sampleRate) Hz", value: sampleRateBinding, in: 8_000...48_000, step: 1_000)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        formRow("Endpoint") {
-                            Toggle("Detection", isOn: binding(\.endpointDetection))
-                        }
+                        inspectorToggleRow("Endpoint detection", isOn: binding(\.endpointDetection))
                     }
                     .disabled(sessionShapingDisabled)
                 }
 
-                glassSection("Protocol") {
+                // Protocol
+                inspectorGroup("Protocol") {
                     VStack(alignment: .leading, spacing: 8) {
-                        formRow("Mode") {
+                        inspectorFieldRow("Mode") {
                             Picker("", selection: binding(\.protocolMode)) {
                                 Text("Dictation").tag("dictation")
                                 Text("Agent").tag("agent-protocol")
@@ -1221,7 +1749,7 @@ private struct UntypeRootView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .disabled(sessionShapingDisabled)
-                        formRow("Translation") {
+                        inspectorFieldRow("Translate") {
                             Picker("", selection: binding(\.translationPolicy)) {
                                 Text("Opposite").tag("opposite")
                                 Text("To English").tag("to-en")
@@ -1231,25 +1759,25 @@ private struct UntypeRootView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .disabled(sessionShapingDisabled)
-                        formRow("Operators") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Toggle("Refine", isOn: binding(\.refine))
-                                Toggle("Translate", isOn: binding(\.translate))
-                                Toggle("Clipboard", isOn: binding(\.clipboard))
-                                Toggle("Focused input", isOn: binding(\.focusedInput))
-                            }
-                            .disabled(operatorControlsDisabled)
-                        }
                     }
                 }
 
-                glassSection("LLM") {
+                // Operators — always editable
+                inspectorGroup("Operators") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        inspectorToggleRow("Refine", isOn: binding(\.refine))
+                        inspectorToggleRow("Translate", isOn: binding(\.translate))
+                        inspectorToggleRow("Clipboard", isOn: binding(\.clipboard))
+                        inspectorToggleRow("Focused input", isOn: binding(\.focusedInput))
+                    }
+                    .disabled(operatorControlsDisabled)
+                }
+
+                // LLM
+                inspectorGroup("Refinement (LLM)") {
                     VStack(alignment: .leading, spacing: 8) {
-                        formRow("Enabled") {
-                            Toggle("", isOn: binding(\.llmEnabled))
-                                .labelsHidden()
-                        }
-                        formRow("Provider") {
+                        inspectorToggleRow("Enabled", isOn: binding(\.llmEnabled))
+                        inspectorFieldRow("Provider") {
                             Picker("", selection: binding(\.llmProvider)) {
                                 ForEach(LLMProvider.allCases, id: \.rawValue) { provider in
                                     Text(provider.rawValue).tag(provider.rawValue)
@@ -1258,7 +1786,7 @@ private struct UntypeRootView: View {
                             .labelsHidden()
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        formRow("Model") {
+                        inspectorFieldRow("Model") {
                             TextField("", text: binding(\.llmModel))
                                 .textFieldStyle(.roundedBorder)
                         }
@@ -1266,19 +1794,20 @@ private struct UntypeRootView: View {
                     .disabled(sessionShapingDisabled)
                 }
 
-                glassSection("Push to Talk") {
+                // Push to talk
+                inspectorGroup("Push to talk") {
                     VStack(alignment: .leading, spacing: 8) {
-                        formRow("Enabled") {
-                            Toggle("", isOn: binding(\.hotkeyEnabled))
-                                .labelsHidden()
+                        inspectorToggleRow("Enabled", isOn: binding(\.hotkeyEnabled))
+                            .disabled(sessionShapingDisabled)
+                        inspectorFieldRow("Hotkey") {
+                            HStack(spacing: 6) {
+                                TextField("", text: binding(\.hotkey))
+                                    .textFieldStyle(.roundedBorder)
+                                UntypeKbd(model.settings.hotkey)
+                            }
                         }
                         .disabled(sessionShapingDisabled)
-                        formRow("Hotkey") {
-                            TextField("", text: binding(\.hotkey))
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        .disabled(sessionShapingDisabled)
-                        formRow("Action") {
+                        inspectorFieldRow("Action") {
                             Button(model.hotkeyPressed ? "Release Hotkey" : "Press Hotkey") {
                                 model.hotkeyPressed
                                     ? model.stopHotkeySession(source: "ui-button")
@@ -1290,68 +1819,173 @@ private struct UntypeRootView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, settingsLabelWidth + 10)
+                    }
+                }
+
+                // Permissions — deep links into System Settings when not OK
+                inspectorGroup("Permissions") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        inspectorPermissionRow(
+                            label: "Microphone",
+                            value: model.settings.microphoneStatus,
+                            tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus),
+                            deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                        )
+                        inspectorPermissionRow(
+                            label: "Accessibility",
+                            value: model.settings.accessibilityStatus,
+                            tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
+                            deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                        )
+                        inspectorPermissionRow(
+                            label: "Input monitoring",
+                            value: model.settings.inputStatus,
+                            tone: model.settings.focusedInput ? .accent : .off,
+                            deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+                        )
+                    }
+                }
+
+                // Credentials
+                inspectorGroup("Credentials") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        inspectorStatusRow(model.settings.apiKeyName, value: model.settings.apiKeyStatus, tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus))
+                        inspectorMonoRow("Source", value: model.settings.storageStatus)
+                        inspectorMonoRow("Expiry", value: model.settings.expiryStatus)
+                        if model.settings.storageStatus.lowercased().contains(".env") || model.settings.storageStatus.lowercased().contains("user") {
+                            Text("~/.tool-agents/untype/.env")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
                     }
                 }
             }
             .padding(14)
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.35))
-        .frame(width: 360)
+        .frame(width: 320)
+        .background(.thinMaterial)
+        .overlay(alignment: .leading) {
+            Divider()
+        }
     }
 
-    private var settingsLabelWidth: CGFloat {
-        88
-    }
-
-    private func glassSection<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    private func inspectorGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            UntypeSectionHeader(title)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.18))
-        }
-        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06))
+        )
     }
 
-    private func formRow<Content: View>(
-        _ label: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    private func inspectorToggleRow(_ label: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 6)
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func inspectorFieldRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(label)
-                .font(.caption)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .frame(width: settingsLabelWidth, alignment: .leading)
+                .frame(width: 80, alignment: .leading)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func statusRow(_ label: String, _ value: String) -> some View {
+    private func inspectorStatusRow(_ label: String, value: String, tone: UntypeStatusTone) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(label)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .frame(width: settingsLabelWidth, alignment: .leading)
-            Text(value)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(width: 80, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            HStack(spacing: 6) {
+                UntypeStatusDot(tone: tone, size: 7)
+                Text(value)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .font(.caption)
+    }
+
+    private func inspectorMonoRow(_ label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func inspectorPermissionRow(label: String, value: String, tone: UntypeStatusTone, deepLink: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
+            HStack(spacing: 6) {
+                UntypeStatusDot(tone: tone, size: 7)
+                Text(value)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                if tone == .warn {
+                    Button {
+                        if let url = URL(string: deepLink) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open System Settings")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var audioLevelLabel: String {
+        let lower = model.audioStatus.lowercased()
+        if let percentRange = lower.range(of: #"\d+%"#, options: .regularExpression) {
+            return String(lower[percentRange])
+        }
+        if model.isRunning { return "live" }
+        return "silent"
     }
 
     private var hotkeyStatus: String {
@@ -1585,47 +2219,392 @@ private final class UntypeOverlayController: ObservableObject {
 private struct UntypeOverlayView: View {
     @ObservedObject var controller: UntypeOverlayController
 
+    private var isRecording: Bool {
+        controller.overlayPhase.lowercased() == "recording"
+    }
+
+    private var phaseTone: UntypeStatusTone {
+        switch controller.overlayPhase.lowercased() {
+        case "recording": return .recording
+        case "finalizing", "processed": return .accent
+        default: return .ok
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
+            // Live transcript line — top region, leaves room at the bottom for chips and phase.
             Text(controller.overlayText.isEmpty ? " " : controller.overlayText)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 16)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 31)
+                .padding(.top, 12)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 30)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            HStack(spacing: 6) {
+                .textSelection(.disabled)
+
+            // Bottom-left: operator chips
+            HStack(spacing: 5) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in
                     Text(item.label)
-                        .font(.caption.weight(.bold))
-                        .frame(width: 22, height: 18)
+                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                        .frame(width: 20, height: 18)
                         .foregroundStyle(item.enabled ? Color.white : Color.secondary)
-                        .background(item.enabled ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(item.enabled ? UntypeDesignTokens.accentAmber : Color.primary.opacity(0.06))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(item.enabled ? UntypeDesignTokens.accentAmber.opacity(0.5) : Color.primary.opacity(0.10))
+                        )
+                        .accessibilityLabel("Operator \(item.label), \(item.enabled ? "on" : "off")")
                 }
             }
-            .padding(.leading, 16)
-            .padding(.bottom, 5)
+            .padding(.leading, 14)
+            .padding(.bottom, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(controller.overlayPhase == "recording" ? Color.red : Color.green)
-                    .frame(width: 9, height: 9)
+
+            // Bottom-right: phase indicator
+            HStack(spacing: 6) {
+                UntypeStatusDot(tone: phaseTone, size: 7)
                 Text(controller.overlayPhase)
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                     .textCase(.uppercase)
+                    .foregroundStyle(phaseTone.color)
+                    .tracking(0.6)
             }
             .frame(height: 18)
-            .padding(.trailing, 20)
-            .padding(.bottom, 5)
+            .padding(.trailing, 14)
+            .padding(.bottom, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .accessibilityLabel("Phase \(controller.overlayPhase)")
         }
         .frame(width: controller.overlaySize.width, height: controller.overlaySize.height, alignment: .topLeading)
         .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .clipped()
-        .shadow(radius: 18)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isRecording ? UntypeDesignTokens.recordingRed.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 22, x: 0, y: 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Push to talk overlay")
+    }
+}
+
+// MARK: - Onboarding sheet
+
+@MainActor
+private struct UntypeOnboardingView: View {
+    @ObservedObject var model: UntypeUIModel
+    var onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 22) {
+            HStack(alignment: .top, spacing: 14) {
+                UntypeBrandMark(size: 52)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("WELCOME")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(UntypeDesignTokens.accentAmber)
+                        .tracking(1.2)
+                    Text("Hold a key. Speak.\nType with your voice.")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("untype is a Swift-native dictation companion for macOS. Push-to-talk in any app, with optional LLM refinement, translation, and clipboard or focused-input delivery.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 520, alignment: .leading)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 12) {
+                onboardingStep(
+                    number: 1,
+                    title: "Microphone access",
+                    body: "Required for AVAudioEngine to capture input.",
+                    tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus),
+                    actionLabel: needsMic ? "Grant" : nil,
+                    deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                )
+                onboardingStep(
+                    number: 2,
+                    title: "Accessibility trust",
+                    body: "Lets untype install a Quartz event-tap for the push-to-talk hotkey.",
+                    tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
+                    actionLabel: needsAccessibility ? "Grant" : nil,
+                    deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                )
+                onboardingStep(
+                    number: 3,
+                    title: "Provider credentials",
+                    body: "At least one STT key (Soniox or ElevenLabs) and an LLM key if you want refinement.",
+                    tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus),
+                    actionLabel: needsCredential ? "Open .env" : nil,
+                    deepLink: nil
+                )
+            }
+
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    UntypeSectionHeader("Push-to-talk hotkey")
+                    HStack(spacing: 8) {
+                        ForEach(hotkeyTokens, id: \.self) { token in
+                            UntypeKbd(token)
+                                .scaleEffect(1.15, anchor: .leading)
+                                .padding(.trailing, 4)
+                        }
+                        Button("Change…") {
+                            // Defer to inspector; this is a hint, not a binding.
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    Text("Hold to record, release to submit. Auto-warms a new provider session after each turn.")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider().frame(maxHeight: 88)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    UntypeSectionHeader("Config search path")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("CLI flag").foregroundStyle(.secondary)
+                        Text("./.env").foregroundStyle(.secondary)
+                        Text("~/.tool-agents/untype/.env").foregroundStyle(UntypeDesignTokens.accentAmber)
+                        Text("shell environment").foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(16)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06))
+            )
+
+            HStack(spacing: 10) {
+                Text(footerSummary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Skip for now") {
+                    Self.markSkipped()
+                    onDismiss()
+                }
+                Button(primaryActionTitle) {
+                    if let url = primaryActionURL {
+                        NSWorkspace.shared.open(url)
+                    } else {
+                        model.refreshCredentials()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(UntypeDesignTokens.accentAmber)
+            }
+        }
+        .padding(32)
+        .frame(width: 760, height: 560)
+        .background(.regularMaterial)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var hotkeyTokens: [String] {
+        let separator: Character = model.settings.hotkey.contains("+") ? "+" : "-"
+        return model.settings.hotkey.split(separator: separator).map { String($0) }
+    }
+
+    private var needsMic: Bool {
+        UntypeStatusToneMap.microphone(model.settings.microphoneStatus) != .ok
+    }
+
+    private var needsAccessibility: Bool {
+        UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus) != .ok
+    }
+
+    private var needsCredential: Bool {
+        UntypeStatusToneMap.credential(model.settings.apiKeyStatus) != .ok
+    }
+
+    private var readyCount: Int {
+        [!needsMic, !needsAccessibility, !needsCredential].filter { $0 }.count
+    }
+
+    private var footerSummary: String {
+        "\(readyCount) of 3 ready · macOS 14+ · Swift 6 · untype"
+    }
+
+    private var primaryActionTitle: String {
+        if needsAccessibility { return "Grant Accessibility" }
+        if needsMic { return "Grant Microphone" }
+        if needsCredential { return "Refresh credentials" }
+        return "Get started"
+    }
+
+    private var primaryActionURL: URL? {
+        if needsAccessibility { return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") }
+        if needsMic { return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") }
+        return nil
+    }
+
+    private func onboardingStep(
+        number: Int,
+        title: String,
+        body: String,
+        tone: UntypeStatusTone,
+        actionLabel: String?,
+        deepLink: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
+                Text("\(number)")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(UntypeDesignTokens.accentAmber)
+                    .frame(width: 22, height: 22)
+                    .background(UntypeDesignTokens.accentAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                Spacer()
+                HStack(spacing: 5) {
+                    UntypeStatusDot(tone: tone, size: 6)
+                    Text(tone == .ok ? "ready" : tone == .warn ? "action" : "set up")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(tone.color)
+                        .textCase(.uppercase)
+                        .tracking(0.4)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(tone.color.opacity(0.14), in: Capsule(style: .continuous))
+            }
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+            Text(body)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionLabel {
+                Button(actionLabel) {
+                    if let link = deepLink, let url = URL(string: link) {
+                        NSWorkspace.shared.open(url)
+                    } else {
+                        model.refreshCredentials()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 168, alignment: .topLeading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06))
+        )
+    }
+
+    // Onboarding skip persistence — non-secret, 24h re-prompt suppression.
+    private static let skipKey = "untype.onboardingSkippedAt"
+
+    static func markSkipped() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: skipKey)
+    }
+
+    static func recentlySkipped() -> Bool {
+        let skippedAt = UserDefaults.standard.double(forKey: skipKey)
+        guard skippedAt > 0 else { return false }
+        return (Date().timeIntervalSince1970 - skippedAt) < 24 * 60 * 60
+    }
+}
+
+// MARK: - Compact mini window view
+
+@MainActor
+private struct UntypeMiniView: View {
+    @ObservedObject var model: UntypeUIModel
+
+    private var isRecording: Bool { model.isRunning }
+    private var liveText: String { model.timeline.partial?.text ?? "" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                UntypeBrandMark(size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        UntypeStatusDot(tone: isRecording ? .recording : .accent, size: 6)
+                        Text(isRecording ? "RECORDING" : "WARM")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(isRecording ? UntypeDesignTokens.recordingRed : UntypeDesignTokens.accentAmber)
+                            .tracking(0.7)
+                        Text("· \(model.settings.provider)")
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(model.sessionState)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                Spacer()
+                UntypeRecordButton(
+                    isRecording: model.isRunning,
+                    titleIdle: "Listen",
+                    titleRecording: "Stop"
+                ) {
+                    model.isRunning ? model.stopPrimarySession() : model.startManualSession()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isRecording ? "LIVE · PARTIAL" : "IDLE")
+                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(isRecording ? UntypeDesignTokens.recordingRed : .secondary)
+                    .tracking(0.7)
+                Text(liveText.isEmpty ? "press \(model.settings.hotkey)" : liveText)
+                    .font(.system(size: 13))
+                    .italic(liveText.isEmpty)
+                    .foregroundStyle(liveText.isEmpty ? Color.secondary : Color.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            HStack(spacing: 6) {
+                UntypeOperatorChip(letter: "R", label: "Refine", isOn: model.settings.refine, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.refine)
+                }
+                UntypeOperatorChip(letter: "T", label: "Translate", isOn: model.settings.translate, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.translate)
+                }
+                UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.clipboard)
+                }
+                UntypeOperatorChip(letter: "I", label: "Input", isOn: model.settings.focusedInput, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.input)
+                }
+                Spacer()
+                UntypeWaveformView(isActive: isRecording, barCount: 18, height: 20)
+                Text(isRecording ? "live" : "silent")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isRecording ? UntypeDesignTokens.recordingRed : .secondary)
+            }
+        }
+        .padding(14)
+        .frame(minWidth: 440, minHeight: 220)
+        .background(.regularMaterial)
     }
 }
 

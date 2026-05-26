@@ -197,17 +197,26 @@ The main session button now reflects the active capture state with source-style 
 Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
 
 ### Proposed macOS UI Modernization
-The proposed next UI direction is documented in `docs/design/plan-016-macos-ui-modernization-proposal.md` and is grounded in the current source review plus Apple Human Interface Guidelines research in `docs/reference/macos-ui-guidelines-modernization-research.md`.
+The proposed next UI direction is documented in `docs/design/plan-016-macos-ui-modernization-proposal.md` and is grounded in the current source review, Apple Human Interface Guidelines research in `docs/reference/macos-ui-guidelines-modernization-research.md`, and a Claude Design handoff bundle saved at `docs/reference/design-bundle-macos-modernization/`.
 
-The proposal keeps the existing native SwiftUI/AppKit runtime model, privacy boundaries, settings persistence, active-session editability rules, transcript/history/events data model, export semantics, and non-activating push-to-talk overlay. It recommends reorganizing the visual shell into a more conventional macOS structure:
-- a native toolbar for frequent actions and session control;
+The proposal keeps the existing native SwiftUI/AppKit runtime model, privacy boundaries, settings persistence, active-session editability rules, transcript/history/events data model, export semantics, and non-activating push-to-talk overlay. It reorganizes the visual shell into a conventional macOS structure:
+- a native toolbar for frequent actions and session control, with a primary record button and refresh/inspector affordances;
 - leading source-list navigation for Transcript, History, and Events;
-- a main content work area for the selected monitor surface;
-- a trailing inspector-style settings pane for credentials, system status, provider, protocol, LLM, and push-to-talk configuration;
+- a main content work area for the selected monitor surface, with a tinted-accent operator chip row (R/T/C/I) and a deterministic waveform readout;
+- a trailing inspector-style settings pane (grouped `Form`) for credentials, system status, provider, protocol, LLM, and push-to-talk configuration;
 - compact status pills for session, capture, audio, output, and permissions;
-- a cleaner material-backed dictation HUD for push-to-talk overlay feedback.
+- a `.regularMaterial` dictation HUD overlay with phase indicator, four operator chips, and a wrap-stable transcript line.
 
-The modernization proposal is not implemented yet. It should be treated as the design baseline for any future UI polish or redesign work under FR-19.
+#### Visual Direction (locked)
+Per the design bundle and chat transcript (`docs/reference/design-bundle-macos-modernization/chats/chat1.md`):
+
+- **Direction**: V1 Classic Sidebar from `main-windows.jsx:UnMainV1`. It is the closest variant to the existing `UntypeRootView` HStack and minimizes data-plumbing churn.
+- **Accent**: warm amber (`Color.accentColor` resolved to the values in `shared.jsx:UN_THEMES.{light,dark}.accent`), used sparingly — primary record button, active operator chip, and brand mark only. Other surfaces rely on system materials.
+- **Material**: native SwiftUI materials (`.regularMaterial`, `.thinMaterial`) — NOT a literal port of the bundle's blur/saturate stack. This aligns with the existing plan-016 guidance against custom glass-card stacking and keeps the app feeling natively macOS.
+- **Overlay**: Card variant from `peripheral.jsx:OverlayCard`. Best fit for the wrap-grow text behavior already implemented in `UntypeOverlayLayout`.
+- **Out of scope**: Menubar status item dropdown, V2/V3 main-window variants, manual light/dark switching (the design supports both because all colors derive from the system accent + materials).
+
+Provenance for every UI module that lands under this plan must cite the corresponding design file in `docs/reference/design-bundle-macos-modernization/project/` to keep the chain auditable. The modernization is now in active implementation under plan-016; each phase of that plan tracks its own acceptance criteria.
 
 ## CLI Voice Command Responsiveness
 The CLI and UI runtime now ask the active STT provider to commit as soon as a partial transcript contains an actionable protocol marker such as `command status`, `command send`, or `command cancel`. Finalized transcripts still remain the only place where protocol actions execute, but this partial-triggered commit avoids the live CLI appearing unresponsive when the provider keeps voice commands in partial output until VAD, endpoint detection, or shutdown. The runtime deduplicates repeated partial snapshots so a single visible command does not repeatedly commit the provider.

@@ -1,226 +1,326 @@
-# Plan 016: macOS UI Modernization Proposal
+# Plan 016: macOS UI Modernization — Design-Bundle Implementation
 
 ## Provenance
 - Refined request: `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-macos-ui-modernization-proposal.md`
 - Technical research: `~/aiwork/coding-platform/untype-s/docs/reference/macos-ui-guidelines-modernization-research.md`
+- Design handoff bundle (Claude Design): `docs/reference/design-bundle-macos-modernization/`
+  - Primary file: `docs/reference/design-bundle-macos-modernization/project/untype - modern macOS redesign.html`
+  - Chat transcript: `docs/reference/design-bundle-macos-modernization/chats/chat1.md`
+  - Shared design tokens / primitives: `docs/reference/design-bundle-macos-modernization/project/src/shared.jsx`
+  - Main window variants: `docs/reference/design-bundle-macos-modernization/project/src/main-windows.jsx`
+  - Peripherals (overlay / menubar / mini): `docs/reference/design-bundle-macos-modernization/project/src/peripheral.jsx`
+  - Screens (onboarding / settings / history): `docs/reference/design-bundle-macos-modernization/project/src/screens.jsx`
 - Source files reviewed:
-  - `~/aiwork/coding-platform/untype-s/Sources/UntypeCore/NativeUntypeUILauncher.swift`
-  - `~/aiwork/coding-platform/untype-s/Sources/UntypeCore/UntypeUISettings.swift`
+  - `Sources/UntypeCore/NativeUntypeUILauncher.swift`
+  - `Sources/UntypeCore/UntypeUISettings.swift`
+  - `Sources/UntypeCore/UntypeUITimeline.swift`
+  - `Sources/UntypeCore/UntypeOverlayLayout.swift`
 
-## Current UI Inventory from Source
+## Direction Locked
 
-`untype ui` is a native AppKit-hosted SwiftUI window. The app launches as a regular macOS app, creates a resizable titled window named `untype`, and restores width/height from persisted UI settings. The current minimum size is `860 x 620`; the default restored size is `1180 x 760`.
+After the user reviewed the design canvas, the locked direction is:
 
-Evidence:
-- `NativeUntypeUILauncher.swift:31-39` launches `NSApplication`.
-- `NativeUntypeUILauncher.swift:71-89` creates the titled, resizable `NSWindow`.
-- `UntypeUISettings.swift:56-59` defines default window size, settings expansion, and selected monitor tab.
+- **Main window: V1 Classic Sidebar.** Closest to the existing `UntypeRootView` HStack
+  (left rail + monitor + right inspector), so most of the existing data plumbing
+  (`UntypeUIModel`, `UntypeUITimeline`, `UntypeUISettings`, settings persistence,
+  active-session disabling rules) survives intact.
+- **Visual language: native SwiftUI materials.** Use `.regularMaterial`,
+  `.thinMaterial`, `Color.accentColor`, and SF Symbols rather than literal port
+  of the `unMaterial()` blur/saturate stack from `shared.jsx`. The design's
+  amber-accent identity comes through via a single tinted accent color and an
+  amber `UntypeBrandMark`, not via deeply rounded promotional gradients on every
+  surface.
+- **Overlay: dictation HUD (overlay variant C, the card).** Best fit for the
+  current non-activating `NSPanel` with wrap-grow text and four R/T/C/I chips.
+- **Mini window: deferred behind a hidden setting.** Built but not surfaced on
+  the toolbar until the V1 main flow is validated.
 
-The main window is currently a horizontal split:
-- left/main pane: title, status line, primary session button, refresh button, settings toggle, and monitor tab view.
-- right pane: collapsible settings surface.
+The chat transcript (`docs/reference/design-bundle-macos-modernization/chats/chat1.md`)
+documents the user's choices: Tahoe / Liquid Glass era, warm amber accent, glassy
+operator pills with status lights, both light + dark, real provider names from
+the repo, R/T/C/I treatment, material-strength as the only tweak.
 
-Evidence:
-- `NativeUntypeUILauncher.swift:825-835` defines the main horizontal layout and collapsible settings pane.
-- `NativeUntypeUILauncher.swift:838-864` defines the current header and main pane.
+## Mapping: Design Surfaces → Swift Integration Points
 
-The monitoring area uses a `TabView` with three peers:
-- `Transcript`: grouped turns, live partials, Copy, Save, Clear.
-- `History`: session-local conversation history and Clear.
-- `Events`: retained diagnostic/protocol/event log, Copy, Save.
+| Design surface (file:symbol)                  | Swift target                                                            | Phase |
+|-----------------------------------------------|-------------------------------------------------------------------------|-------|
+| `shared.jsx:UN_THEMES / unMaterial`           | `UntypeDesignSystem.swift:UntypePalette / UntypeMaterials`              | 1     |
+| `shared.jsx:UnBrandMark`                      | `UntypeDesignSystem.swift:UntypeBrandMark`                              | 1     |
+| `shared.jsx:UnOperatorPill`                   | `UntypeDesignSystem.swift:UntypeOperatorChip`                           | 1     |
+| `shared.jsx:UnRecordButton`                   | `UntypeDesignSystem.swift:UntypeRecordButton` (toolbar primary)         | 1     |
+| `shared.jsx:UnWaveform`                       | `UntypeDesignSystem.swift:UntypeWaveformView`                           | 1     |
+| `shared.jsx:UnStatusDot`                      | `UntypeDesignSystem.swift:UntypeStatusDot`                              | 1     |
+| `shared.jsx:UnLabel / UnKV / UnTabs / UnBtn`  | `UntypeDesignSystem.swift:UntypeFormStyles`                             | 1     |
+| `main-windows.jsx:V1Sidebar`                  | `UntypeRootView.sidebar` (NavigationSplitView leading column)           | 1     |
+| `main-windows.jsx:V1Monitor`                  | `UntypeRootView.monitor` (content column)                               | 1     |
+| `main-windows.jsx:TranscriptTurn`             | `UntypeRootView.timelineTurnView`                                       | 1     |
+| `main-windows.jsx:V1Inspector`                | `UntypeRootView.settingsPane` (refactor to grouped inspector)           | 3     |
+| `peripheral.jsx:OverlayCard`                  | `UntypeOverlayView`                                                     | 2     |
+| `peripheral.jsx:UnMenubarDropdown`            | Future `UntypeMenubarController` (out of scope for this plan)           | —     |
+| `peripheral.jsx:UnMini`                       | `UntypeMiniWindowController` (compact-mode toggle)                      | 5     |
+| `screens.jsx:Onboarding`                      | `UntypeOnboardingView` shown when `apiKeyStatus == "missing"`           | 5     |
+| `screens.jsx:SettingsProviders / Shortcuts`   | Sections inside the redesigned inspector (no separate window)           | 3     |
+| `screens.jsx:HistoryBrowser`                  | `UntypeRootView.historyPane` styling                                    | 4     |
 
-Evidence:
-- `NativeUntypeUILauncher.swift:867-888` defines the three monitor tabs.
-- `NativeUntypeUILauncher.swift:891-941` defines the transcript pane.
-- `NativeUntypeUILauncher.swift:944-986` defines the events pane.
-- `NativeUntypeUILauncher.swift:989-1032` defines the history pane.
+## Phase 1 — Design System + Main Window Restructure
 
-The right settings pane contains six grouped sections:
-- Credentials: key name, status, source, expiry.
-- System: microphone, audio, accessibility, input.
-- Provider: STT provider, model, languages, sample rate, endpoint detection.
-- Protocol: mode, translation policy, Refine, Translate, Clipboard, Focused input.
-- LLM: enabled, provider, model.
-- Push to Talk: enabled, hotkey, press/release action, status note.
+### 1.1 New file: `Sources/UntypeCore/UntypeDesignSystem.swift`
 
-Evidence:
-- `NativeUntypeUILauncher.swift:1158-1300` defines the settings pane sections and controls.
-- `NativeUntypeUILauncher.swift:1307-1355` defines the current material section, form row, and status row styling.
+Contains, in this order:
 
-The push-to-talk overlay is a borderless non-activating `NSPanel` at status-bar level. It shows live transcript text, four operator indicators (`R`, `T`, `C`, `I`), and a phase indicator. It is intentionally passive and ignores mouse events.
+1. `enum UntypeAccent` — semantic colors (`amber`, `recording`, `success`,
+   `warning`) backed by `Color(.sRGB, red:…, green:…, blue:…, opacity:…)` so they
+   render identically in light and dark. Source values from `shared.jsx:UN_THEMES`.
+2. `struct UntypeBrandMark: View` — 28-pt amber rounded square with white "u"
+   monogram. Matches `shared.jsx:UnBrandMark`.
+3. `struct UntypeStatusDot: View` — 7-pt dot with 3-pt halo. Tone enum:
+   `ok / warn / recording / accent / off`.
+4. `struct UntypeStatusPill: View` — text + dot + optional SF Symbol icon, in a
+   `.thinMaterial` Capsule. Matches plan-016's "compact status pill" requirement.
+5. `struct UntypeOperatorChip: View` — letter + label + status dot. Tinted with
+   `accentColor.opacity(0.18)` background and `accentColor.opacity(0.35)` stroke
+   when `on`. When `recording && on`, dot uses the recording red. Click toggles.
+6. `struct UntypeRecordButton: View` — amber gradient capsule when idle, red
+   gradient when recording, white shape inside (circle → rounded square on
+   recording). Drives `model.startManualSession()` / `model.stopPrimarySession()`
+   via a closure passed in.
+7. `struct UntypeWaveformView: View` — deterministic pseudo-waveform (24–36 bars).
+   Mirrors `shared.jsx:UnWaveform` but uses `TimelineView` only when `recording`
+   to keep CPU low when idle (relevant to plan-015).
+8. `struct UntypeKbd: View` — kbd-style pill for hotkey display.
+9. `struct UntypeSectionHeader: View` — uppercase 11-pt label for inspector
+   sections. Matches `shared.jsx:UnLabel`.
 
-Evidence:
-- `NativeUntypeUILauncher.swift:1435-1582` defines the overlay controller and panel behavior.
-- `NativeUntypeUILauncher.swift:1584-1629` defines the overlay visual content.
+All primitives MUST:
+- Accept their data through arguments, never read from `UntypeUIModel` directly.
+- Honor `@Environment(\.colorScheme)` for light/dark.
+- Use SF Symbols (`mic.fill`, `stop.fill`, `record.circle`, `keyboard`,
+  `checkmark.circle.fill`, `exclamationmark.triangle.fill`).
 
-## Current Design Diagnosis
+### 1.2 Refactor `UntypeRootView` (`NativeUntypeUILauncher.swift:822`)
 
-The existing UI is functionally rich, but it still reads like an implementation dashboard more than a polished Mac app:
-- The header status line compresses three important state dimensions into one sentence.
-- The primary action competes visually with secondary controls.
-- `Transcript`, `History`, and `Events` behave like app sections, but top tabs make them feel like temporary subviews.
-- The settings pane is useful, but the stacked material sections feel visually busier than an inspector or Form-style settings surface.
-- Diagnostics and permission states are present, but remediation hierarchy is weak; errors, warnings, and normal status rely too much on plain text in rows/logs.
-- The overlay is practical, but it should feel more like a compact dictation HUD and less like a mini log window.
+Replace the existing HStack body with a `NavigationSplitView`:
 
-## Proposed Product Shape
+```
+NavigationSplitView(columnVisibility: $columnVisibility) {
+    sidebar
+} content: {
+    monitorContent
+} detail: {
+    inspectorPane
+}
+.toolbar { toolbarContent }
+```
 
-### Design Goal
-Make `untype ui` feel like a quiet native macOS utility for live dictation and voice-agent routing: immediate to start, calm while monitoring, dense enough for expert use, and explicit about privacy, permissions, and output delivery.
+- **`sidebar`** — Source list with three items (`Transcript`, `History`,
+  `Events`) bound to `model.settings.selectedMonitorTab`. Below the source list:
+  a "Status" card (`.thinMaterial`) showing four `UntypeStatusPill` rows
+  (Microphone / Accessibility / SONIOX_API_KEY / AZURE_OAI_KEY) backed by
+  `model.settings.{microphoneStatus,accessibilityStatus,apiKeyStatus}`.
+  Width: 200 pt, persisted via `settings.windowWidth`/`settings.windowHeight`.
+- **`monitorContent`** — Switches on `selectedMonitorTab`:
+  - `transcript` → existing `transcriptPane` body, but the top bar becomes:
+    operator chip row (`UntypeOperatorChip` × 4) on the left, `UntypeWaveformView`
+    + dB readout on the right, then a content-toolbar row with `Copy / Save /
+    Clear` aligned right. Existing turn rendering (`timelineTurnView`) gets a
+    light restyle: time gutter (40 pt, monospaced), `RAW` prefix in muted
+    monospace, refined text with 2-pt amber left border per `TranscriptTurn` in
+    `main-windows.jsx:232`.
+  - `history` → see Phase 4.
+  - `events` → see Phase 4.
+- **`inspectorPane`** — Existing `settingsPane` reskinned to grouped `Form`
+  (see Phase 3). Toggle visibility via `settings.settingsExpanded`.
+- **Toolbar** (via `.toolbar`):
+  - Leading: `UntypeBrandMark` + "untype" title (so it shows even when title bar
+    is hidden by NavigationSplitView).
+  - Center: `UntypeStatusPill` cluster — Session, Audio, Output, Permission.
+    Each pill computes its tone from existing model state
+    (`model.isRunning`, `model.audioStatus`, `model.settings.{clipboard,focusedInput}`,
+    `model.settings.{microphoneStatus,accessibilityStatus}`).
+  - Trailing: `UntypeRecordButton`, Refresh button (SF Symbol
+    `arrow.clockwise`), Inspector toggle (SF Symbol `sidebar.right`).
+- **Keep `keyboardShortcut("r", modifiers: [.command])`** on the record button
+  for parity with the current build. Add `Cmd+\` for inspector toggle.
 
-### Recommended Layout
+### 1.3 Window chrome
 
-Use a three-region macOS structure:
+Change `NSWindow` creation at `NativeUntypeUILauncher.swift:71-89`:
+- Set `window.titleVisibility = .hidden`
+- Set `window.titlebarAppearsTransparent = true`
+- Set `window.styleMask.insert(.fullSizeContentView)`
+- Keep `minSize` at `860 x 620` (current) — the V1 layout still fits.
 
-1. **Native toolbar**
-   - Window title: `untype`.
-   - Primary control: `Start Listening` / `Stop Listening` / `Stop Recording` / `Stop Warm Session`.
-   - Secondary controls: Refresh, Inspector toggle, optional Push-to-Talk quick control.
-   - Compact status cluster: Session, Capture, Audio.
+### 1.4 Active-session disabling rules — UNCHANGED
 
-2. **Leading sidebar/source list**
-   - `Transcript`
-   - `History`
-   - `Events`
-   - Optional future section: `Setup` or `Permissions`, only if permission remediation grows beyond status rows.
+`UntypeUIControlAvailability(isSessionActive: model.isRunning)` continues to
+gate session-shaping controls (provider, model, languages, sample rate,
+endpoint detection, protocol mode, translation policy, LLM provider, LLM
+model, hotkey, hotkey-enabled). Operator toggles remain editable mid-session.
 
-3. **Main content plus trailing inspector**
-   - Main content shows the selected section.
-   - Trailing inspector replaces the current settings pane and uses native grouped form rows.
-   - Inspector can collapse and preserve the selected section/state exactly as today.
+### 1.5 Persistence — UNCHANGED
 
-This keeps the app close to common macOS document/utility patterns: toolbar for frequent commands, sidebar for persistent navigation, content for work, inspector for configuration.
+`UntypeUISettings.selectedMonitorTab`, `settingsExpanded`, `windowWidth`,
+`windowHeight` continue to flow through `model.updateLayout(...)` →
+`UntypeUISettingsStore.save`.
 
-## Proposed Main Window Design
+### 1.6 Acceptance for Phase 1
 
-### Toolbar
-Move the current inline header controls into a native-style toolbar:
-- Primary button: a prominent bordered/tinted action with a record/microphone SF Symbol and current session label.
-- Refresh: icon button with tooltip and optional text in expanded toolbar display mode.
-- Inspector toggle: native sidebar/inspector icon button.
-- Push-to-talk quick state: visible only when push-to-talk is enabled; shows `Warm`, `Recording`, or `Finalizing`.
+- `swift build` succeeds.
+- `swift test` passes the existing `TranscriptionSessionRuntimeTests` and
+  `UntypeUISettingsStoreTests` without modification.
+- Launching `untype ui` shows:
+  - Toolbar with brand mark, status pills, record button, refresh, inspector
+    toggle.
+  - Left sidebar with three navigation entries + a Status card.
+  - Center monitor with the existing Transcript view styled per the design.
+  - Right inspector (existing settings content, even if not yet restyled).
+- Clicking the record button starts a manual session exactly as before; the
+  button shape morphs and changes color.
+- Toggling Inspector hides/shows the trailing column; the choice survives a
+  relaunch (verified by inspecting `ui-state.json`).
 
-Keep `Command+R` for start/stop only if it does not conflict with expected Refresh semantics. Prefer `Command+Return` or a custom menu command for Start/Stop if `Refresh` remains visually present.
+## Phase 2 — Overlay HUD
 
-### Status Strip
-Replace the current single status sentence with compact status pills below the toolbar or at the top of content:
-- Session: Idle, Starting, Listening, Warm, Recording, Finalizing, Error.
-- Audio: Waiting, Silent, Active, Muted by Push to Talk.
-- Output: Off, Clipboard, Focused Input, Clipboard + Focused Input.
-- Permission: OK, Needs Microphone, Needs Accessibility/Input Monitoring.
+Replace the body of `UntypeOverlayView` (`NativeUntypeUILauncher.swift:1585`)
+with the OverlayCard layout from `peripheral.jsx:108-146`:
 
-Each pill should include text plus a symbol. Color can reinforce state, but text and symbol must carry meaning without color.
+- Top row, left: 36-pt circle, recording-tint background, recording-red
+  border, white square inside.
+- Top row, center: `Push-to-talk` heading + `soniox · {elapsed} · sec_xxxxxx`
+  metadata in monospace.
+- Top row, right: `UntypeWaveformView` (14 bars, 22 pt).
+- Middle: live transcript text in a `.thinMaterial` capsule, 17-pt body.
+- Bottom row, left: four `UntypeOperatorChip` views (small size) for R/T/C/I.
+- Bottom row, right: `release to submit` in monospaced 10.5 pt, muted.
 
-### Sidebar
-Replace the monitor `TabView` with a sidebar/source-list:
-- `Transcript`: live timeline and export.
-- `History`: summarized session turns and processed results.
-- `Events`: diagnostics, provider lifecycle, protocol events.
+Constraints to preserve from `UntypeOverlayLayout`:
+- Width and wrap rules (`layout.width`, `layout.anchoredPanelFrame`).
+- Bottom-left anchor stability while text grows vertically (plan-007, plan-010).
+- `panel.ignoresMouseEvents = true` MUST remain `true`.
+- `panel.level = .statusBar` MUST remain.
 
-Persist the selection through the existing `selectedMonitorTab` setting, preserving current behavior.
+Add accessibility labels:
+- `.accessibilityLabel("Push-to-talk overlay, \(phase), \(text)")` on the root.
+- `.accessibilityLabel("Operator \(letter), \(enabled ? "on" : "off")")` on each
+  chip.
 
-### Transcript View
-Keep the grouped turn model, but adjust the presentation:
-- Use a transcript-first work area with strong vertical rhythm and less card color.
-- Show live partial as a pinned bottom "Listening..." row while recording.
-- Show raw and processed output in the same turn with subtle section labels.
-- Keep `Copy`, `Save`, and `Clear` in a content toolbar local to Transcript.
-- Use warning rows inline when release finalization or operator delivery fails.
+Add a warning-state branch: when `model.events.last?.contains("warning")`, show
+a small amber `exclamationmark.triangle.fill` next to the phase label.
 
-### History View
-Make History a compact conversation ledger:
-- Left column: turn time/status.
-- Main column: "User said" and "Processed" summaries.
-- Expand/collapse long turns.
-- Keep Clear as a local action, matching current memory-only behavior.
+### 2.1 Acceptance for Phase 2
 
-### Events View
-Make Events an expert diagnostic console:
-- Monospaced log remains appropriate.
-- Add filter chips: All, Warnings, Provider, Audio, Hotkey, Protocol.
-- Keep Copy and Save local to Events.
-- Preserve chronological auto-scroll.
+- Pressing the hotkey shows the new HUD layout.
+- HUD frame matches `UntypeOverlayLayout` exactly (no regression in plan-008,
+  plan-010, plan-011 behavior).
+- Long transcripts wrap and grow upward; bottom anchor stays put.
+- Mouse over the HUD does not steal focus from the underlying window.
 
-### Inspector Settings
-Use a trailing inspector with grouped sections:
-- Setup: Provider, model, languages, sample rate, endpoint detection.
-- Protocol: mode, translation policy, operator toggles.
-- Output: clipboard and focused input status/delivery.
-- Intelligence: LLM enabled, provider, model.
-- Permissions: microphone, accessibility, input monitoring, key status.
-- Push to Talk: enabled, hotkey, fallback press/release button.
+## Phase 3 — Inspector Polish
 
-Important behavior to preserve:
-- Session-shaping controls remain disabled while a manual, warm, or recording session is active.
-- The four operator toggles remain editable during active sessions.
-- Secrets remain invisible.
-- Settings persist through `UntypeUISettingsStore`.
+Refactor `settingsPane` (`NativeUntypeUILauncher.swift:1158`) to a SwiftUI
+`Form` with `.formStyle(.grouped)`:
 
-## Proposed Overlay Design
+Sections, in order, matching `main-windows.jsx:V1Inspector` and
+`screens.jsx:SettingsProviders`:
 
-Keep the `NSPanel` implementation, but redesign it as a compact dictation HUD:
-- Material: regular material with subtle border and shadow.
-- Top line: live transcript text, wrapping within the stable width.
-- Bottom left: operator indicators with full accessible labels, visually compact.
-- Bottom right: phase with dot and text (`Recording`, `Finalizing`, `Processed`).
-- Error/warning state: small amber warning symbol and short phrase, never a long diagnostic log.
-- No interactive controls in the overlay because it ignores mouse events and should not steal focus.
+1. **Session** — read-only KV: State (with dot), Mode, STT provider, Model,
+   Language, Sample rate, Endpoint detection.
+2. **Refinement** — LLM toggle, Provider picker, Model text field, Translation
+   target picker. Disabled when `isSessionActive`.
+3. **Operators** — Four `Toggle` rows for R/T/C/I (always enabled per current
+   rule).
+4. **Push-to-talk** — Enabled toggle, Hotkey text field, fallback button,
+   status footer.
+5. **Permissions** — Microphone, Accessibility, Input Monitoring. Each row uses
+   an `UntypeStatusPill`. If `microphoneStatus != "granted"`, add a "Open
+   System Settings" button using `NSWorkspace.shared.open(URL(string:
+   "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)`.
+6. **Config source** — monospaced read-only display of
+   `~/.tool-agents/untype/.env` path; only shown if storage source is
+   `user .env`.
 
-The overlay should remain secondary to the main window. Long diagnostics belong in Events and warning rows in Transcript/History.
+Inspector width drops from 360 → 300 pt to reclaim content space, but is
+gated on `settings.windowWidth >= 1000` (still respect 860 minimum).
 
-## Visual Style
+## Phase 4 — History + Events refinement
 
-- Use system background colors, materials, and separators rather than custom glass-card stacking.
-- Use SF Symbols for toolbar/status meaning.
-- Keep corners modest: 6 to 8 px for transcript rows and inspector groups; avoid deeply rounded promotional styling.
-- Use `.secondary` text sparingly for metadata, not for critical state.
-- Prefer `Form`, `LabeledContent`, `DisclosureGroup`, and native picker/toggle styling where possible.
-- Avoid dominant accent-color fills except for the primary session action and active operator state.
-- Preserve dense macOS scanning: compact rows, aligned labels, clear section headers.
+- **History** (`historyPane`): replace card-only grouping with a two-column
+  layout — leading 56-pt time/status gutter, main column with "User said" and
+  "Processed" rows separated by a subtle divider. Use `DisclosureGroup` for
+  long turns (collapsed by default if turn text > 280 chars).
+- **Events** (`eventsPane`): add a filter `Picker` (segmented control) above
+  the log: `All / Warnings / Provider / Audio / Hotkey / Protocol`. Filter is
+  pure UI — does not change retention or the underlying `model.events` array.
+  Persist the choice in a new `UntypeUISettings.selectedEventsFilter` field
+  (additive, defaulting to `"all"`).
 
-## Accessibility and Keyboard Requirements
+## Phase 5 — Onboarding + Mini Window
 
-- Every toolbar icon-only control must have a label/help string.
-- Every status indicator must be understandable without color.
-- Transcript, history, and event text must remain selectable.
-- Start/stop, inspector toggle, monitor navigation, and export actions must be keyboard reachable.
-- Disabled controls must explain why they are disabled when feasible, especially active-session settings.
-- Window resizing must not hide primary controls or cause text overlap.
+### 5.1 Onboarding
 
-## Implementation Phases
+Show a full-window cover (`.sheet` on the root view, not modal-blocking)
+when:
+- `model.settings.apiKeyStatus == "missing"`, OR
+- `model.settings.microphoneStatus != "granted"`, OR
+- `model.settings.accessibilityStatus != "granted"`.
 
-### Phase 1: Structure Without Runtime Changes
-- Replace inline header controls with a SwiftUI toolbar or AppKit toolbar wrapper.
-- Replace monitor `TabView` with a `NavigationSplitView`/source-list style navigation while preserving `selectedMonitorTab`.
-- Keep the existing right settings pane behavior but rename the concept to Inspector in code/UI.
+Layout (per `screens.jsx:Onboarding`):
+- Hero amber `UntypeBrandMark` (size 64), "Welcome to untype" headline,
+  short subtitle.
+- Three checklist rows: Provide STT credentials → Grant Microphone →
+  Grant Accessibility. Each row has a status icon + "Take action" link.
+- Footer: "Skip for now" (dismiss sheet but persist a flag so we don't
+  re-prompt for 24h), "Open System Settings".
 
-### Phase 2: Inspector Polish
-- Convert stacked material sections into native grouped inspector rows.
-- Add clearer disabled-state messaging for active-session controls.
-- Add status severity treatment for credentials and permissions.
+### 5.2 Compact mini window
 
-### Phase 3: Monitoring Surfaces
-- Refine Transcript/History row styling.
-- Add Events filtering.
-- Keep export behavior unchanged.
+Add `UntypeUISettings.compactWindow: Bool` (default `false`, additive). When
+true, the main `NSWindow` resizes to 440 × 280 and `UntypeRootView` switches
+to the `UntypeMiniView` layout from `peripheral.jsx:UnMini`:
+- Title bar with brand mark + "mini" label.
+- Status row: brand + state pill + record button.
+- Live partial in `.thinMaterial` capsule.
+- Operator chip strip + tiny waveform.
 
-### Phase 4: Overlay HUD Polish
-- Apply HUD visual treatment and concise phase/warning states.
-- Add accessibility labels for operator indicators.
-- Confirm overlay frame stability across long transcript updates.
+Toolbar adds a `rectangle.compress.vertical` button that flips
+`compactWindow`. Compact mode forces `settingsExpanded = false` and hides the
+sidebar.
 
-### Phase 5: Verification
-- Run `swift test`.
-- Run `test_scripts/ui-mode-smoke.md`.
-- Capture before/after screenshots for idle, listening, warm push-to-talk, recording overlay, finalizing overlay, warning state, inspector expanded/collapsed, and each monitor section.
+## Phase 6 — Verification
 
-## Acceptance Criteria for Future Implementation
+- `swift build` — must pass on the project's current toolchain.
+- `swift test` — full test suite, no regressions.
+- `test_scripts/ui-mode-smoke.md` — extend with explicit visual checks for:
+  - Toolbar layout (idle / listening / recording).
+  - Sidebar selection persistence across relaunch.
+  - Overlay HUD with short text, long wrapped text, and warning state.
+  - Inspector collapse + width restore.
+  - Onboarding sheet trigger and dismissal.
+  - Compact window toggle.
+- Capture screenshots for: idle main, listening main, recording overlay,
+  finalizing overlay, warning overlay, inspector expanded, inspector collapsed,
+  onboarding sheet, compact window.
+- Add a "Dependency vetting log" entry to `Issues - Pending Items.md` if any
+  new SwiftPM dependency is introduced (none expected for Phase 1–4).
 
-- The app opens to a native macOS window with toolbar, sidebar/source-list navigation, content area, and collapsible inspector.
-- All existing controls and workflows remain available.
-- Existing settings persistence continues to restore window size, inspector visibility, and selected monitor section.
-- Active-session editability rules remain unchanged.
-- Transcript, History, and Events preserve existing data retention and export semantics.
-- Overlay remains non-activating, focus-safe, and visually stable.
-- No secrets or transcript content are persisted beyond existing explicit behavior.
-- Manual UI smoke verification includes screenshots for the key states listed in Phase 5.
+## Out of Scope for This Plan
+
+- Menubar status item / dropdown popover (`peripheral.jsx:UnMenubarDropdown`).
+  Tracked separately because it requires `NSStatusItem` infrastructure and a
+  decision about whether `untype ui` becomes an `LSUIElement` agent app or
+  keeps its regular activation policy.
+- V2 (Unified Glass) and V3 (Voice-First) variants. They live in the bundle
+  for record-keeping only — only V1 is implemented.
+- Light/dark theme switching beyond what macOS provides automatically. The
+  design's amber accent should look correct in both because all colors derive
+  from a single accent + system materials.
+
+## Risks and Mitigations
+
+| Risk                                                | Mitigation |
+|-----------------------------------------------------|------------|
+| NavigationSplitView pre-macOS 14 quirks             | We already require recent toolchains for SwiftUI .toolbar; double-check `Package.swift` platforms before merging. |
+| Overlay frame regression                            | Phase 2 changes the View body only; `UntypeOverlayLayout` math stays untouched, and existing layout tests catch regressions. |
+| Active-session control desync                       | Reuse `UntypeUIControlAvailability` verbatim; no new gating logic. |
+| Persistence schema drift                            | `selectedEventsFilter` and `compactWindow` are additive `Bool/String` fields with safe defaults — existing `ui-state.json` files keep loading. |
+| Onboarding cover blocking expert relaunch flow      | "Skip for now" sets a 24-hour timestamp; expert users see it once. |
