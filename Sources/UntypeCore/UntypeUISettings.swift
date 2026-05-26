@@ -6,6 +6,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var languages: [String]
     public var sampleRate: Int
     public var endpointDetection: Bool
+    public var quickClose: Bool
     public var protocolMode: String
     public var refine: Bool
     public var translate: Bool
@@ -39,6 +40,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         languages: ["el", "en"],
         sampleRate: 16_000,
         endpointDetection: true,
+        quickClose: false,
         protocolMode: "dictation",
         refine: false,
         translate: false,
@@ -127,6 +129,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let endpointDetection = patch.endpointDetection {
             next.endpointDetection = endpointDetection
         }
+        if let quickClose = patch.quickClose {
+            next.quickClose = quickClose
+        }
         if let protocolMode = patch.protocolMode {
             next.protocolMode = protocolMode
         }
@@ -193,6 +198,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--stt-provider", normalized.provider,
             "--model", normalized.model,
             "--sample-rate", String(normalized.sampleRate),
+            normalized.quickClose ? "--quick-close" : "--no-quick-close",
             normalized.endpointDetection ? "--endpoint-detection" : "--no-endpoint-detection",
             "--interaction-mode", normalized.protocolMode,
             "--refine-default", normalized.refine ? "on" : "off",
@@ -250,6 +256,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var languages: [String]?
     public var sampleRate: Int?
     public var endpointDetection: Bool?
+    public var quickClose: Bool?
     public var protocolMode: String?
     public var refine: Bool?
     public var translate: Bool?
@@ -276,6 +283,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         languages: [String]? = nil,
         sampleRate: Int? = nil,
         endpointDetection: Bool? = nil,
+        quickClose: Bool? = nil,
         protocolMode: String? = nil,
         refine: Bool? = nil,
         translate: Bool? = nil,
@@ -301,6 +309,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.languages = languages
         self.sampleRate = sampleRate
         self.endpointDetection = endpointDetection
+        self.quickClose = quickClose
         self.protocolMode = protocolMode
         self.refine = refine
         self.translate = translate
@@ -517,6 +526,7 @@ public enum UntypeUISettingsStore {
             languages: config.languages,
             sampleRate: config.sampleRate,
             endpointDetection: config.enableEndpointDetection,
+            quickClose: config.quickClose,
             protocolMode: protocolConfig.interactionMode.rawValue,
             refine: operators.refine,
             translate: operators.translate,
@@ -578,6 +588,7 @@ private struct PersistedUISettings: Codable {
     let languages: [String]
     let sampleRate: Int
     let endpointDetection: Bool
+    let quickClose: Bool?
     let protocolMode: String
     let refine: Bool
     let translate: Bool
@@ -604,6 +615,7 @@ private struct PersistedUISettings: Codable {
         case languages
         case sampleRate
         case endpointDetection
+        case quickClose
         case protocolMode
         case refine
         case translate
@@ -631,6 +643,7 @@ private struct PersistedUISettings: Codable {
         self.languages = settings.languages
         self.sampleRate = settings.sampleRate
         self.endpointDetection = settings.endpointDetection
+        self.quickClose = settings.quickClose
         self.protocolMode = settings.protocolMode
         self.refine = settings.refine
         self.translate = settings.translate
@@ -661,6 +674,7 @@ private struct PersistedUISettings: Codable {
                 languages: languages,
                 sampleRate: sampleRate,
                 endpointDetection: endpointDetection,
+                quickClose: quickClose ?? defaults.quickClose,
                 protocolMode: protocolMode,
                 refine: refine,
                 translate: translate,

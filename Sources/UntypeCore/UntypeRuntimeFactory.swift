@@ -66,6 +66,7 @@ public enum UntypeRuntimeFactory {
                 verbose: config.verbose,
                 sttProviderLabel: config.sttProvider.rawValue,
                 diagnostics: diagnostics,
+                quickClose: config.quickClose,
                 emit: { event in
                     switch event {
                     case .ready(let message):
@@ -148,6 +149,7 @@ public enum UntypeRuntimeFactory {
                 sttProviderLabel: config.sttProvider.rawValue,
                 diagnostics: runtimeDiagnostics,
                 audioGate: audioGate,
+                quickClose: config.quickClose,
                 submissionDiagnosticsEnabled: true,
                 emit: eventSink,
                 saveProtocolSettings: { snapshot in

@@ -112,6 +112,8 @@ public struct UntypeCommand {
       --endpoint <wss-url>                    STT provider WebSocket endpoint. Env: UNTYPE_ENDPOINT.
       --language <code>                       Language hint or 'auto'. Env: UNTYPE_LANGUAGES.
       --sample-rate <hz>                      PCM sample rate. Env: UNTYPE_SAMPLE_RATE.
+      --quick-close                           Submit latest push-to-talk partial immediately on release. Env: UNTYPE_QUICK_CLOSE.
+      --no-quick-close                        Disable Quick Close and wait for provider finalization.
       --endpoint-detection                    Enable provider endpoint/VAD detection. Env: UNTYPE_ENABLE_ENDPOINT_DETECTION.
       --no-endpoint-detection                 Disable provider endpoint/VAD detection.
       --output-mode <mode>                    overwrite, append, or final-only. Env: UNTYPE_OUTPUT_MODE.

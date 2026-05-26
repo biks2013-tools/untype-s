@@ -158,6 +158,7 @@ public struct TranscriptionSessionRuntimeOptions {
     public let diagnostics: ProtocolControllerDiagnostics
     public let audioGate: RuntimeAudioGate?
     public let finalTranscriptWaitNanoseconds: UInt64
+    public let quickClose: Bool
     public let submissionDiagnosticsEnabled: Bool
     public let audioActivityInterval: TimeInterval
     public let audioActivityNow: @Sendable () -> Date
@@ -171,6 +172,7 @@ public struct TranscriptionSessionRuntimeOptions {
         diagnostics: ProtocolControllerDiagnostics = ProtocolControllerDiagnostics(write: { _, _ in }),
         audioGate: RuntimeAudioGate? = nil,
         finalTranscriptWaitNanoseconds: UInt64 = 1_500_000_000,
+        quickClose: Bool = false,
         submissionDiagnosticsEnabled: Bool = false,
         audioActivityInterval: TimeInterval = 0.25,
         audioActivityNow: @escaping @Sendable () -> Date = Date.init,
@@ -183,6 +185,7 @@ public struct TranscriptionSessionRuntimeOptions {
         self.diagnostics = diagnostics
         self.audioGate = audioGate
         self.finalTranscriptWaitNanoseconds = finalTranscriptWaitNanoseconds
+        self.quickClose = quickClose
         self.submissionDiagnosticsEnabled = submissionDiagnosticsEnabled
         self.audioActivityInterval = audioActivityInterval
         self.audioActivityNow = audioActivityNow
@@ -213,6 +216,7 @@ public final class TranscriptionSessionRuntime {
     private var latestPartialTranscript: String?
     private var pendingSubmissionInProgress = false
     private var suppressLateProviderPartials = false
+    private var suppressLateProviderFinals = false
     private var lastAudioActivityCategory: AudioActivityCategory?
     private var lastAudioActivityEmittedAt = Date.distantPast
     private let finalTranscriptWaiter = FinalTranscriptWaiter()
@@ -249,6 +253,9 @@ public final class TranscriptionSessionRuntime {
             },
             final: { [weak self] text in
                 guard let self else {
+                    return
+                }
+                guard !self.suppressLateProviderFinals else {
                     return
                 }
                 do {
@@ -449,6 +456,24 @@ public final class TranscriptionSessionRuntime {
         defer {
             pendingSubmissionInProgress = false
         }
+        if options.quickClose, !protocolController.hasPendingContent {
+            suppressLateProviderPartials = true
+            suppressLateProviderFinals = true
+            if let fallback = latestPartialTranscript {
+                submissionDiagnostic(
+                    "[untype] push-to-talk release: Quick Close submitting latest partial transcript",
+                    warning: false
+                )
+                try await protocolController.final(fallback)
+                try await submitPendingTranscript()
+            } else {
+                diagnostic(
+                    "[untype] WARNING: push-to-talk release did not have finalized or partial transcript text available for Quick Close; no text was submitted.",
+                    warning: true
+                )
+            }
+            return
+        }
         let shouldWaitForFinal = !protocolController.hasPendingContent
         let finalGeneration = shouldWaitForFinal ? await finalTranscriptWaiter.currentGeneration() : nil
         try await transcriber.commit()
@@ -467,6 +492,7 @@ public final class TranscriptionSessionRuntime {
                         warning: true
                     )
                     suppressLateProviderPartials = true
+                    suppressLateProviderFinals = true
                     try await protocolController.final(fallback)
                 } else {
                     diagnostic(
@@ -478,7 +504,15 @@ public final class TranscriptionSessionRuntime {
             } else {
                 return
             }
+        } else if shouldWaitForFinal {
+            submissionDiagnostic("[untype] push-to-talk release: provider final text received", warning: false)
+        } else {
+            submissionDiagnostic("[untype] push-to-talk release: provider final text already available", warning: false)
         }
+        try await submitPendingTranscript()
+    }
+
+    private func submitPendingTranscript() async throws {
         submissionDiagnostic("[untype] push-to-talk release: submitting transcript for processing", warning: false)
         try await protocolController.submitPending()
         latestPartialTranscript = nil

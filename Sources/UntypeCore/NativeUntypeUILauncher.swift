@@ -813,6 +813,7 @@ private final class UntypeUIModel: ObservableObject {
             previous.languages == next.languages &&
             previous.sampleRate == next.sampleRate &&
             previous.endpointDetection == next.endpointDetection &&
+            previous.quickClose == next.quickClose &&
             previous.protocolMode == next.protocolMode &&
             previous.translationPolicy == next.translationPolicy &&
             previous.llmEnabled == next.llmEnabled &&
@@ -1781,6 +1782,7 @@ private struct UntypeRootView: View {
                     inspectorMonoRow("Languages", value: model.settings.languages.joined(separator: " · "))
                     inspectorMonoRow("Sample rate", value: "\(model.settings.sampleRate) Hz")
                     inspectorMonoRow("Endpoint detection", value: model.settings.endpointDetection ? "on" : "off")
+                    inspectorMonoRow("Quick Close", value: model.settings.quickClose ? "on" : "off")
                     inspectorMonoRow("Audio", value: model.audioStatus)
                 }
 
@@ -1883,6 +1885,8 @@ private struct UntypeRootView: View {
                             }
                         }
                         .disabled(sessionShapingDisabled)
+                        inspectorToggleRow("Quick Close", isOn: binding(\.quickClose))
+                            .disabled(sessionShapingDisabled)
                         inspectorFieldRow("Action") {
                             Button(model.hotkeyPressed ? "Release Hotkey" : "Press Hotkey") {
                                 model.hotkeyPressed
@@ -2114,6 +2118,8 @@ private struct UntypeRootView: View {
             return UntypeUISettingsPatch(model: value as? String)
         case \UntypeUISettings.endpointDetection:
             return UntypeUISettingsPatch(endpointDetection: value as? Bool)
+        case \UntypeUISettings.quickClose:
+            return UntypeUISettingsPatch(quickClose: value as? Bool)
         case \UntypeUISettings.protocolMode:
             return UntypeUISettingsPatch(protocolMode: value as? String)
         case \UntypeUISettings.refine:

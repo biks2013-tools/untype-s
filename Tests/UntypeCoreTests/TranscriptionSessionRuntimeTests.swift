@@ -268,6 +268,126 @@ private let runtimeMarkers = MarkerConfig(
     )))
 }
 
+@Test func sessionRuntimeQuickCloseSubmitsLatestPartialWithoutFinalizationWait() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let protocolOutput = MemoryOutput()
+    let rendered = MemoryOutput()
+    var sessionEvents: [TranscriptionSessionEvent] = []
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: rendered, mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false),
+        translationPolicy: .opposite
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            sttProviderLabel: "soniox",
+            finalTranscriptWaitNanoseconds: 1_500_000_000,
+            quickClose: true,
+            submissionDiagnosticsEnabled: true,
+            emit: { sessionEvents.append($0) }
+        )
+    )
+
+    try await runtime.start()
+    transcriber.emitPartial("quick close words")
+    await runtime.stop(reason: "ui-hotkey-release", submitPending: true)
+
+    let events = try protocolEvents(protocolOutput.text)
+    #expect(transcriber.commitCount == 0)
+    #expect(eventTypes(events) == [
+        "session.started",
+        "section.submitted",
+        "section.processed",
+        "session.ended"
+    ])
+    #expect(events[1]["raw_text"] as? String == "quick close words")
+    #expect(rendered.text.contains("quick close words\n\n"))
+    #expect(sessionEvents.contains(.diagnostic(
+        message: "[untype] push-to-talk release: Quick Close submitting latest partial transcript",
+        warning: false
+    )))
+}
+
+@Test func sessionRuntimeQuickCloseKeepsAlreadyAvailableFinalTextPreferred() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let protocolOutput = MemoryOutput()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false),
+        translationPolicy: .opposite
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            sttProviderLabel: "soniox",
+            quickClose: true,
+            submissionDiagnosticsEnabled: true
+        )
+    )
+
+    try await runtime.start()
+    transcriber.emitPartial("partial words")
+    await transcriber.emitFinal("final words")
+    await runtime.stop(reason: "ui-hotkey-release", submitPending: true)
+
+    let events = try protocolEvents(protocolOutput.text)
+    #expect(transcriber.commitCount == 1)
+    #expect(events[1]["raw_text"] as? String == "final words")
+}
+
+@Test func sessionRuntimeQuickCloseSuppressesLateProviderTextAfterSubmission() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let protocolOutput = MemoryOutput()
+    var sessionEvents: [TranscriptionSessionEvent] = []
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false),
+        translationPolicy: .opposite
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            sttProviderLabel: "soniox",
+            quickClose: true,
+            submissionDiagnosticsEnabled: true,
+            emit: { sessionEvents.append($0) }
+        )
+    )
+
+    try await runtime.start()
+    transcriber.emitPartial("first quick close words")
+    try await runtime.submitPending()
+    transcriber.emitPartial("stale late partial")
+    await transcriber.emitFinal("stale late final")
+    await runtime.stop(reason: "test-stop", submitPending: false)
+
+    let events = try protocolEvents(protocolOutput.text)
+    let submittedText = events
+        .filter { $0["type"] as? String == "section.submitted" }
+        .compactMap { $0["raw_text"] as? String }
+    #expect(submittedText == ["first quick close words"])
+    #expect(!sessionEvents.contains(.diagnostic(message: "stale late partial", warning: false)))
+}
+
 @Test func sessionRuntimeSuppressesLatePartialsAfterFallbackSubmission() async throws {
     let audio = MockAudioSource()
     let transcriber = MockTranscriber()

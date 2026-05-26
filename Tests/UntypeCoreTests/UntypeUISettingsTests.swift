@@ -6,6 +6,7 @@ import Testing
     let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
         provider: "elevenlabs",
         languages: ["auto"],
+        quickClose: true,
         refine: true,
         clipboard: true,
         hotkeyEnabled: true,
@@ -18,6 +19,7 @@ import Testing
     #expect(args.contains("elevenlabs"))
     #expect(args.contains("--clipboard-default"))
     #expect(args.contains("on"))
+    #expect(args.contains("--quick-close"))
     #expect(!args.contains("ELEVENLABS_API_KEY"))
     #expect(!args.contains(settings.apiKeyStatus))
     #expect(!args.contains(settings.storageStatus))
@@ -29,6 +31,7 @@ import Testing
         provider: "soniox",
         model: "stt-rt-v4",
         languages: ["el", "en"],
+        quickClose: true,
         hotkeyEnabled: true,
         hotkey: "Control+`",
         windowWidth: 1320,
@@ -51,6 +54,7 @@ import Testing
 
     #expect(loaded.provider == "soniox")
     #expect(loaded.hotkeyEnabled)
+    #expect(loaded.quickClose)
     #expect(loaded.windowWidth == 1320)
     #expect(loaded.windowHeight == 840)
     #expect(!loaded.monitorSidebarExpanded)
@@ -61,6 +65,7 @@ import Testing
     #expect(raw.contains("\"monitorSidebarExpanded\""))
     #expect(raw.contains("\"settingsExpanded\""))
     #expect(raw.contains("\"selectedMonitorTab\""))
+    #expect(raw.contains("\"quickClose\""))
     #expect(!raw.contains("configured"))
     #expect(!raw.contains("shell env"))
     #expect(!raw.contains("2026-06-01"))
@@ -154,6 +159,53 @@ import Testing
     #expect(!result.settings.monitorSidebarExpanded)
     #expect(!result.settings.settingsExpanded)
     #expect(result.settings.selectedMonitorTab == "events")
+}
+
+@Test func uiSettingsLoadSupportsOlderPersistedStateWithoutQuickClose() throws {
+    let temp = UITemporaryDirectory()
+    let config = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+    try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+    try """
+    {
+      "version" : 1,
+      "saved_at" : "2026-05-26T10:00:00Z",
+      "settings" : {
+        "clipboard" : false,
+        "endpointDetection" : true,
+        "focusedInput" : false,
+        "hotkey" : "Control+`",
+        "hotkeyEnabled" : false,
+        "languages" : [
+          "el",
+          "en"
+        ],
+        "llmEnabled" : true,
+        "llmModel" : "gpt-5.4",
+        "llmProvider" : "azure-openai",
+        "model" : "stt-rt-v4",
+        "protocolMode" : "dictation",
+        "provider" : "soniox",
+        "refine" : false,
+        "sampleRate" : 16000,
+        "selectedMonitorTab" : "transcript",
+        "settingsExpanded" : true,
+        "translate" : false,
+        "translationPolicy" : "opposite",
+        "windowHeight" : 760,
+        "windowWidth" : 1180
+      }
+    }
+    """.write(
+        to: UntypeUISettingsStore.path(home: temp.url),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    #expect(loaded.quickClose == false)
 }
 
 @Test func uiSettingsCredentialRefreshReportsSourceWithoutSecretValue() throws {

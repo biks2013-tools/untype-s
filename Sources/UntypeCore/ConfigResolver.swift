@@ -166,6 +166,17 @@ public struct ConfigResolver: Sendable {
             )
         }
 
+        let quickClose: Bool
+        if let flagValue = parsed.switchValue(for: "--quick-close") {
+            quickClose = flagValue
+        } else {
+            quickClose = try parseBoolean(
+                chain.get("UNTYPE_QUICK_CLOSE")?.value,
+                flagName: "--quick-close",
+                envName: "UNTYPE_QUICK_CLOSE"
+            ) ?? false
+        }
+
         let enableEndpointDetection: Bool
         if let flagValue = parsed.switchValue(for: "--endpoint-detection") {
             enableEndpointDetection = flagValue
@@ -394,6 +405,7 @@ public struct ConfigResolver: Sendable {
             languages: languages,
             sampleRate: sampleRate,
             enableEndpointDetection: enableEndpointDetection,
+            quickClose: quickClose,
             outputMode: outputMode,
             guardPhrase: guardPhrase,
             protocolConfig: protocolConfig,
@@ -655,6 +667,12 @@ struct ParsedArguments: Sendable {
                 index += 1
             case "--no-endpoint-detection":
                 switches["--endpoint-detection"] = false
+                index += 1
+            case "--quick-close":
+                switches["--quick-close"] = true
+                index += 1
+            case "--no-quick-close":
+                switches["--quick-close"] = false
                 index += 1
             case "--api-key", "--api-key-expires-at", "--elevenlabs-api-key", "--elevenlabs-api-key-expires-at",
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",

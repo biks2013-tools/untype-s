@@ -22,6 +22,7 @@ Expected result:
 - The credentials panel shows the active API-key name, configured/missing status, source tier, and expiry value without showing the secret value.
 - The system panel shows current Microphone and Accessibility trust status so the remaining macOS permission checks can be verified before starting a session.
 - The settings panel exposes provider, model, languages, sample rate, endpoint detection, protocol operator defaults, translation policy, LLM settings, and push-to-talk settings.
+- The Push to Talk panel exposes `Quick Close` as a non-secret persisted toggle.
 - The event log remains inside the window; no transcript text is printed to terminal stdout by UI rendering.
 - `Command+W` closes the UI window and `Command+Q` quits UI mode through the native app menu.
 
@@ -56,7 +57,9 @@ Expected result:
 - Clicking `Stop Warm Session` during either `starting` or `warm` returns the UI to `Session: idle` and `Capture: idle`; it must not remain stuck in `starting`.
 - The Push to Talk panel reports `global event tap ready` when macOS permits the Quartz event tap; if not, it reports fallback monitoring and the event log shows a warning.
 - Pressing the hotkey changes capture state to `recording` and opens the audio gate.
-- Releasing the hotkey waits for provider final text, submits the current turn, attempts enabled refine/translate/clipboard/focused-input delivery, stops that provider session, then returns to a fresh warm session for the next press.
+- With `Quick Close` disabled, releasing the hotkey waits for provider final text, submits the current turn or the timeout fallback partial, attempts enabled refine/translate/clipboard/focused-input delivery, stops that provider session, then returns to a fresh warm session for the next press.
+- Enable `Quick Close`, repeat a push-to-talk utterance, and confirm the Events tab shows `Quick Close submitting latest partial transcript` when the provider has only partial text at release. Processed output should appear without waiting for the normal finalization timeout.
+- Disable `Quick Close` again and confirm the older finalization-wait behavior returns.
 - Each new hotkey press starts a fresh content collection turn; stale partial text from the previous press must not remain as the active live partial.
 - During a warm push-to-talk session with the key released, the System panel may show `Audio: muted by push-to-talk <n>%`; this confirms the microphone path is receiving PCM while the audio gate sends silence to the provider.
 - During warm push-to-talk, the Events tab should show `audio.input: muted by push-to-talk <n>%; ... provider receives silence`; this is expected until the hotkey or fallback button opens the gate.
@@ -77,5 +80,6 @@ cat ~/.tool-agents/untype/ui-state.json
 
 Expected result:
 - The file contains non-secret UI settings and `push_to_talk` settings.
+- The file may contain `"quickClose"` as a non-secret UI preference.
 - The file does not contain API key values, transcript text, processed output, protocol payloads, provider endpoint diagnostics, or transient Microphone/Accessibility permission status.
 - File permissions are `0600`; the parent `~/.tool-agents/untype` directory is `0700`.

@@ -23,6 +23,10 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-26 - Quick Close push-to-talk release policy added
+
+Resolved the release-latency issue where Soniox often produced accurate partial text but did not finalize before the runtime timeout, causing users to wait for fallback submission. Added a configurable `Quick Close` policy with `--quick-close`, `--no-quick-close`, and `UNTYPE_QUICK_CLOSE`, plus a non-secret native UI toggle under Push to Talk. When enabled and no final text is already pending, release submits the latest active-turn partial immediately through the existing protocol/refine/translate/clipboard/focused-input pipeline and suppresses late provider callbacks from the ending session. When disabled, the existing finalization wait and timeout fallback behavior remains unchanged.
+
 ### 2026-05-26 - macOS packaging script added
 
 Resolved the first packaging automation gap by adding `scripts/package-macos-app.sh` and `packaging/macos/untype.entitlements`. The script builds release SwiftPM products, runs tests by default, creates `untype.app`, compiles a native double-click launcher for UI mode, writes app metadata, supports explicit unsigned local packaging, supports Developer ID signing, supports optional notarization/stapling, and produces zip archives under `.build/deploy/`. Verified help output, fail-fast required arguments, unsigned packaging, generated app contents, launcher Mach-O output, shell syntax, and `swift test` (130/130).

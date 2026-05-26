@@ -12,6 +12,7 @@ import Testing
     #expect(code == ExitCode.success.rawValue)
     #expect(stdout.text.contains("Usage: untype"))
     #expect(stdout.text.contains("untype ui"))
+    #expect(stdout.text.contains("--quick-close"))
     #expect(stderr.text.isEmpty)
 }
 
@@ -236,6 +237,7 @@ import Testing
     #expect(config.languages == ["el", "en"])
     #expect(config.sampleRate == 16_000)
     #expect(config.enableEndpointDetection)
+    #expect(config.quickClose == false)
     #expect(config.outputMode == .overwrite)
     #expect(config.protocolConfig.interactionMode == .dictation)
     #expect(config.protocolConfig.translationPolicy == .opposite)
@@ -310,6 +312,38 @@ import Testing
     let config = try resolver.resolve(argv: ["--no-endpoint-detection", "--no-refine"])
 
     #expect(config.enableEndpointDetection == false)
+}
+
+@Test func quickCloseFlagOverridesEnvironment() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "shell-key",
+            "UNTYPE_QUICK_CLOSE": "true"
+        ]
+    )
+
+    let config = try resolver.resolve(argv: ["--no-quick-close", "--no-refine"])
+
+    #expect(config.quickClose == false)
+}
+
+@Test func quickCloseCanBeEnabledFromEnvironment() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "shell-key",
+            "UNTYPE_QUICK_CLOSE": "on"
+        ]
+    )
+
+    let config = try resolver.resolve(argv: ["--no-refine"])
+
+    #expect(config.quickClose)
 }
 
 @Test func defaultLlmStartupValidationIsFatalWhenRefineEnabled() throws {

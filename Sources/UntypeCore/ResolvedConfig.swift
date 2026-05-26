@@ -147,6 +147,7 @@ public struct ResolvedConfig: Equatable, Sendable {
     public let languages: [String]
     public let sampleRate: Int
     public let enableEndpointDetection: Bool
+    public let quickClose: Bool
     public let outputMode: OutputMode
     public let guardPhrase: String
     public let protocolConfig: ProtocolRuntimeConfig
