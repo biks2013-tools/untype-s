@@ -33,6 +33,7 @@ import Testing
         hotkey: "Control+`",
         windowWidth: 1320,
         windowHeight: 840,
+        monitorSidebarExpanded: false,
         settingsExpanded: false,
         selectedMonitorTab: "events"
     ))
@@ -52,10 +53,12 @@ import Testing
     #expect(loaded.hotkeyEnabled)
     #expect(loaded.windowWidth == 1320)
     #expect(loaded.windowHeight == 840)
+    #expect(!loaded.monitorSidebarExpanded)
     #expect(!loaded.settingsExpanded)
     #expect(loaded.selectedMonitorTab == "events")
     #expect(raw.contains("\"windowWidth\""))
     #expect(raw.contains("\"windowHeight\""))
+    #expect(raw.contains("\"monitorSidebarExpanded\""))
     #expect(raw.contains("\"settingsExpanded\""))
     #expect(raw.contains("\"selectedMonitorTab\""))
     #expect(!raw.contains("configured"))
@@ -131,6 +134,7 @@ import Testing
     let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
         windowWidth: 1440,
         windowHeight: 900,
+        monitorSidebarExpanded: false,
         settingsExpanded: false,
         selectedMonitorTab: "events"
     ))
@@ -147,6 +151,7 @@ import Testing
 
     #expect(result.settings.windowWidth == 1440)
     #expect(result.settings.windowHeight == 900)
+    #expect(!result.settings.monitorSidebarExpanded)
     #expect(!result.settings.settingsExpanded)
     #expect(result.settings.selectedMonitorTab == "events")
 }

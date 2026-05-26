@@ -26,6 +26,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var hotkey: String
     public var windowWidth: Double
     public var windowHeight: Double
+    public var monitorSidebarExpanded: Bool
     public var settingsExpanded: Bool
     public var selectedMonitorTab: String
     public var selectedEventsFilter: String
@@ -58,6 +59,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         hotkey: "Control+`",
         windowWidth: 1180,
         windowHeight: 760,
+        monitorSidebarExpanded: true,
         settingsExpanded: true,
         selectedMonitorTab: "transcript",
         selectedEventsFilter: "all",
@@ -164,6 +166,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let windowHeight = patch.windowHeight {
             next.windowHeight = windowHeight
         }
+        if let monitorSidebarExpanded = patch.monitorSidebarExpanded {
+            next.monitorSidebarExpanded = monitorSidebarExpanded
+        }
         if let settingsExpanded = patch.settingsExpanded {
             next.settingsExpanded = settingsExpanded
         }
@@ -258,6 +263,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var hotkey: String?
     public var windowWidth: Double?
     public var windowHeight: Double?
+    public var monitorSidebarExpanded: Bool?
     public var settingsExpanded: Bool?
     public var selectedMonitorTab: String?
     public var selectedEventsFilter: String?
@@ -283,6 +289,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         hotkey: String? = nil,
         windowWidth: Double? = nil,
         windowHeight: Double? = nil,
+        monitorSidebarExpanded: Bool? = nil,
         settingsExpanded: Bool? = nil,
         selectedMonitorTab: String? = nil,
         selectedEventsFilter: String? = nil,
@@ -307,6 +314,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.hotkey = hotkey
         self.windowWidth = windowWidth
         self.windowHeight = windowHeight
+        self.monitorSidebarExpanded = monitorSidebarExpanded
         self.settingsExpanded = settingsExpanded
         self.selectedMonitorTab = selectedMonitorTab
         self.selectedEventsFilter = selectedEventsFilter
@@ -529,6 +537,7 @@ public enum UntypeUISettingsStore {
             hotkey: current.hotkey,
             windowWidth: current.windowWidth,
             windowHeight: current.windowHeight,
+            monitorSidebarExpanded: current.monitorSidebarExpanded,
             settingsExpanded: current.settingsExpanded,
             selectedMonitorTab: current.selectedMonitorTab,
             selectedEventsFilter: current.selectedEventsFilter,
@@ -582,6 +591,7 @@ private struct PersistedUISettings: Codable {
     let hotkey: String
     let windowWidth: Double?
     let windowHeight: Double?
+    let monitorSidebarExpanded: Bool?
     let settingsExpanded: Bool?
     let selectedMonitorTab: String?
     let selectedEventsFilter: String?
@@ -607,6 +617,7 @@ private struct PersistedUISettings: Codable {
         case hotkey
         case windowWidth
         case windowHeight
+        case monitorSidebarExpanded
         case settingsExpanded
         case selectedMonitorTab
         case selectedEventsFilter
@@ -633,6 +644,7 @@ private struct PersistedUISettings: Codable {
         self.hotkey = settings.hotkey
         self.windowWidth = settings.windowWidth
         self.windowHeight = settings.windowHeight
+        self.monitorSidebarExpanded = settings.monitorSidebarExpanded
         self.settingsExpanded = settings.settingsExpanded
         self.selectedMonitorTab = settings.selectedMonitorTab
         self.selectedEventsFilter = settings.selectedEventsFilter
@@ -662,6 +674,7 @@ private struct PersistedUISettings: Codable {
                 hotkey: hotkey,
                 windowWidth: windowWidth ?? defaults.windowWidth,
                 windowHeight: windowHeight ?? defaults.windowHeight,
+                monitorSidebarExpanded: monitorSidebarExpanded ?? defaults.monitorSidebarExpanded,
                 settingsExpanded: settingsExpanded ?? defaults.settingsExpanded,
                 selectedMonitorTab: selectedMonitorTab ?? defaults.selectedMonitorTab,
                 selectedEventsFilter: selectedEventsFilter ?? defaults.selectedEventsFilter,

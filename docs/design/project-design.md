@@ -42,6 +42,8 @@
   - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-macos-ui-modernization-proposal.md`
   - `~/aiwork/coding-platform/untype-s/docs/reference/macos-ui-guidelines-modernization-research.md`
   - `~/aiwork/coding-platform/untype-s/docs/design/plan-016-macos-ui-modernization-proposal.md`
+- Monitor sidebar collapse:
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-018-monitor-sidebar-collapse.md`
 - Research:
   - `~/aiwork/coding-platform/untype-s/docs/research/avfoundation-audio-capture.md`
   - `~/aiwork/coding-platform/untype-s/docs/research/soniox-websocket-swift.md`
@@ -163,7 +165,7 @@ The current UI phase includes:
 - a native monitoring window with credential status, provider/session settings, protocol operator switches, LLM settings, push-to-talk controls, transcript display, and bounded event log;
 - a collapsible right-side settings pane built from aligned label/control rows inside material-backed glass sections, keeping status values, pickers, text fields, steppers, toggles, and push-to-talk actions visually consistent while allowing the monitor area to use the full window width; the hidden/visible state is restored across UI launches;
 - initial UI state loading through the same config chain as the CLI, with persisted UI settings converted to CLI-equivalent arguments and an inspection-only LLM validation mode so missing LLM secrets can be reported in the UI without blocking configuration display;
-- non-secret UI settings persistence at `~/.tool-agents/untype/ui-state.json` with mode `0600` under a `0700` config directory, including main window width/height, settings-pane visibility, and selected monitor tab while excluding transient credential status, permission status, transcript text, event-log content, and secrets;
+- non-secret UI settings persistence at `~/.tool-agents/untype/ui-state.json` with mode `0600` under a `0700` config directory, including main window width/height, leading monitor-sidebar visibility, settings-pane visibility, and selected monitor tab while excluding transient credential status, permission status, transcript text, event-log content, and secrets;
 - credential inspection that reports API-key name, configured/missing status, source tier, and expiry value without exposing API-key values;
 - transient macOS permission inspection that reports Microphone authorization and Accessibility trust in the UI without persisting those host-specific status values;
 - a UI-specific runtime factory path that routes transcript events through a typed `UITranscriptEvent` renderer and protocol/diagnostic text into the UI;
@@ -195,6 +197,8 @@ The UI process installs a native AppKit application menu instead of relying on d
 The main session button now reflects the active capture state with source-style labels: `Start Listening`, `Stop Listening`, `Stop Warm Session`, and `Stop Recording`.
 
 The full-size UI places session/action controls in a custom titlebar-height strip anchored to the top-right of the center monitor column instead of the left native toolbar area. This keeps the controls level with the macOS traffic lights while aligning them with the main working area between the sidebar and trailing inspector. The strip preserves the existing record/start/stop, refresh, appearance, inspector, and compact-mode actions and their keyboard shortcuts.
+
+The titlebar brand mark/app-name area toggles the leading Monitor sidebar. Hiding the sidebar expands the monitor content pane into the freed space, and restoring uses the same always-visible titlebar brand mark. The hidden/visible state is stored as non-secret UI layout state in `ui-state.json`.
 
 Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
 

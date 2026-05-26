@@ -23,6 +23,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-26 - Native UI monitor sidebar collapse added
+Resolved the restore-path question for collapsing the left Monitor sidebar. The full-size native UI now uses the titlebar brand mark/app-name area as a plain toggle: click it once to hide the leading sidebar, and click the same still-visible titlebar control again to restore it. The sidebar hidden/visible state is persisted as non-secret UI layout state in `~/.tool-agents/untype/ui-state.json`, alongside window dimensions, selected monitor tab, compact mode, and inspector visibility. `swift build` and `swift test` (130/130) pass.
+
 ### 2026-05-26 - Native UI titlebar controls repositioned
 Resolved a visual layout issue where the full-size native UI's session/action controls were packed into the left titlebar area near the macOS traffic lights. The full-size window now renders those controls in a custom titlebar-height strip anchored to the top-right of the center monitor column, aligned with the traffic-light row and outside the left toolbar area. Existing actions and shortcuts are preserved. `swift build` and `swift test` (130/130) pass. Live screenshot verification remains part of the pending macOS UI visual review.
 

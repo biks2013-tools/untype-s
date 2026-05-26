@@ -275,6 +275,7 @@ private final class UntypeUIModel: ObservableObject {
     func updateLayout(
         windowWidth: Double? = nil,
         windowHeight: Double? = nil,
+        monitorSidebarExpanded: Bool? = nil,
         settingsExpanded: Bool? = nil,
         selectedMonitorTab: String? = nil,
         selectedEventsFilter: String? = nil,
@@ -285,6 +286,7 @@ private final class UntypeUIModel: ObservableObject {
             settings = try settings.merged(UntypeUISettingsPatch(
                 windowWidth: windowWidth,
                 windowHeight: windowHeight,
+                monitorSidebarExpanded: monitorSidebarExpanded,
                 settingsExpanded: settingsExpanded,
                 selectedMonitorTab: selectedMonitorTab,
                 selectedEventsFilter: selectedEventsFilter,
@@ -878,7 +880,7 @@ private struct UntypeRootView: View {
                 UntypeMiniView(model: model)
                     .toolbar { compactToolbarContent }
             } else {
-                NavigationSplitView(columnVisibility: .constant(.all)) {
+                NavigationSplitView(columnVisibility: monitorSidebarVisibility) {
                     sidebarPane
                         .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
                 } detail: {
@@ -904,6 +906,7 @@ private struct UntypeRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.16), value: model.settings.settingsExpanded)
+        .animation(.easeInOut(duration: 0.16), value: model.settings.monitorSidebarExpanded)
         .animation(.easeInOut(duration: 0.18), value: model.settings.compactWindow)
         .preferredColorScheme(preferredColorScheme)
         .onAppear(perform: evaluateOnboarding)
@@ -959,12 +962,31 @@ private struct UntypeRootView: View {
     @ToolbarContentBuilder
     private var toolbarBrandContent: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            HStack(spacing: 6) {
-                UntypeBrandMark(size: 20)
-                Text("untype")
-                    .font(.system(size: 13, weight: .semibold))
+            Button {
+                model.updateLayout(monitorSidebarExpanded: !model.settings.monitorSidebarExpanded)
+            } label: {
+                HStack(spacing: 6) {
+                    UntypeBrandMark(size: 20)
+                    Text("untype")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(model.settings.monitorSidebarExpanded ? "Hide Monitor Sidebar" : "Show Monitor Sidebar")
         }
+    }
+
+    private var monitorSidebarVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: { model.settings.monitorSidebarExpanded ? .all : .detailOnly },
+            set: { visibility in
+                let expanded = visibility != .detailOnly
+                if expanded != model.settings.monitorSidebarExpanded {
+                    model.updateLayout(monitorSidebarExpanded: expanded)
+                }
+            }
+        )
     }
 
     private var titlebarControlsTrailingPadding: CGFloat {
