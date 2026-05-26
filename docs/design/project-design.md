@@ -194,13 +194,15 @@ The UI process installs a native AppKit application menu instead of relying on d
 
 The main session button now reflects the active capture state with source-style labels: `Start Listening`, `Stop Listening`, `Stop Warm Session`, and `Stop Recording`.
 
+The full-size UI places session/action controls in a custom titlebar-height strip anchored to the top-right of the center monitor column instead of the left native toolbar area. This keeps the controls level with the macOS traffic lights while aligning them with the main working area between the sidebar and trailing inspector. The strip preserves the existing record/start/stop, refresh, appearance, inspector, and compact-mode actions and their keyboard shortcuts.
+
 Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
 
 ### Proposed macOS UI Modernization
 The proposed next UI direction is documented in `docs/design/plan-016-macos-ui-modernization-proposal.md` and is grounded in the current source review, Apple Human Interface Guidelines research in `docs/reference/macos-ui-guidelines-modernization-research.md`, and a Claude Design handoff bundle saved at `docs/reference/design-bundle-macos-modernization/`.
 
 The proposal keeps the existing native SwiftUI/AppKit runtime model, privacy boundaries, settings persistence, active-session editability rules, transcript/history/events data model, export semantics, and non-activating push-to-talk overlay. It reorganizes the visual shell into a conventional macOS structure:
-- a native toolbar for frequent actions and session control, with a primary record button and refresh/inspector affordances;
+- a titlebar-height control strip for frequent actions and session control, with a primary record button and refresh/inspector affordances aligned to the center monitor column;
 - leading source-list navigation for Transcript, History, and Events;
 - a main content work area for the selected monitor surface, with a tinted-accent operator chip row (R/T/C/I) and a deterministic waveform readout;
 - a trailing inspector-style settings pane (grouped `Form`) for credentials, system status, provider, protocol, LLM, and push-to-talk configuration;

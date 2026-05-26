@@ -870,6 +870,7 @@ private final class WeakUntypeUIModelBox: @unchecked Sendable {
 private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showOnboarding: Bool = false
+    private static let titlebarControlHeight: CGFloat = 54
 
     var body: some View {
         Group {
@@ -893,7 +894,13 @@ private struct UntypeRootView: View {
                 }
                 .navigationSplitViewStyle(.balanced)
                 .frame(minWidth: 860, minHeight: 620)
-                .toolbar { toolbarContent }
+                .toolbar { toolbarBrandContent }
+                .overlay(alignment: .topTrailing) {
+                    titlebarControls
+                        .padding(.top, 8)
+                        .padding(.trailing, titlebarControlsTrailingPadding)
+                        .ignoresSafeArea(.container, edges: .top)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.16), value: model.settings.settingsExpanded)
@@ -947,10 +954,10 @@ private struct UntypeRootView: View {
         }
     }
 
-    // MARK: Toolbar
+    // MARK: Titlebar Controls
 
     @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
+    private var toolbarBrandContent: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
             HStack(spacing: 6) {
                 UntypeBrandMark(size: 20)
@@ -958,7 +965,14 @@ private struct UntypeRootView: View {
                     .font(.system(size: 13, weight: .semibold))
             }
         }
-        ToolbarItem(placement: .primaryAction) {
+    }
+
+    private var titlebarControlsTrailingPadding: CGFloat {
+        model.settings.settingsExpanded ? 338 : 18
+    }
+
+    private var titlebarControls: some View {
+        HStack(spacing: 10) {
             UntypeRecordButton(
                 isRecording: model.isRunning,
                 titleIdle: model.primarySessionButtonTitle,
@@ -967,16 +981,14 @@ private struct UntypeRootView: View {
                 model.isRunning ? model.stopPrimarySession() : model.startManualSession()
             }
             .keyboardShortcut("r", modifiers: [.command])
-        }
-        ToolbarItem(placement: .primaryAction) {
+
             Button {
                 model.refreshCredentials()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .help("Refresh credentials and permission status")
-        }
-        ToolbarItem(placement: .primaryAction) {
+
             Menu {
                 Picker("Appearance", selection: appearanceBinding) {
                     Label("System", systemImage: "circle.lefthalf.filled").tag("system")
@@ -988,8 +1000,7 @@ private struct UntypeRootView: View {
                 Image(systemName: appearanceIcon)
             }
             .help("Appearance: \(model.settings.appearance.capitalized)")
-        }
-        ToolbarItem(placement: .primaryAction) {
+
             Button {
                 model.updateLayout(settingsExpanded: !model.settings.settingsExpanded)
             } label: {
@@ -997,8 +1008,7 @@ private struct UntypeRootView: View {
             }
             .help(model.settings.settingsExpanded ? "Hide Inspector" : "Show Inspector")
             .keyboardShortcut("\\", modifiers: [.command])
-        }
-        ToolbarItem(placement: .primaryAction) {
+
             Button {
                 model.updateLayout(compactWindow: true)
             } label: {
@@ -1007,6 +1017,14 @@ private struct UntypeRootView: View {
             .help("Enter Compact Mode")
             .keyboardShortcut("m", modifiers: [.command, .option])
         }
+        .controlSize(.small)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.thinMaterial, in: Capsule(style: .continuous))
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08))
+        )
     }
 
     private var appearanceBinding: Binding<String> {
