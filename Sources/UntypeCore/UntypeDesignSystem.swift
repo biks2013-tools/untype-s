@@ -134,6 +134,7 @@ public struct UntypeOperatorChip: View {
     public var isOn: Bool
     public var isRecording: Bool
     public var isCompact: Bool
+    public var showsLabel: Bool
     public var action: () -> Void
 
     public init(
@@ -142,6 +143,7 @@ public struct UntypeOperatorChip: View {
         isOn: Bool,
         isRecording: Bool = false,
         isCompact: Bool = false,
+        showsLabel: Bool = true,
         action: @escaping () -> Void
     ) {
         self.letter = letter
@@ -149,6 +151,7 @@ public struct UntypeOperatorChip: View {
         self.isOn = isOn
         self.isRecording = isRecording
         self.isCompact = isCompact
+        self.showsLabel = showsLabel
         self.action = action
     }
 
@@ -162,11 +165,15 @@ public struct UntypeOperatorChip: View {
                 Text(letter)
                     .font(.system(size: isCompact ? 11 : 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(isOn ? UntypeDesignTokens.accentAmber : Color.secondary)
-                Text(label)
-                    .font(.system(size: isCompact ? 11 : 12, weight: .semibold))
-                    .foregroundStyle(isOn ? Color.primary : Color.secondary)
+                    .lineLimit(1)
+                if showsLabel {
+                    Text(label)
+                        .font(.system(size: isCompact ? 11 : 12, weight: .semibold))
+                        .foregroundStyle(isOn ? Color.primary : Color.secondary)
+                        .lineLimit(1)
+                }
             }
-            .padding(.horizontal, isCompact ? 9 : 12)
+            .padding(.horizontal, isCompact ? 9 : (showsLabel ? 12 : 10))
             .padding(.vertical, isCompact ? 4 : 6)
             .background(
                 Capsule(style: .continuous)

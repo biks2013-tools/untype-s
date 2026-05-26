@@ -873,6 +873,7 @@ private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showOnboarding: Bool = false
     private static let titlebarControlHeight: CGFloat = 54
+    private static let transcriptOperatorLabelMinimumContentWidth: CGFloat = 760
 
     var body: some View {
         Group {
@@ -1265,39 +1266,12 @@ private struct UntypeRootView: View {
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
-            HStack(spacing: 8) {
-                UntypeOperatorChip(letter: "R", label: "Refine", isOn: model.settings.refine, isRecording: model.isRunning) {
-                    model.toggleOperator(.refine)
-                }
-                UntypeOperatorChip(letter: "T", label: "Translate", isOn: model.settings.translate, isRecording: model.isRunning) {
-                    model.toggleOperator(.translate)
-                }
-                UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: model.isRunning) {
-                    model.toggleOperator(.clipboard)
-                }
-                UntypeOperatorChip(letter: "I", label: "Input", isOn: model.settings.focusedInput, isRecording: model.isRunning) {
-                    model.toggleOperator(.input)
-                }
-                Spacer()
-                Button {
-                    model.copyTranscriptExport()
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                }
-                .disabled(!model.canExportTranscript)
-                Button {
-                    model.saveTranscriptExport()
-                } label: {
-                    Label("Save", systemImage: "square.and.arrow.down")
-                }
-                .disabled(!model.canExportTranscript)
-                Button {
-                    model.clearTranscriptTimeline()
-                } label: {
-                    Label("Clear", systemImage: "trash")
-                }
-                .disabled(model.timeline.visibleItemCount == 0)
+            GeometryReader { geometry in
+                transcriptActionRow(
+                    showsOperatorLabels: geometry.size.width >= Self.transcriptOperatorLabelMinimumContentWidth
+                )
             }
+            .frame(height: 34)
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -1326,6 +1300,67 @@ private struct UntypeRootView: View {
             .background(Color(nsColor: .textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
+    }
+
+    private func transcriptActionRow(showsOperatorLabels: Bool) -> some View {
+        HStack(spacing: 8) {
+            UntypeOperatorChip(
+                letter: "R",
+                label: "Refine",
+                isOn: model.settings.refine,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.refine)
+            }
+            UntypeOperatorChip(
+                letter: "T",
+                label: "Translate",
+                isOn: model.settings.translate,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.translate)
+            }
+            UntypeOperatorChip(
+                letter: "C",
+                label: "Clipboard",
+                isOn: model.settings.clipboard,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.clipboard)
+            }
+            UntypeOperatorChip(
+                letter: "I",
+                label: "Input",
+                isOn: model.settings.focusedInput,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.input)
+            }
+            Spacer()
+            Button {
+                model.copyTranscriptExport()
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            .disabled(!model.canExportTranscript)
+            Button {
+                model.saveTranscriptExport()
+            } label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            }
+            .disabled(!model.canExportTranscript)
+            Button {
+                model.clearTranscriptTimeline()
+            } label: {
+                Label("Clear", systemImage: "trash")
+            }
+            .disabled(model.timeline.visibleItemCount == 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var eventsPane: some View {

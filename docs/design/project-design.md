@@ -200,6 +200,8 @@ The full-size UI places session/action controls in a custom titlebar-height stri
 
 The titlebar brand mark/app-name area toggles the leading Monitor sidebar. Hiding the sidebar expands the monitor content pane into the freed space, and restoring uses the same always-visible titlebar brand mark. The hidden/visible state is stored as non-secret UI layout state in `ui-state.json`.
 
+The Transcript action row measures the usable center monitor column width after the leading sidebar and trailing inspector take their space. When that central width falls below the labeled-chip threshold, the `Refine`, `Translate`, `Clipboard`, and `Input` operator chips hide their text labels and keep only the status dot plus `R`, `T`, `C`, or `I`, preventing the chip text from wrapping while preserving the same toggle actions and accessibility labels.
+
 Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
 
 ### Proposed macOS UI Modernization

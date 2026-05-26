@@ -23,6 +23,10 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-26 - Transcript operator labels collapse by center width
+
+Resolved a responsive layout issue where the Transcript row operator chip labels could wrap when the app window still looked wide overall but the leading monitor sidebar and/or trailing inspector reduced the usable center column. `UntypeOperatorChip` now supports hiding its visible label while preserving accessibility text, and the Transcript action row measures its own central content width before deciding whether to show labels or leave only the status dot plus `R`/`T`/`C`/`I`. `swift build` and `swift test` (130/130) pass.
+
 ### 2026-05-26 - Native UI monitor sidebar collapse added
 Resolved the restore-path question for collapsing the left Monitor sidebar. The full-size native UI now uses the titlebar brand mark/app-name area as a plain toggle: click it once to hide the leading sidebar, and click the same still-visible titlebar control again to restore it. The sidebar hidden/visible state is persisted as non-secret UI layout state in `~/.tool-agents/untype/ui-state.json`, alongside window dimensions, selected monitor tab, compact mode, and inspector visibility. `swift build` and `swift test` (130/130) pass.
 
