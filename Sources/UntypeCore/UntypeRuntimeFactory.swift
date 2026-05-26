@@ -32,9 +32,17 @@ public enum UntypeRuntimeFactory {
             stdout: stdout
         )
         let refiner = try LLMRefinerFactory.makeRefiner(config: config.llm)
-        let translator = try LLMRefinerFactory.makeTranslator(config: config.llm)
+        let translator = try LLMRefinerFactory.makeTranslator(
+            config: config.llm,
+            systemPrompt: config.prompts.translationSystemPrompt
+        )
+        let compositeRefineTranslator = try LLMRefinerFactory.makeCompositeRefineTranslator(
+            config: config.llm,
+            prompts: config.prompts
+        )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery()
+        let releaseLatencyLogger = makeReleaseLatencyLogger(config.releaseLatencyLogging)
         let controller = VoiceAgentProtocolController(
             mode: protocolConfig.interactionMode,
             renderer: renderer,
@@ -42,11 +50,13 @@ public enum UntypeRuntimeFactory {
             markers: protocolConfig.markers,
             initialOperators: protocolConfig.initialOperators,
             translationPolicy: protocolConfig.translationPolicy,
+            translationUserPromptTemplate: config.prompts.translationUserPromptTemplate,
             verbose: config.verbose,
             refiner: refiner,
             translator: translator,
+            compositeRefineTranslator: compositeRefineTranslator,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
-            inputWriter: { text in try await focusedInputDelivery.send(text) },
+            focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
             diagnostics: diagnostics
         )
         let audioSource = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(config: config))
@@ -67,6 +77,7 @@ public enum UntypeRuntimeFactory {
                 sttProviderLabel: config.sttProvider.rawValue,
                 diagnostics: diagnostics,
                 quickClose: config.quickClose,
+                releaseLatencyLogger: releaseLatencyLogger,
                 emit: { event in
                     switch event {
                     case .ready(let message):
@@ -112,9 +123,17 @@ public enum UntypeRuntimeFactory {
             output: protocolOutput
         )
         let refiner = try LLMRefinerFactory.makeRefiner(config: config.llm)
-        let translator = try LLMRefinerFactory.makeTranslator(config: config.llm)
+        let translator = try LLMRefinerFactory.makeTranslator(
+            config: config.llm,
+            systemPrompt: config.prompts.translationSystemPrompt
+        )
+        let compositeRefineTranslator = try LLMRefinerFactory.makeCompositeRefineTranslator(
+            config: config.llm,
+            prompts: config.prompts
+        )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery()
+        let releaseLatencyLogger = makeReleaseLatencyLogger(config.releaseLatencyLogging)
         let controller = VoiceAgentProtocolController(
             mode: protocolConfig.interactionMode,
             renderer: renderer,
@@ -122,11 +141,13 @@ public enum UntypeRuntimeFactory {
             markers: protocolConfig.markers,
             initialOperators: protocolConfig.initialOperators,
             translationPolicy: protocolConfig.translationPolicy,
+            translationUserPromptTemplate: config.prompts.translationUserPromptTemplate,
             verbose: config.verbose,
             refiner: refiner,
             translator: translator,
+            compositeRefineTranslator: compositeRefineTranslator,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
-            inputWriter: { text in try await focusedInputDelivery.send(text) },
+            focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
             diagnostics: controllerDiagnostics,
             visibleOperatorDiagnostics: true
         )
@@ -151,6 +172,7 @@ public enum UntypeRuntimeFactory {
                 audioGate: audioGate,
                 quickClose: config.quickClose,
                 submissionDiagnosticsEnabled: true,
+                releaseLatencyLogger: releaseLatencyLogger,
                 emit: eventSink,
                 saveProtocolSettings: { snapshot in
                     try savePersistedProtocolSettings(snapshot)
@@ -188,6 +210,13 @@ public enum UntypeRuntimeFactory {
             return JsonlProtocolWriter(output: output)
         }
         return nil
+    }
+
+    private static func makeReleaseLatencyLogger(_ config: ReleaseLatencyLoggingConfig) -> ReleaseLatencyLogWriting? {
+        guard config.enabled else {
+            return nil
+        }
+        return ReleaseLatencyJsonlLogger(path: config.path)
     }
 }
 

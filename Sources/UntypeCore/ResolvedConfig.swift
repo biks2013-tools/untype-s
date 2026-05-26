@@ -152,6 +152,8 @@ public struct ResolvedConfig: Equatable, Sendable {
     public let guardPhrase: String
     public let protocolConfig: ProtocolRuntimeConfig
     public let llm: LLMConfig
+    public let prompts: PromptConfig
+    public let releaseLatencyLogging: ReleaseLatencyLoggingConfig
     public let verbose: Bool
     public let warnings: [String]
 }

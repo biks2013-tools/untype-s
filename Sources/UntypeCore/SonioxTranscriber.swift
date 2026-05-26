@@ -118,6 +118,7 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
     public let languages: [String]
     public let sampleRate: Int
     public let enableEndpointDetection: Bool
+    public let transcriptionContext: String?
     public let verbose: Bool
     public let finalizeDrainNanoseconds: UInt64
 
@@ -128,6 +129,7 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
         languages: [String],
         sampleRate: Int,
         enableEndpointDetection: Bool,
+        transcriptionContext: String? = nil,
         verbose: Bool = false,
         finalizeDrainNanoseconds: UInt64 = 250_000_000
     ) {
@@ -137,6 +139,7 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
         self.languages = languages
         self.sampleRate = sampleRate
         self.enableEndpointDetection = enableEndpointDetection
+        self.transcriptionContext = transcriptionContext
         self.verbose = verbose
         self.finalizeDrainNanoseconds = finalizeDrainNanoseconds
     }
@@ -149,6 +152,7 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
             languages: config.languages,
             sampleRate: config.sampleRate,
             enableEndpointDetection: config.enableEndpointDetection,
+            transcriptionContext: config.prompts.sonioxTranscriptionContext,
             verbose: config.verbose,
             finalizeDrainNanoseconds: finalizeDrainNanoseconds
         )
@@ -314,6 +318,10 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
             object["enable_language_identification"] = true
         } else {
             object["language_hints"] = options.languages
+        }
+        if let transcriptionContext = options.transcriptionContext,
+           !transcriptionContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            object["context"] = ["text": transcriptionContext]
         }
 
         let data = try JSONSerialization.data(

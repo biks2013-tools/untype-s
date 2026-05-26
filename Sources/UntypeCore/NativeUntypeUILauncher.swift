@@ -365,12 +365,13 @@ private final class UntypeUIModel: ObservableObject {
         guard hotkeyPressed else {
             return
         }
+        let releaseMarker = ReleaseLatencyReleaseMarker()
         hotkeyPressed = false
         captureState = "finalizing"
         hotkeySessionControl?.close()
         appendEvent("diagnostic.info: [untype] push-to-talk released (\(source))")
         restartWarmSessionAfterStop = settings.hotkeyEnabled
-        stopSession(reason: "ui-hotkey-release", submitPending: true)
+        stopSession(reason: "ui-hotkey-release", submitPending: true, releaseMarker: releaseMarker)
         overlay?.show(phase: "finalizing", text: latestTranscript)
         overlay?.hideAfterDelay()
     }
@@ -557,7 +558,11 @@ private final class UntypeUIModel: ObservableObject {
         }
     }
 
-    private func stopSession(reason: String, submitPending: Bool) {
+    private func stopSession(
+        reason: String,
+        submitPending: Bool,
+        releaseMarker: ReleaseLatencyReleaseMarker? = nil
+    ) {
         sessionTask?.cancel()
         guard let runtime else {
             resetStoppedSessionState(reason: reason)
@@ -570,7 +575,11 @@ private final class UntypeUIModel: ObservableObject {
         clearWarmSessionRecycleTimer()
         sessionState = "stopping"
         Task.detached { [weak self] in
-            await runtime.stop(reason: reason, submitPending: submitPending)
+            if let releaseMarker, let runtime = runtime as? TranscriptionSessionRuntime {
+                await runtime.stop(reason: reason, submitPending: submitPending, releaseMarker: releaseMarker)
+            } else {
+                await runtime.stop(reason: reason, submitPending: submitPending)
+            }
             let failure = runtime.recordedFailure()
             dispatchToUI { [weak self] in
                 guard let self else {

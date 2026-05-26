@@ -44,6 +44,24 @@ import Testing
     #expect(query["language_code"] == nil)
 }
 
+@Test func elevenLabsRequestAddsConfiguredKeyterms() throws {
+    let request = try ElevenLabsTranscriber.request(options: ElevenLabsTranscriberOptions(
+        apiKey: "xi-test",
+        model: "scribe_v2_realtime",
+        endpoint: "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
+        languages: ["auto"],
+        sampleRate: 16_000,
+        enableEndpointDetection: true,
+        keyterms: ["Untype", "Swift"]
+    ))
+
+    let components = try #require(URLComponents(url: request.url!, resolvingAgainstBaseURL: false))
+    let keyterms = (components.queryItems ?? [])
+        .filter { $0.name == "keyterms" }
+        .compactMap(\.value)
+    #expect(keyterms == ["Untype", "Swift"])
+}
+
 @Test func elevenLabsConvenienceInitializerRejectsInvalidEndpoint() {
     #expect(throws: UntypeError.self) {
         _ = try ElevenLabsTranscriber(options: ElevenLabsTranscriberOptions(
@@ -71,6 +89,23 @@ import Testing
     #expect(chunk["audio_base_64"] as? String == "AQID")
     #expect(chunk["sample_rate"] as? Int == 16_000)
     #expect(chunk["commit"] == nil)
+}
+
+@Test func elevenLabsPushAudioSendsPreviousTextOnlyOnFirstAudioChunk() async throws {
+    let socket = MockElevenLabsWebSocket()
+    let transcriber = makeElevenLabsTranscriber(socket: socket, previousText: "Swift dictation")
+
+    try await transcriber.start()
+    try await transcriber.pushAudio(Data([0x01]))
+    try await transcriber.pushAudio(Data([0x02]))
+    try await transcriber.commit()
+
+    let first = try elevenLabsJsonObject(socket.sentTexts[0])
+    let second = try elevenLabsJsonObject(socket.sentTexts[1])
+    let commit = try elevenLabsJsonObject(socket.sentTexts[2])
+    #expect(first["previous_text"] as? String == "Swift dictation")
+    #expect(second["previous_text"] == nil)
+    #expect(commit["previous_text"] == nil)
 }
 
 @Test func elevenLabsCommitAndStopSendCommitFrameAndCloseOnce() async throws {
@@ -154,7 +189,10 @@ import Testing
     #expect(errors[1].code == "elevenlabs_network")
 }
 
-private func makeElevenLabsTranscriber(socket: MockElevenLabsWebSocket) -> ElevenLabsTranscriber {
+private func makeElevenLabsTranscriber(
+    socket: MockElevenLabsWebSocket,
+    previousText: String? = nil
+) -> ElevenLabsTranscriber {
     ElevenLabsTranscriber(
         options: ElevenLabsTranscriberOptions(
             apiKey: "xi-test",
@@ -163,6 +201,7 @@ private func makeElevenLabsTranscriber(socket: MockElevenLabsWebSocket) -> Eleve
             languages: ["auto"],
             sampleRate: 16_000,
             enableEndpointDetection: true,
+            previousText: previousText,
             commitDrainNanoseconds: 0
         ),
         socket: socket

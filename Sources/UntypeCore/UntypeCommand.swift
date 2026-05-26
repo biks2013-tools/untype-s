@@ -114,6 +114,9 @@ public struct UntypeCommand {
       --sample-rate <hz>                      PCM sample rate. Env: UNTYPE_SAMPLE_RATE.
       --quick-close                           Submit latest push-to-talk partial immediately on release. Env: UNTYPE_QUICK_CLOSE.
       --no-quick-close                        Disable Quick Close and wait for provider finalization.
+      --release-latency-log                   Append push-to-talk release timing JSONL records. Env: UNTYPE_RELEASE_LATENCY_LOG.
+      --no-release-latency-log                Disable push-to-talk release timing logging.
+      --release-latency-log-path <path>       JSONL latency log path. Env: UNTYPE_RELEASE_LATENCY_LOG_PATH.
       --endpoint-detection                    Enable provider endpoint/VAD detection. Env: UNTYPE_ENABLE_ENDPOINT_DETECTION.
       --no-endpoint-detection                 Disable provider endpoint/VAD detection.
       --output-mode <mode>                    overwrite, append, or final-only. Env: UNTYPE_OUTPUT_MODE.
@@ -139,6 +142,9 @@ public struct UntypeCommand {
       2. <cwd>/.env
       3. ~/.tool-agents/untype/.env
       4. shell environment
+
+    Prompt files are provisioned and read at startup from:
+      ~/.tool-agents/untype/prompts/
 
     Examples:
       $ untype --api-key sk_... --language el --language en

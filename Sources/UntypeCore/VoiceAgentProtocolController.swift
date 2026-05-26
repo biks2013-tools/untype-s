@@ -27,17 +27,20 @@ public struct EndProtocolSessionOptions: Sendable, Equatable {
 
 public final class VoiceAgentProtocolController {
     public typealias TextDelivery = (_ text: String) async throws -> Void
+    public typealias FocusedInputTextDelivery = (_ text: String) async throws -> FocusedInputDeliveryResult
 
     private let mode: InteractionMode
     private let renderer: TranscriptRendering
     private let writer: JsonlProtocolWriter?
     private let stateMachine: VoiceCommandStateMachine
     private let translationPolicy: TranslationPolicy
+    private let translationUserPromptTemplate: String
     private let verbose: Bool
     private let refiner: TextRefining?
     private let translator: TextRefining?
+    private let compositeRefineTranslator: CompositeRefineTranslating?
     private let clipboardWriter: TextDelivery
-    private let inputWriter: TextDelivery
+    private let focusedInputWriter: FocusedInputTextDelivery
     private let diagnostics: ProtocolControllerDiagnostics
     private let visibleOperatorDiagnostics: Bool
 
@@ -52,11 +55,14 @@ public final class VoiceAgentProtocolController {
         markers: MarkerConfig,
         initialOperators: OperatorState,
         translationPolicy: TranslationPolicy,
+        translationUserPromptTemplate: String = UntypePromptDefaults.translationUserPromptTemplate,
         verbose: Bool = false,
         refiner: TextRefining? = nil,
         translator: TextRefining? = nil,
+        compositeRefineTranslator: CompositeRefineTranslating? = nil,
         clipboardWriter: @escaping TextDelivery = { _ in },
         inputWriter: @escaping TextDelivery = { _ in },
+        focusedInputWriter: FocusedInputTextDelivery? = nil,
         diagnostics: ProtocolControllerDiagnostics = ProtocolControllerDiagnostics(write: { _, _ in }),
         visibleOperatorDiagnostics: Bool = false
     ) {
@@ -64,11 +70,20 @@ public final class VoiceAgentProtocolController {
         self.renderer = renderer
         self.writer = writer
         self.translationPolicy = translationPolicy
+        self.translationUserPromptTemplate = translationUserPromptTemplate
         self.verbose = verbose
         self.refiner = refiner
         self.translator = translator
+        self.compositeRefineTranslator = compositeRefineTranslator
         self.clipboardWriter = clipboardWriter
-        self.inputWriter = inputWriter
+        if let focusedInputWriter {
+            self.focusedInputWriter = focusedInputWriter
+        } else {
+            self.focusedInputWriter = { text in
+                try await inputWriter(text)
+                return FocusedInputDeliveryResult.success(method: "in-process")
+            }
+        }
         self.diagnostics = diagnostics
         self.visibleOperatorDiagnostics = visibleOperatorDiagnostics
         self.stateMachine = VoiceCommandStateMachine(
@@ -137,17 +152,20 @@ public final class VoiceAgentProtocolController {
             renderer.final(result.visibleText)
         }
         for action in result.actions {
-            try await handleAction(action)
+            _ = try await handleAction(action)
         }
     }
 
-    public func submitPending() async throws {
+    @discardableResult
+    public func submitPending() async throws -> ProtocolSubmissionSummary {
         guard !sessionEnded, !disposed else {
-            return
+            return ProtocolSubmissionSummary()
         }
+        var summary = ProtocolSubmissionSummary()
         for action in stateMachine.drainForShutdown(options: DrainForShutdownOptions(submitPending: true)) {
-            try await handleAction(action)
+            summary.merge(try await handleAction(action))
         }
+        return summary
     }
 
     public func endSession(
@@ -160,7 +178,7 @@ public final class VoiceAgentProtocolController {
         for action in stateMachine.drainForShutdown(
             options: DrainForShutdownOptions(submitPending: options.submitPending)
         ) {
-            try await handleAction(action)
+            _ = try await handleAction(action)
         }
         try writeProtocol(.sessionEnded(reason: reason))
         writer?.end()
@@ -171,7 +189,7 @@ public final class VoiceAgentProtocolController {
         guard !sessionEnded, !disposed else {
             return
         }
-        try await handleAction(stateMachine.toggleOperator(key))
+        _ = try await handleAction(stateMachine.toggleOperator(key))
     }
 
     public func dispose() {
@@ -181,6 +199,7 @@ public final class VoiceAgentProtocolController {
         disposed = true
         refiner?.dispose()
         translator?.dispose()
+        compositeRefineTranslator?.dispose()
         renderer.dispose()
     }
 
@@ -188,13 +207,14 @@ public final class VoiceAgentProtocolController {
         stateMachine.settingsSnapshot
     }
 
-    private func handleAction(_ action: ProtocolAction) async throws {
+    private func handleAction(_ action: ProtocolAction) async throws -> ProtocolSubmissionSummary {
         switch action {
         case .stateChanged(let key, let value, let targetPolicy):
             try writeProtocol(.stateChanged(key: key, value: value, targetPolicy: targetPolicy))
             if verbose {
                 diagnostics.write("[untype] protocol state: \(key.rawValue)=\(value ? "on" : "off")", false)
             }
+            return ProtocolSubmissionSummary()
         case .statusReported(let report):
             try writeProtocol(.statusReported(report))
             if mode != .agentProtocol {
@@ -203,51 +223,89 @@ public final class VoiceAgentProtocolController {
             if verbose {
                 diagnostics.write("[untype] protocol status: \(formatStatusSummary(report))", false)
             }
+            return ProtocolSubmissionSummary()
         case .sectionSubmitted(let sectionId, let rawText, let operators):
             try writeProtocol(.sectionSubmitted(sectionId: sectionId, rawText: rawText))
             if mode != .agentProtocol {
                 renderer.turnBoundary()
             }
-            await processSection(sectionId: sectionId, rawText: rawText, operators: operators)
+            return await processSection(sectionId: sectionId, rawText: rawText, operators: operators)
         case .sectionCancelled(let sectionId, let reason):
             try writeProtocol(.sectionCancelled(sectionId: sectionId, reason: reason))
             if verbose {
                 diagnostics.write("[untype] protocol section cancelled: \(sectionId) (\(reason.rawValue))", false)
             }
+            return ProtocolSubmissionSummary()
         case .warning(let message):
             warn(message)
+            return ProtocolSubmissionSummary()
         case .sectionEmpty:
             if verbose {
                 diagnostics.write("[untype] protocol: empty section ignored", false)
             }
+            return ProtocolSubmissionSummary()
         }
     }
 
-    private func processSection(sectionId: String, rawText: String, operators: [OperatorKey]) async {
+    private func processSection(sectionId: String, rawText: String, operators: [OperatorKey]) async -> ProtocolSubmissionSummary {
+        let sectionStarted = DispatchTime.now().uptimeNanoseconds
         var current = rawText
         var refinedText: String?
         var sourceLanguage: ProtocolLanguage?
         var targetLanguage: ProtocolLanguage?
+        var summary = ProtocolSubmissionSummary(sectionsProcessed: 1)
+        let shouldCompositeProcess = operators.contains(.refine)
+            && operators.contains(.translate)
+            && compositeRefineTranslator != nil
 
-        if operators.contains(.refine) {
+        if shouldCompositeProcess {
+            operatorDiagnostic(.refine, stage: "started")
+            operatorDiagnostic(.translate, stage: "started")
+            sourceLanguage = detectProtocolLanguage(current)
+            targetLanguage = targetLanguageFor(source: sourceLanguage!, policy: translationPolicy)
+            do {
+                let started = DispatchTime.now().uptimeNanoseconds
+                let result = try await compositeRefineTranslator!.refineAndTranslate(
+                    CompositeRefineTranslateRequest(
+                        rawText: rawText,
+                        targetLanguageName: languageDisplayName(targetLanguage!)
+                    )
+                )
+                let elapsed = releaseLatencyMilliseconds(from: started)
+                summary.refineMs = elapsed
+                summary.translateMs = elapsed
+                refinedText = result.refinedText
+                current = result.translatedText
+                operatorDiagnostic(.refine, stage: "completed")
+                operatorDiagnostic(.translate, stage: "completed")
+            } catch {
+                summary.refineMs = summary.refineMs ?? 0
+                summary.translateMs = summary.translateMs ?? 0
+                logOperatorFailure(.refine, error: error)
+                logOperatorFailure(.translate, error: error)
+            }
+        } else if operators.contains(.refine) {
             if refiner == nil {
                 warn("Refine operator is enabled, but no LLM refiner is configured.")
             } else {
                 operatorDiagnostic(.refine, stage: "started")
                 do {
+                    let started = DispatchTime.now().uptimeNanoseconds
                     let refined = try await refiner!.refine(current)
+                    summary.refineMs = releaseLatencyMilliseconds(from: started)
                     if !refined.isEmpty {
                         refinedText = refined
                         current = refined
                     }
                     operatorDiagnostic(.refine, stage: "completed")
                 } catch {
+                    summary.refineMs = summary.refineMs ?? 0
                     logOperatorFailure(.refine, error: error)
                 }
             }
         }
 
-        if operators.contains(.translate) {
+        if !shouldCompositeProcess && operators.contains(.translate) {
             if translator == nil {
                 warn("Translate operator is enabled, but no LLM translator is configured.")
             } else {
@@ -255,13 +313,19 @@ public final class VoiceAgentProtocolController {
                 sourceLanguage = detectProtocolLanguage(current)
                 targetLanguage = targetLanguageFor(source: sourceLanguage!, policy: translationPolicy)
                 do {
-                    let prompt = "Translate the following text to \(targetLanguage == .english ? "English" : "Greek"). Return only the translated text.\n\n\(current)"
+                    let prompt = renderTranslationPrompt(
+                        text: current,
+                        targetLanguage: languageDisplayName(targetLanguage!)
+                    )
+                    let started = DispatchTime.now().uptimeNanoseconds
                     let translated = try await translator!.refine(prompt)
+                    summary.translateMs = releaseLatencyMilliseconds(from: started)
                     if !translated.isEmpty {
                         current = translated
                     }
                     operatorDiagnostic(.translate, stage: "completed")
                 } catch {
+                    summary.translateMs = summary.translateMs ?? 0
                     logOperatorFailure(.translate, error: error)
                 }
             }
@@ -284,10 +348,13 @@ public final class VoiceAgentProtocolController {
         if operators.contains(.clipboard) {
             operatorDiagnostic(.clipboard, stage: "started")
             do {
+                let started = DispatchTime.now().uptimeNanoseconds
                 try await clipboardWriter(current)
+                summary.clipboardMs = releaseLatencyMilliseconds(from: started)
                 try writeProtocol(.clipboardCopied(sectionId: sectionId))
                 operatorDiagnostic(.clipboard, stage: "completed")
             } catch {
+                summary.clipboardMs = summary.clipboardMs ?? 0
                 logOperatorFailure(.clipboard, error: error)
             }
         }
@@ -295,13 +362,21 @@ public final class VoiceAgentProtocolController {
         if operators.contains(.input) {
             operatorDiagnostic(.input, stage: "started")
             do {
-                try await inputWriter(current)
+                let started = DispatchTime.now().uptimeNanoseconds
+                let result = try await focusedInputWriter(current)
+                let elapsed = releaseLatencyMilliseconds(from: started)
+                summary.focusedInputMs = elapsed
+                summary.focusedInput = ReleaseLatencyFocusedInput.from(result)
                 try writeProtocol(.inputSent(sectionId: sectionId))
                 operatorDiagnostic(.input, stage: "completed")
             } catch {
+                summary.focusedInputMs = summary.focusedInputMs ?? 0
+                summary.focusedInput = ReleaseLatencyFocusedInput.failure(error: error)
                 warn("input operator failed: \(error.localizedDescription). Check that the target control is focused before command send completes, and grant Accessibility permission to the terminal app running untype.")
             }
         }
+        summary.operatorProcessingMs = releaseLatencyMilliseconds(from: sectionStarted)
+        return summary
     }
 
     private func writeProtocol(_ event: ProtocolEvent) throws {
@@ -311,6 +386,16 @@ public final class VoiceAgentProtocolController {
     private func warn(_ message: String) {
         diagnostics.write("[untype] protocol warning: \(message)", true)
         try? writeProtocol(.warning(message: message))
+    }
+
+    private func renderTranslationPrompt(text: String, targetLanguage: String) -> String {
+        translationUserPromptTemplate
+            .replacingOccurrences(of: "{target_language}", with: targetLanguage)
+            .replacingOccurrences(of: "{text}", with: text)
+    }
+
+    private func languageDisplayName(_ language: ProtocolLanguage) -> String {
+        language == .english ? "English" : "Greek"
     }
 
     private func logOperatorFailure(_ operatorKey: OperatorKey, error: Error) {

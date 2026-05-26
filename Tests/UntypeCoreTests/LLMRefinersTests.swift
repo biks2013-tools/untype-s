@@ -118,6 +118,99 @@ import Testing
     #expect(contentParts[0]["text"] == "raw text")
 }
 
+@Test func azureCompositeRefinerUsesCompositePromptAndParsesStructuredResult() async throws {
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(
+            statusCode: 200,
+            body: jsonData([
+                "choices": [
+                    [
+                        "message": [
+                            "content": #"{"refined_text":"Clean text.","translated_text":"Καθαρό κείμενο."}"#
+                        ]
+                    ]
+                ]
+            ])
+        )
+    ])
+    let baseRefiner = try AzureOpenAIRefiner(
+        config: azureConfig(systemPrompt: "Composite system."),
+        httpClient: http
+    )
+    let composite = LLMCompositeRefineTranslator(
+        refiner: baseRefiner,
+        refinementPromptTemplate: "REFINE {text}",
+        translationPromptTemplate: "TRANSLATE {target_language}: {text}"
+    )
+
+    let output = try await composite.refineAndTranslate(
+        CompositeRefineTranslateRequest(rawText: "raw words", targetLanguageName: "Greek")
+    )
+
+    #expect(output == CompositeRefineTranslateResult(
+        refinedText: "Clean text.",
+        translatedText: "Καθαρό κείμενο."
+    ))
+    #expect(http.requests.count == 1)
+    let request = try #require(http.requests.first)
+    let body = try requestJSONObject(request)
+    let messages = try #require(body["messages"] as? [[String: String]])
+    #expect(messages[0] == ["role": "system", "content": "Composite system."])
+    #expect(messages[1]["content"]?.contains("Source transcript:\nraw words") == true)
+    #expect(messages[1]["content"]?.contains("REFINE raw words") == true)
+    #expect(messages[1]["content"]?.contains("TRANSLATE Greek: raw words") == true)
+}
+
+@Test func googleCompositeRefinerUsesCompositePromptAndAcceptsJsonInsideMarkdownFence() async throws {
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(
+            statusCode: 200,
+            body: jsonData([
+                "candidates": [
+                    [
+                        "content": [
+                            "parts": [
+                                [
+                                    "text": """
+                                    ```json
+                                    {"refined_text":"Clean text.","translated_text":"Καθαρό κείμενο."}
+                                    ```
+                                    """
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ])
+        )
+    ])
+    let baseRefiner = try GoogleRefiner(
+        config: googleConfig(systemPrompt: "Composite system."),
+        httpClient: http
+    )
+    let composite = LLMCompositeRefineTranslator(
+        refiner: baseRefiner,
+        refinementPromptTemplate: "REFINE {text}",
+        translationPromptTemplate: "TRANSLATE {target_language}"
+    )
+
+    let output = try await composite.refineAndTranslate(
+        CompositeRefineTranslateRequest(rawText: "raw words", targetLanguageName: "Greek")
+    )
+
+    #expect(output.translatedText == "Καθαρό κείμενο.")
+    #expect(http.requests.count == 1)
+    let request = try #require(http.requests.first)
+    let body = try requestJSONObject(request)
+    let systemInstruction = try #require(body["systemInstruction"] as? [String: Any])
+    let systemParts = try #require(systemInstruction["parts"] as? [[String: String]])
+    #expect(systemParts[0]["text"] == "Composite system.")
+    let contents = try #require(body["contents"] as? [[String: Any]])
+    let contentParts = try #require(contents[0]["parts"] as? [[String: String]])
+    #expect(contentParts[0]["text"]?.contains("REFINE raw words") == true)
+    #expect(contentParts[0]["text"]?.contains("TRANSLATE Greek") == true)
+}
+
 @Test func googleRefinerMapsServerShapeAndNetworkErrors() async throws {
     let serverClient = MockLLMHTTPClient(responses: [
         LLMHTTPResponse(statusCode: 500, body: Data("oops".utf8))
@@ -226,13 +319,14 @@ private final class MockLLMHTTPClient: LLMHTTPClient {
 
 private func azureConfig(
     endpoint: String = "https://example.openai.azure.com",
-    deployment: String = "gpt-5.4"
+    deployment: String = "gpt-5.4",
+    systemPrompt: String = "Clean this transcript."
 ) -> LLMConfig {
     LLMConfig(
         enabled: true,
         provider: .azureOpenAI,
         model: "gpt-5.4",
-        systemPrompt: "Clean this transcript.",
+        systemPrompt: systemPrompt,
         requestTimeoutMs: 1_000,
         providerConfig: .azureOpenAI(
             apiKey: "azure-key",
@@ -244,12 +338,12 @@ private func azureConfig(
     )
 }
 
-private func googleConfig() -> LLMConfig {
+private func googleConfig(systemPrompt: String = "Clean this transcript.") -> LLMConfig {
     LLMConfig(
         enabled: true,
         provider: .google,
         model: "gemini-3.5-flash",
-        systemPrompt: "Clean this transcript.",
+        systemPrompt: systemPrompt,
         requestTimeoutMs: 1_000,
         providerConfig: .google(apiKey: "google-key"),
         verbose: false

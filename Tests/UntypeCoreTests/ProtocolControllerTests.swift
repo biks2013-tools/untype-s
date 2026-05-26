@@ -112,6 +112,128 @@ private let allOperatorsOff = OperatorState(
     #expect(rendered.text == "γράψε αυτό\n\nclean text\n\n")
 }
 
+@Test func protocolControllerUsesCompositeRefineTranslateWhenBothOperatorsAreEnabled() async throws {
+    let rendered = MemoryOutput()
+    let protocolOutput = MemoryOutput()
+    let refiner = MockRefiner { _ in
+        Issue.record("Separate refiner should not be called when composite processing is configured")
+        return "unexpected-refined"
+    }
+    let translator = MockRefiner { _ in
+        Issue.record("Separate translator should not be called when composite processing is configured")
+        return "unexpected-translated"
+    }
+    let composite = MockCompositeRefineTranslator { request in
+        #expect(request.rawText == "γράψε αυτό")
+        #expect(request.targetLanguageName == "English")
+        return CompositeRefineTranslateResult(
+            refinedText: "καθαρό κείμενο",
+            translatedText: "clean text"
+        )
+    }
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: rendered, mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: controllerMarkers,
+        initialOperators: OperatorState(refine: true, translate: true, clipboard: false, input: false),
+        translationPolicy: .opposite,
+        refiner: refiner,
+        translator: translator,
+        compositeRefineTranslator: composite
+    )
+
+    try controller.startSession()
+    try await controller.final("γράψε αυτό command send")
+
+    let events = try protocolEvents(protocolOutput.text)
+    #expect(events[2]["raw_text"] as? String == "γράψε αυτό")
+    #expect(events[2]["refined_text"] as? String == "καθαρό κείμενο")
+    #expect(events[2]["source_language"] as? String == "el")
+    #expect(events[2]["target_language"] as? String == "en")
+    #expect(events[2]["output_text"] as? String == "clean text")
+    #expect(composite.requests.count == 1)
+    #expect(refiner.calls.isEmpty)
+    #expect(translator.calls.isEmpty)
+    #expect(rendered.text == "γράψε αυτό\n\nclean text\n\n")
+}
+
+@Test func protocolControllerCompositeFailureIsFailOpenWithoutSequentialFallback() async throws {
+    let rendered = MemoryOutput()
+    let protocolOutput = MemoryOutput()
+    let diagnostics = MemoryOutput()
+    let refiner = MockRefiner { _ in
+        Issue.record("Separate refiner should not be called after composite failure")
+        return "unexpected-refined"
+    }
+    let translator = MockRefiner { _ in
+        Issue.record("Separate translator should not be called after composite failure")
+        return "unexpected-translated"
+    }
+    let composite = MockCompositeRefineTranslator { _ in
+        throw LLMRefinementError("bad composite shape", kind: .shape)
+    }
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: rendered, mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: controllerMarkers,
+        initialOperators: OperatorState(refine: true, translate: true, clipboard: false, input: false),
+        translationPolicy: .opposite,
+        refiner: refiner,
+        translator: translator,
+        compositeRefineTranslator: composite,
+        diagnostics: ProtocolControllerDiagnostics(write: { line, _ in diagnostics.write(line + "\n") }),
+        visibleOperatorDiagnostics: true
+    )
+
+    try controller.startSession()
+    try await controller.final("γράψε αυτό command send")
+
+    let events = try protocolEvents(protocolOutput.text)
+    #expect(eventTypes(events) == [
+        "session.started",
+        "section.submitted",
+        "protocol.warning",
+        "protocol.warning",
+        "section.processed"
+    ])
+    #expect(events[4]["raw_text"] as? String == "γράψε αυτό")
+    #expect(events[4]["source_language"] as? String == "el")
+    #expect(events[4]["target_language"] as? String == "en")
+    #expect(events[4]["output_text"] as? String == "γράψε αυτό")
+    #expect(events[4]["refined_text"] == nil)
+    #expect(composite.requests.count == 1)
+    #expect(refiner.calls.isEmpty)
+    #expect(translator.calls.isEmpty)
+    #expect(diagnostics.text.contains("refine operator failed: bad composite shape"))
+    #expect(diagnostics.text.contains("translate operator failed: bad composite shape"))
+}
+
+@Test func protocolControllerUsesConfiguredTranslationUserPromptTemplate() async throws {
+    let rendered = MemoryOutput()
+    var capturedPrompt: String?
+    let translator = MockRefiner { prompt in
+        capturedPrompt = prompt
+        return "translated"
+    }
+    let controller = VoiceAgentProtocolController(
+        mode: .dictation,
+        renderer: TranscriptRenderer(output: rendered, mode: .append, isTTY: false),
+        markers: controllerMarkers,
+        initialOperators: OperatorState(refine: false, translate: true, clipboard: false, input: false),
+        translationPolicy: .toEnglish,
+        translationUserPromptTemplate: "TARGET={target_language}\nBODY={text}",
+        translator: translator
+    )
+
+    try controller.startSession()
+    try await controller.final("γράψε αυτό command send")
+
+    #expect(capturedPrompt == "TARGET=English\nBODY=γράψε αυτό")
+    #expect(rendered.text == "γράψε αυτό\n\ntranslated\n\n")
+}
+
 @Test func protocolControllerWarningsAreFailOpenWhenRefinerIsMissing() async throws {
     let rendered = MemoryOutput()
     let protocolOutput = MemoryOutput()
@@ -196,13 +318,33 @@ private let allOperatorsOff = OperatorState(
 
 private final class MockRefiner: TextRefining {
     private let handler: (String) async throws -> String
+    private(set) var calls: [String] = []
 
     init(handler: @escaping (String) async throws -> String) {
         self.handler = handler
     }
 
     func refine(_ text: String) async throws -> String {
-        try await handler(text)
+        calls.append(text)
+        return try await handler(text)
+    }
+}
+
+private final class MockCompositeRefineTranslator: CompositeRefineTranslating {
+    private let handler: (CompositeRefineTranslateRequest) async throws -> CompositeRefineTranslateResult
+    private(set) var requests: [CompositeRefineTranslateRequest] = []
+
+    init(
+        handler: @escaping (CompositeRefineTranslateRequest) async throws -> CompositeRefineTranslateResult
+    ) {
+        self.handler = handler
+    }
+
+    func refineAndTranslate(
+        _ request: CompositeRefineTranslateRequest
+    ) async throws -> CompositeRefineTranslateResult {
+        requests.append(request)
+        return try await handler(request)
     }
 }
 

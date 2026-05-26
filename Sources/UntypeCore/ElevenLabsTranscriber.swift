@@ -7,6 +7,8 @@ public struct ElevenLabsTranscriberOptions: Sendable, Equatable {
     public let languages: [String]
     public let sampleRate: Int
     public let enableEndpointDetection: Bool
+    public let previousText: String?
+    public let keyterms: [String]
     public let verbose: Bool
     public let commitDrainNanoseconds: UInt64
 
@@ -17,6 +19,8 @@ public struct ElevenLabsTranscriberOptions: Sendable, Equatable {
         languages: [String],
         sampleRate: Int,
         enableEndpointDetection: Bool,
+        previousText: String? = nil,
+        keyterms: [String] = [],
         verbose: Bool = false,
         commitDrainNanoseconds: UInt64 = 250_000_000
     ) {
@@ -26,6 +30,8 @@ public struct ElevenLabsTranscriberOptions: Sendable, Equatable {
         self.languages = languages
         self.sampleRate = sampleRate
         self.enableEndpointDetection = enableEndpointDetection
+        self.previousText = previousText
+        self.keyterms = keyterms
         self.verbose = verbose
         self.commitDrainNanoseconds = commitDrainNanoseconds
     }
@@ -38,6 +44,8 @@ public struct ElevenLabsTranscriberOptions: Sendable, Equatable {
             languages: config.languages,
             sampleRate: config.sampleRate,
             enableEndpointDetection: config.enableEndpointDetection,
+            previousText: config.prompts.elevenLabsPreviousText,
+            keyterms: config.prompts.elevenLabsKeyterms,
             verbose: config.verbose,
             commitDrainNanoseconds: commitDrainNanoseconds
         )
@@ -51,6 +59,7 @@ public final class ElevenLabsTranscriber: RuntimeTranscriber, @unchecked Sendabl
     private var connected = false
     private var started = false
     private var shuttingDown = false
+    private var sentFirstAudioChunk = false
 
     public init(options: ElevenLabsTranscriberOptions, socket: RealtimeWebSocketClient) {
         self.options = options
@@ -88,6 +97,9 @@ public final class ElevenLabsTranscriber: RuntimeTranscriber, @unchecked Sendabl
         if !(options.languages.count == 1 && options.languages[0] == "auto"),
            let languageCode = options.languages.first {
             queryItems.append(URLQueryItem(name: "language_code", value: languageCode))
+        }
+        for keyterm in options.keyterms {
+            queryItems.append(URLQueryItem(name: "keyterms", value: keyterm))
         }
         components.queryItems = queryItems
 
@@ -138,7 +150,15 @@ public final class ElevenLabsTranscriber: RuntimeTranscriber, @unchecked Sendabl
             return
         }
         do {
-            try await socket.sendText(try inputAudioChunk(audio: pcm, commit: nil))
+            let includePreviousText = !sentFirstAudioChunk && !pcm.isEmpty
+            try await socket.sendText(try inputAudioChunk(
+                audio: pcm,
+                commit: nil,
+                includePreviousText: includePreviousText
+            ))
+            if !pcm.isEmpty {
+                sentFirstAudioChunk = true
+            }
         } catch let error as UntypeError {
             throw error
         } catch {
@@ -151,7 +171,11 @@ public final class ElevenLabsTranscriber: RuntimeTranscriber, @unchecked Sendabl
             return
         }
         do {
-            try await socket.sendText(try inputAudioChunk(audio: Data(), commit: true))
+            try await socket.sendText(try inputAudioChunk(
+                audio: Data(),
+                commit: true,
+                includePreviousText: false
+            ))
             if options.commitDrainNanoseconds > 0 {
                 try await Task.sleep(nanoseconds: options.commitDrainNanoseconds)
             }
@@ -222,7 +246,7 @@ public final class ElevenLabsTranscriber: RuntimeTranscriber, @unchecked Sendabl
         }
     }
 
-    private func inputAudioChunk(audio: Data, commit: Bool?) throws -> String {
+    private func inputAudioChunk(audio: Data, commit: Bool?, includePreviousText: Bool) throws -> String {
         var object: [String: Any] = [
             "message_type": "input_audio_chunk",
             "audio_base_64": audio.base64EncodedString(),
@@ -230,6 +254,9 @@ public final class ElevenLabsTranscriber: RuntimeTranscriber, @unchecked Sendabl
         ]
         if let commit {
             object["commit"] = commit
+        }
+        if includePreviousText, let previousText = options.previousText {
+            object["previous_text"] = previousText
         }
 
         let data = try JSONSerialization.data(

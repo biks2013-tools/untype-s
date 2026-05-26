@@ -315,6 +315,97 @@ private let runtimeMarkers = MarkerConfig(
     )))
 }
 
+@Test func sessionRuntimeWritesReleaseLatencyRecordForFocusedInputSuccessWithoutTranscriptText() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let logger = CapturingReleaseLatencyLogger()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: true),
+        translationPolicy: .opposite,
+        focusedInputWriter: { _ in
+            FocusedInputDeliveryResult(
+                ok: true,
+                method: "ax-value",
+                targetRole: "AXTextArea",
+                accessibilityTrusted: true,
+                focusedElementAvailable: true
+            )
+        }
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            sttProviderLabel: "soniox",
+            releaseLatencyLogger: logger
+        )
+    )
+
+    try await runtime.start()
+    await transcriber.emitFinal("dictated secret words")
+    try await runtime.submitPending()
+
+    let records = logger.snapshot()
+    #expect(records.count == 1)
+    let record = try #require(records.first)
+    #expect(record.textSource == "provider_final_already_available")
+    #expect(record.outcome == "delivered_to_focused_input")
+    #expect(record.sectionsProcessed == 1)
+    #expect(record.focusedInput.attempted)
+    #expect(record.focusedInput.ok == true)
+    #expect(record.focusedInput.method == "ax-value")
+    #expect(record.durationsMs.protocolSubmissionMs != nil)
+    #expect(record.durationsMs.focusedInputMs != nil)
+
+    let data = try JSONEncoder().encode(record)
+    let json = String(decoding: data, as: UTF8.self)
+    #expect(!json.contains("dictated secret words"))
+    #expect(!json.contains("processed secret words"))
+}
+
+@Test func sessionRuntimeWritesReleaseLatencyRecordForFocusedInputFailure() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let logger = CapturingReleaseLatencyLogger()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: true),
+        translationPolicy: .opposite,
+        focusedInputWriter: { _ in
+            throw FocusedInputDeliveryError(
+                message: "Grant Accessibility permission.",
+                code: "accessibility_not_trusted"
+            )
+        }
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            sttProviderLabel: "soniox",
+            releaseLatencyLogger: logger
+        )
+    )
+
+    try await runtime.start()
+    await transcriber.emitFinal("private transcript")
+    try await runtime.submitPending()
+
+    let record = try #require(logger.snapshot().first)
+    #expect(record.outcome == "focused_input_failed")
+    #expect(record.focusedInput.attempted)
+    #expect(record.focusedInput.ok == false)
+    #expect(record.focusedInput.code == "accessibility_not_trusted")
+    #expect(record.errorCode == nil)
+}
+
 @Test func sessionRuntimeQuickCloseKeepsAlreadyAvailableFinalTextPreferred() async throws {
     let audio = MockAudioSource()
     let transcriber = MockTranscriber()
@@ -611,6 +702,23 @@ private let runtimeMarkers = MarkerConfig(
     #expect(audio.stopped)
     #expect(transcriber.stopped)
     #expect(sessionEvents.contains(.stateChanged(.stopped, reason: "audio-push-error")))
+}
+
+private final class CapturingReleaseLatencyLogger: ReleaseLatencyLogWriting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [ReleaseLatencyLogRecord] = []
+
+    func append(_ record: ReleaseLatencyLogRecord) throws {
+        lock.lock()
+        records.append(record)
+        lock.unlock()
+    }
+
+    func snapshot() -> [ReleaseLatencyLogRecord] {
+        lock.lock()
+        defer { lock.unlock() }
+        return records
+    }
 }
 
 private final class MockAudioSource: RuntimeAudioSource {

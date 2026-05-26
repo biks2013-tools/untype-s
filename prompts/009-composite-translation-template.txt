@@ -1,0 +1,1 @@
+Translate the refined text to {target_language}. Preserve technical terms, filenames, command names, and code identifiers.

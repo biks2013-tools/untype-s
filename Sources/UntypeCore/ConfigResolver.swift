@@ -24,7 +24,6 @@ public struct ConfigResolver: Sendable {
     private static let defaultLLMModel = "gpt-5.4"
     private static let defaultLLMRequestTimeoutMs = 15_000
     private static let defaultAzureAPIVersion = "2024-10-21"
-    private static let defaultSystemPrompt = "You are a transcript-cleanup assistant. The input is a verbatim transcript of someone speaking and may contain disfluencies, filler words, false starts, and grammatical noise. Rewrite the text so it is grammatically correct and easy to read, preserving the speaker's meaning AND the original language. Respond with ONLY the cleaned text - no preamble, no quotes, no markdown, no explanation."
 
     public init(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -58,6 +57,7 @@ public struct ConfigResolver: Sendable {
                 "--stt-provider / UNTYPE_STT_PROVIDER must be one of: soniox, elevenlabs."
             )
         }
+        let promptConfig = try resolvePromptConfig(provider: provider)
 
         let keyName: String
         let flagName: String
@@ -348,6 +348,18 @@ public struct ConfigResolver: Sendable {
             envName: "UNTYPE_VERBOSE"
         ) ?? false
 
+        let releaseLatencyLogEnabled = try parsed.switchValue(for: "--release-latency-log") ?? parseBoolean(
+            chain.get("UNTYPE_RELEASE_LATENCY_LOG")?.value,
+            flagName: "--release-latency-log",
+            envName: "UNTYPE_RELEASE_LATENCY_LOG"
+        ) ?? false
+        let releaseLatencyLogPath = try resolvePath(
+            parsed.value(for: "--release-latency-log-path") ?? chain.get("UNTYPE_RELEASE_LATENCY_LOG_PATH")?.value,
+            defaultURL: Self.defaultReleaseLatencyLogURL(home: home),
+            flagName: "--release-latency-log-path",
+            envName: "UNTYPE_RELEASE_LATENCY_LOG_PATH"
+        )
+
         let refine = try parsed.refineOverride
             ?? parseBoolean(
                 chain.get("UNTYPE_REFINE")?.value,
@@ -388,7 +400,7 @@ public struct ConfigResolver: Sendable {
             enabled: refine,
             provider: llmProvider,
             model: llmModel,
-            systemPrompt: Self.defaultSystemPrompt,
+            systemPrompt: promptConfig.refinementSystemPrompt,
             requestTimeoutMs: Self.defaultLLMRequestTimeoutMs,
             providerConfig: providerConfig,
             verbose: verbose
@@ -410,9 +422,200 @@ public struct ConfigResolver: Sendable {
             guardPhrase: guardPhrase,
             protocolConfig: protocolConfig,
             llm: llm,
+            prompts: promptConfig,
+            releaseLatencyLogging: ReleaseLatencyLoggingConfig(
+                enabled: releaseLatencyLogEnabled,
+                path: releaseLatencyLogPath
+            ),
             verbose: verbose,
             warnings: expiryWarnings(envName: keyName, isoDate: apiKeyExpiresAt)
         )
+    }
+
+    private func resolvePromptConfig(provider: STTProvider) throws -> PromptConfig {
+        let directory = promptDirectory()
+        try ensurePromptDirectory(directory)
+
+        let fileManager = FileManager.default
+        var values: [String: String] = [:]
+        for file in UntypePromptDefaults.promptFiles {
+            let url = directory.appendingPathComponent(file.name)
+            if !fileManager.fileExists(atPath: url.path) {
+                try writeDefaultPrompt(file.defaultContent, to: url)
+            }
+            values[file.name] = try readPromptFile(url, required: file.required)
+        }
+
+        let translationTemplate = try requiredPrompt(
+            values["003-translation-user-template.txt"],
+            name: "003-translation-user-template.txt",
+            path: directory.appendingPathComponent("003-translation-user-template.txt")
+        )
+        guard translationTemplate.contains("{target_language}"), translationTemplate.contains("{text}") else {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(directory.appendingPathComponent("003-translation-user-template.txt"))) must contain {target_language} and {text} placeholders."
+            )
+        }
+        let compositeRefinementTemplate = try requiredPrompt(
+            values["008-composite-refinement-template.txt"],
+            name: "008-composite-refinement-template.txt",
+            path: directory.appendingPathComponent("008-composite-refinement-template.txt")
+        )
+        guard compositeRefinementTemplate.contains("{text}") else {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(directory.appendingPathComponent("008-composite-refinement-template.txt"))) must contain the {text} placeholder."
+            )
+        }
+        let compositeTranslationTemplate = try requiredPrompt(
+            values["009-composite-translation-template.txt"],
+            name: "009-composite-translation-template.txt",
+            path: directory.appendingPathComponent("009-composite-translation-template.txt")
+        )
+        guard compositeTranslationTemplate.contains("{target_language}") else {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(directory.appendingPathComponent("009-composite-translation-template.txt"))) must contain the {target_language} placeholder."
+            )
+        }
+
+        let sonioxContext = optionalPrompt(values["004-soniox-transcription-context.txt"])
+        let elevenLabsPreviousText = optionalPrompt(values["005-elevenlabs-previous-text.txt"])
+        let elevenLabsKeyterms = parsePromptLines(values["006-elevenlabs-keyterms.txt"] ?? "")
+
+        switch provider {
+        case .soniox:
+            if let sonioxContext, sonioxContext.count > 10_000 {
+                throw UntypeError.invalidConfiguration(
+                    "Prompt file \(displayPath(directory.appendingPathComponent("004-soniox-transcription-context.txt"))) must be 10000 characters or fewer for Soniox context."
+                )
+            }
+        case .elevenlabs:
+            if let elevenLabsPreviousText, elevenLabsPreviousText.count > 50 {
+                throw UntypeError.invalidConfiguration(
+                    "Prompt file \(displayPath(directory.appendingPathComponent("005-elevenlabs-previous-text.txt"))) must be 50 characters or fewer for ElevenLabs previous_text context."
+                )
+            }
+            if elevenLabsKeyterms.count > 50 {
+                throw UntypeError.invalidConfiguration(
+                    "Prompt file \(displayPath(directory.appendingPathComponent("006-elevenlabs-keyterms.txt"))) must contain 50 or fewer ElevenLabs keyterms."
+                )
+            }
+            if let invalidKeyterm = elevenLabsKeyterms.first(where: { $0.count > 20 }) {
+                throw UntypeError.invalidConfiguration(
+                    "ElevenLabs keyterm '\(invalidKeyterm)' in \(displayPath(directory.appendingPathComponent("006-elevenlabs-keyterms.txt"))) must be 20 characters or fewer."
+                )
+            }
+        }
+
+        return PromptConfig(
+            refinementSystemPrompt: try requiredPrompt(
+                values["001-refinement-system.txt"],
+                name: "001-refinement-system.txt",
+                path: directory.appendingPathComponent("001-refinement-system.txt")
+            ),
+            translationSystemPrompt: try requiredPrompt(
+                values["002-translation-system.txt"],
+                name: "002-translation-system.txt",
+                path: directory.appendingPathComponent("002-translation-system.txt")
+            ),
+            translationUserPromptTemplate: translationTemplate,
+            compositeSystemPrompt: try requiredPrompt(
+                values["007-composite-refine-translate-system.txt"],
+                name: "007-composite-refine-translate-system.txt",
+                path: directory.appendingPathComponent("007-composite-refine-translate-system.txt")
+            ),
+            compositeRefinementPromptTemplate: compositeRefinementTemplate,
+            compositeTranslationPromptTemplate: compositeTranslationTemplate,
+            sonioxTranscriptionContext: sonioxContext,
+            elevenLabsPreviousText: elevenLabsPreviousText,
+            elevenLabsKeyterms: elevenLabsKeyterms
+        )
+    }
+
+    private func promptDirectory() -> URL {
+        home
+            .appendingPathComponent(".tool-agents")
+            .appendingPathComponent("untype")
+            .appendingPathComponent("prompts")
+    }
+
+    private func ensurePromptDirectory(_ directory: URL) throws {
+        let fileManager = FileManager.default
+        let configRoot = home.appendingPathComponent(".tool-agents")
+        let appDirectory = configRoot.appendingPathComponent("untype")
+        for url in [configRoot, appDirectory, directory] {
+            do {
+                if !fileManager.fileExists(atPath: url.path) {
+                    try fileManager.createDirectory(
+                        at: url,
+                        withIntermediateDirectories: false,
+                        attributes: [.posixPermissions: 0o700]
+                    )
+                }
+                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+            } catch {
+                throw UntypeError.invalidConfiguration(
+                    "Unable to create prompt configuration folder at \(displayPath(url)): \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func writeDefaultPrompt(_ content: String, to url: URL) throws {
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            throw UntypeError.invalidConfiguration(
+                "Unable to create default prompt file \(displayPath(url)): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func readPromptFile(_ url: URL, required: Bool) throws -> String {
+        let value: String
+        do {
+            value = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            throw UntypeError.invalidConfiguration(
+                "Unable to read prompt file \(displayPath(url)): \(error.localizedDescription)"
+            )
+        }
+        if required && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(url)) must not be empty."
+            )
+        }
+        return value
+    }
+
+    private func requiredPrompt(_ value: String?, name: String, path: URL) throws -> String {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw UntypeError.invalidConfiguration("Prompt file \(displayPath(path)) must not be empty.")
+        }
+        return value
+    }
+
+    private func optionalPrompt(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : value
+    }
+
+    private func parsePromptLines(_ value: String) -> [String] {
+        value
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func displayPath(_ url: URL) -> String {
+        let homePath = home.path
+        if url.path == homePath {
+            return "~"
+        }
+        if url.path.hasPrefix(homePath + "/") {
+            return "~/" + String(url.path.dropFirst(homePath.count + 1))
+        }
+        return url.path
     }
 
     private func resolveString(
@@ -425,6 +628,35 @@ public struct ConfigResolver: Sendable {
             return flagValue
         }
         return chain.get(envKey)?.value ?? defaultValue
+    }
+
+    private static func defaultReleaseLatencyLogURL(home: URL) -> URL {
+        home
+            .appendingPathComponent(".tool-agents")
+            .appendingPathComponent("untype")
+            .appendingPathComponent("release-latency.jsonl")
+    }
+
+    private func resolvePath(
+        _ raw: String?,
+        defaultURL: URL,
+        flagName: String,
+        envName: String
+    ) throws -> String {
+        guard let raw else {
+            return defaultURL.path
+        }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw UntypeError.invalidConfiguration("\(flagName) / \(envName) must not be empty.")
+        }
+        if value == "~" {
+            return home.path
+        }
+        if value.hasPrefix("~/") {
+            return home.appendingPathComponent(String(value.dropFirst(2))).path
+        }
+        return URL(fileURLWithPath: value).path
     }
 
     private func validateLegacyConfigFolderMigration() throws {
@@ -674,12 +906,18 @@ struct ParsedArguments: Sendable {
             case "--no-quick-close":
                 switches["--quick-close"] = false
                 index += 1
+            case "--release-latency-log":
+                switches["--release-latency-log"] = true
+                index += 1
+            case "--no-release-latency-log":
+                switches["--release-latency-log"] = false
+                index += 1
             case "--api-key", "--api-key-expires-at", "--elevenlabs-api-key", "--elevenlabs-api-key-expires-at",
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
                 "--translation-policy", "--clipboard-default", "--input-default", "--protocol-output",
-                "--llm-provider", "--llm-model":
+                "--llm-provider", "--llm-model", "--release-latency-log-path":
                 let value: String
                 if let inline = split.value {
                     value = inline

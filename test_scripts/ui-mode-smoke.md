@@ -71,6 +71,35 @@ Expected result:
 - The overlay shows compact `R`, `T`, `C`, and `I` operator indicators and updates them when the matching operator hotkeys are pressed during recording.
 - If global key release detection is blocked, the UI shows an Accessibility/Input Monitoring warning and pressing the hotkey again stops the fallback recording session.
 
+## Push-To-Talk Release Latency Log Check
+Use this only for diagnostic runs. Enable logging before launching UI mode:
+
+```sh
+UNTYPE_RELEASE_LATENCY_LOG=on .build/debug/untype ui
+```
+
+Optional isolated log path:
+
+```sh
+UNTYPE_RELEASE_LATENCY_LOG=on \
+UNTYPE_RELEASE_LATENCY_LOG_PATH=/tmp/untype-release-latency.jsonl \
+.build/debug/untype ui
+```
+
+Steps:
+1. Enable push-to-talk and the focused-input operator.
+2. Focus a disposable editable control, such as a scratch TextEdit document.
+3. Press the push-to-talk hotkey, speak a short utterance, and release.
+4. Quit UI mode and inspect `~/.tool-agents/untype/release-latency.jsonl`, or the custom `UNTYPE_RELEASE_LATENCY_LOG_PATH`.
+
+Expected result:
+- One JSON line is appended for the release attempt.
+- The record includes `release_timestamp`, `trigger`, `text_source`, `outcome`, `total_ms`, `durations_ms`, `sections_processed`, and `focused_input`.
+- Successful focused-input delivery reports `outcome:"delivered_to_focused_input"` and `focused_input.ok:true`.
+- Failed focused-input delivery reports `outcome:"focused_input_failed"` with a privacy-safe `focused_input.code`, such as `accessibility_not_trusted`.
+- The log does not contain dictated text, processed/refined/translated text, clipboard contents, API keys, prompts, provider payloads, or target application contents.
+- After the diagnostic run, disable logging by removing `UNTYPE_RELEASE_LATENCY_LOG`, setting it to `off`, or using `--no-release-latency-log`.
+
 ## Persistence and Privacy Check
 Inspect:
 

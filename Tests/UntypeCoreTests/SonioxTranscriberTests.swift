@@ -32,6 +32,20 @@ import Testing
     #expect(config["language_hints"] == nil)
 }
 
+@Test func sonioxTranscriberStartSendsConfiguredContextText() async throws {
+    let socket = MockRealtimeWebSocket()
+    let transcriber = makeSonioxTranscriber(
+        socket: socket,
+        transcriptionContext: "This session is about Swift package maintenance."
+    )
+
+    try await transcriber.start()
+
+    let config = try jsonObject(socket.sentTexts[0])
+    let context = try #require(config["context"] as? [String: Any])
+    #expect(context["text"] as? String == "This session is about Swift package maintenance.")
+}
+
 @Test func sonioxTranscriberConvenienceInitializerRejectsInvalidEndpoint() {
     #expect(throws: UntypeError.self) {
         _ = try SonioxTranscriber(options: SonioxTranscriberOptions(
@@ -207,7 +221,8 @@ import Testing
 
 private func makeSonioxTranscriber(
     socket: MockRealtimeWebSocket,
-    languages: [String] = ["en"]
+    languages: [String] = ["en"],
+    transcriptionContext: String? = nil
 ) -> SonioxTranscriber {
     SonioxTranscriber(
         options: SonioxTranscriberOptions(
@@ -217,6 +232,7 @@ private func makeSonioxTranscriber(
             languages: languages,
             sampleRate: 16_000,
             enableEndpointDetection: true,
+            transcriptionContext: transcriptionContext,
             finalizeDrainNanoseconds: 0
         ),
         socket: socket

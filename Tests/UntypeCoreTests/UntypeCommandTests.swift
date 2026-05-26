@@ -13,6 +13,8 @@ import Testing
     #expect(stdout.text.contains("Usage: untype"))
     #expect(stdout.text.contains("untype ui"))
     #expect(stdout.text.contains("--quick-close"))
+    #expect(stdout.text.contains("--release-latency-log"))
+    #expect(stdout.text.contains("~/.tool-agents/untype/prompts/"))
     #expect(stderr.text.isEmpty)
 }
 
@@ -86,6 +88,32 @@ import Testing
     #expect(stderr.text.contains("SONIOX_API_KEY"))
 }
 
+@Test func missingProviderApiKeyStillProvisionsPromptFilesAtStartup() async {
+    let stdout = MemoryOutput()
+    let stderr = MemoryOutput()
+    let temp = TemporaryDirectory()
+    let command = UntypeCommand(
+        stdout: stdout,
+        stderr: stderr,
+        resolverFactory: {
+            ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+        }
+    )
+
+    let code = await command.run([])
+
+    let promptDirectory = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+        .appendingPathComponent("prompts")
+    #expect(code == ExitCode.configuration.rawValue)
+    #expect(FileManager.default.fileExists(atPath: promptDirectory.path))
+    #expect(FileManager.default.fileExists(
+        atPath: promptDirectory.appendingPathComponent("001-refinement-system.txt").path
+    ))
+    #expect(stderr.text.contains("SONIOX_API_KEY"))
+}
+
 @Test func localEnvBeatsShellEnvironment() throws {
     let temp = TemporaryDirectory()
     try "SONIOX_API_KEY=local-key\n".write(
@@ -118,6 +146,194 @@ import Testing
 
     #expect(config.apiKey == "flag-key")
     #expect(config.apiKeySource == .flag)
+}
+
+@Test func releaseLatencyLoggingIsDisabledByDefaultWithDocumentedUserPath() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    let config = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+
+    #expect(config.releaseLatencyLogging.enabled == false)
+    #expect(config.releaseLatencyLogging.path == temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+        .appendingPathComponent("release-latency.jsonl")
+        .path)
+}
+
+@Test func releaseLatencyLoggingCanBeEnabledByEnvAndPathOverriddenByFlag() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "test-key",
+            "UNTYPE_RELEASE_LATENCY_LOG": "on",
+            "UNTYPE_RELEASE_LATENCY_LOG_PATH": temp.url.appendingPathComponent("env.jsonl").path
+        ]
+    )
+    let flagPath = temp.url.appendingPathComponent("flag.jsonl").path
+
+    let config = try resolver.resolve(argv: [
+        "--no-refine",
+        "--release-latency-log-path", flagPath
+    ])
+
+    #expect(config.releaseLatencyLogging.enabled)
+    #expect(config.releaseLatencyLogging.path == flagPath)
+}
+
+@Test func promptFilesAreProvisionedAndLoadedFromUserConfigFolder() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    let config = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+
+    let promptDirectory = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+        .appendingPathComponent("prompts")
+    for file in UntypePromptDefaults.promptFiles {
+        #expect(FileManager.default.fileExists(atPath: promptDirectory.appendingPathComponent(file.name).path))
+    }
+    #expect(config.prompts.refinementSystemPrompt == UntypePromptDefaults.refinementSystemPrompt)
+    #expect(config.prompts.translationSystemPrompt == UntypePromptDefaults.translationSystemPrompt)
+    #expect(config.prompts.translationUserPromptTemplate == UntypePromptDefaults.translationUserPromptTemplate)
+    #expect(config.prompts.compositeSystemPrompt == UntypePromptDefaults.compositeSystemPrompt)
+    #expect(config.prompts.compositeRefinementPromptTemplate == UntypePromptDefaults.compositeRefinementPromptTemplate)
+    #expect(config.prompts.compositeTranslationPromptTemplate == UntypePromptDefaults.compositeTranslationPromptTemplate)
+    #expect(config.prompts.sonioxTranscriptionContext == nil)
+    #expect(config.prompts.elevenLabsPreviousText == nil)
+    #expect(config.prompts.elevenLabsKeyterms.isEmpty)
+}
+
+@Test func customPromptFilesAreLoadedFromUserConfigFolder() throws {
+    let temp = TemporaryDirectory()
+    let promptDirectory = try makePromptDirectory(in: temp)
+    try "Refine as terse technical prose.".write(
+        to: promptDirectory.appendingPathComponent("001-refinement-system.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Translate with identifier preservation.".write(
+        to: promptDirectory.appendingPathComponent("002-translation-system.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Target={target_language}\n{text}".write(
+        to: promptDirectory.appendingPathComponent("003-translation-user-template.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "This dictation is about Swift package maintenance.".write(
+        to: promptDirectory.appendingPathComponent("004-soniox-transcription-context.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Do both steps and return JSON.".write(
+        to: promptDirectory.appendingPathComponent("007-composite-refine-translate-system.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Clean {text}".write(
+        to: promptDirectory.appendingPathComponent("008-composite-refinement-template.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Translate to {target_language}".write(
+        to: promptDirectory.appendingPathComponent("009-composite-translation-template.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    let config = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+
+    #expect(config.prompts.refinementSystemPrompt == "Refine as terse technical prose.")
+    #expect(config.prompts.translationSystemPrompt == "Translate with identifier preservation.")
+    #expect(config.prompts.translationUserPromptTemplate == "Target={target_language}\n{text}")
+    #expect(config.prompts.compositeSystemPrompt == "Do both steps and return JSON.")
+    #expect(config.prompts.compositeRefinementPromptTemplate == "Clean {text}")
+    #expect(config.prompts.compositeTranslationPromptTemplate == "Translate to {target_language}")
+    #expect(config.prompts.sonioxTranscriptionContext == "This dictation is about Swift package maintenance.")
+}
+
+@Test func emptyRequiredPromptFileRaisesConfigurationError() throws {
+    let temp = TemporaryDirectory()
+    let promptDirectory = try makePromptDirectory(in: temp)
+    try "".write(
+        to: promptDirectory.appendingPathComponent("001-refinement-system.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+    }
+}
+
+@Test func translationPromptTemplateMustContainRequiredPlaceholders() throws {
+    let temp = TemporaryDirectory()
+    let promptDirectory = try makePromptDirectory(in: temp)
+    try "Translate now.".write(
+        to: promptDirectory.appendingPathComponent("003-translation-user-template.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+    }
+}
+
+@Test func compositePromptTemplatesMustContainRequiredPlaceholders() throws {
+    let temp = TemporaryDirectory()
+    let promptDirectory = try makePromptDirectory(in: temp)
+    try "Clean without source placeholder.".write(
+        to: promptDirectory.appendingPathComponent("008-composite-refinement-template.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+    }
+
+    let secondTemp = TemporaryDirectory()
+    let secondPromptDirectory = try makePromptDirectory(in: secondTemp)
+    try "Translate without target placeholder.".write(
+        to: secondPromptDirectory.appendingPathComponent("009-composite-translation-template.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let secondResolver = ConfigResolver(cwd: secondTemp.url, home: secondTemp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try secondResolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+    }
+}
+
+@Test func elevenLabsPromptConstraintsAreValidatedAtStartup() throws {
+    let temp = TemporaryDirectory()
+    let promptDirectory = try makePromptDirectory(in: temp)
+    try "This previous text prompt is intentionally far longer than fifty chars.".write(
+        to: promptDirectory.appendingPathComponent("005-elevenlabs-previous-text.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: [
+            "--stt-provider", "elevenlabs",
+            "--elevenlabs-api-key", "xi-key",
+            "--no-refine"
+        ])
+    }
 }
 
 @Test func userEnvBeatsShellEnvironment() throws {
@@ -487,6 +703,15 @@ private final class TemporaryDirectory {
     deinit {
         try? FileManager.default.removeItem(at: url)
     }
+}
+
+private func makePromptDirectory(in temp: TemporaryDirectory) throws -> URL {
+    let promptDirectory = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+        .appendingPathComponent("prompts")
+    try FileManager.default.createDirectory(at: promptDirectory, withIntermediateDirectories: true)
+    return promptDirectory
 }
 
 private final class FakeCommandRuntime: UntypeRuntimeSession, @unchecked Sendable {

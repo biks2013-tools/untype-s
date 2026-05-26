@@ -22,6 +22,35 @@ public struct LLMRefinementError: Error, Sendable, Equatable, LocalizedError {
     }
 }
 
+public struct CompositeRefineTranslateRequest: Sendable, Equatable {
+    public let rawText: String
+    public let targetLanguageName: String
+
+    public init(rawText: String, targetLanguageName: String) {
+        self.rawText = rawText
+        self.targetLanguageName = targetLanguageName
+    }
+}
+
+public struct CompositeRefineTranslateResult: Sendable, Equatable {
+    public let refinedText: String
+    public let translatedText: String
+
+    public init(refinedText: String, translatedText: String) {
+        self.refinedText = refinedText
+        self.translatedText = translatedText
+    }
+}
+
+public protocol CompositeRefineTranslating: AnyObject {
+    func refineAndTranslate(_ request: CompositeRefineTranslateRequest) async throws -> CompositeRefineTranslateResult
+    func dispose()
+}
+
+public extension CompositeRefineTranslating {
+    func dispose() {}
+}
+
 public struct LLMHTTPResponse: Sendable, Equatable {
     public let statusCode: Int
     public let body: Data
@@ -336,14 +365,113 @@ public final class GoogleRefiner: TextRefining {
     }
 }
 
-public enum LLMRefinerFactory {
-    private static let translationSystemPrompt = "You are a translation assistant for live dictated agent commands. Translate the user's text to the requested target language. Preserve technical terms, filenames, command names, and code identifiers. Respond with ONLY the translated text - no preamble, no quotes, no markdown, no explanation."
+public final class LLMCompositeRefineTranslator: CompositeRefineTranslating {
+    private let refiner: TextRefining
+    private let refinementPromptTemplate: String
+    private let translationPromptTemplate: String
 
+    public init(
+        refiner: TextRefining,
+        refinementPromptTemplate: String,
+        translationPromptTemplate: String
+    ) {
+        self.refiner = refiner
+        self.refinementPromptTemplate = refinementPromptTemplate
+        self.translationPromptTemplate = translationPromptTemplate
+    }
+
+    public func refineAndTranslate(
+        _ request: CompositeRefineTranslateRequest
+    ) async throws -> CompositeRefineTranslateResult {
+        let prompt = renderPrompt(request)
+        let response = try await refiner.refine(prompt)
+        return try Self.parseResponse(response)
+    }
+
+    public func dispose() {
+        refiner.dispose()
+    }
+
+    public static func parseResponse(_ text: String) throws -> CompositeRefineTranslateResult {
+        let data = Data(extractJSONObjectText(from: text).utf8)
+        let json: Any
+        do {
+            json = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw LLMRefinementError(
+                "Composite LLM response was not valid JSON: \(error.localizedDescription)",
+                kind: .shape
+            )
+        }
+        guard
+            let object = json as? [String: Any],
+            let refinedText = object["refined_text"] as? String,
+            let translatedText = object["translated_text"] as? String
+        else {
+            throw LLMRefinementError(
+                "Composite LLM response must contain string fields refined_text and translated_text",
+                kind: .shape
+            )
+        }
+        let trimmedRefined = refinedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTranslated = translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRefined.isEmpty, !trimmedTranslated.isEmpty else {
+            throw LLMRefinementError(
+                "Composite LLM response fields refined_text and translated_text must not be empty",
+                kind: .shape
+            )
+        }
+        return CompositeRefineTranslateResult(
+            refinedText: trimmedRefined,
+            translatedText: trimmedTranslated
+        )
+    }
+
+    private func renderPrompt(_ request: CompositeRefineTranslateRequest) -> String {
+        let refinementPrompt = refinementPromptTemplate
+            .replacingOccurrences(of: "{text}", with: request.rawText)
+        let translationPrompt = translationPromptTemplate
+            .replacingOccurrences(of: "{target_language}", with: request.targetLanguageName)
+            .replacingOccurrences(of: "{text}", with: request.rawText)
+        return """
+        Source transcript:
+        \(request.rawText)
+
+        Refinement prompt:
+        \(refinementPrompt)
+
+        Translation prompt:
+        \(translationPrompt)
+
+        Return only JSON with refined_text and translated_text.
+        """
+    }
+
+    private static func extractJSONObjectText(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), trimmed.hasSuffix("}") {
+            return trimmed
+        }
+        guard
+            let start = trimmed.firstIndex(of: "{"),
+            let end = trimmed.lastIndex(of: "}"),
+            start <= end
+        else {
+            return trimmed
+        }
+        return String(trimmed[start...end])
+    }
+}
+
+public enum LLMRefinerFactory {
     public static func makeRefiner(config: LLMConfig) throws -> TextRefining? {
         try make(config: config)
     }
 
-    public static func makeTranslator(config: LLMConfig) throws -> TextRefining? {
+    public static func makeTranslator(
+        config: LLMConfig,
+        systemPrompt: String = UntypePromptDefaults.translationSystemPrompt
+    ) throws -> TextRefining? {
         guard config.enabled else {
             return nil
         }
@@ -351,12 +479,38 @@ public enum LLMRefinerFactory {
             enabled: config.enabled,
             provider: config.provider,
             model: config.model,
-            systemPrompt: translationSystemPrompt,
+            systemPrompt: systemPrompt,
             requestTimeoutMs: config.requestTimeoutMs,
             providerConfig: config.providerConfig,
             verbose: config.verbose
         )
         return try make(config: translationConfig)
+    }
+
+    public static func makeCompositeRefineTranslator(
+        config: LLMConfig,
+        prompts: PromptConfig
+    ) throws -> CompositeRefineTranslating? {
+        guard config.enabled else {
+            return nil
+        }
+        let compositeConfig = LLMConfig(
+            enabled: config.enabled,
+            provider: config.provider,
+            model: config.model,
+            systemPrompt: prompts.compositeSystemPrompt,
+            requestTimeoutMs: config.requestTimeoutMs,
+            providerConfig: config.providerConfig,
+            verbose: config.verbose
+        )
+        guard let refiner = try make(config: compositeConfig) else {
+            return nil
+        }
+        return LLMCompositeRefineTranslator(
+            refiner: refiner,
+            refinementPromptTemplate: prompts.compositeRefinementPromptTemplate,
+            translationPromptTemplate: prompts.compositeTranslationPromptTemplate
+        )
     }
 
     private static func make(config: LLMConfig) throws -> TextRefining? {

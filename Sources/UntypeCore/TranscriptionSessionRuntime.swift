@@ -160,6 +160,7 @@ public struct TranscriptionSessionRuntimeOptions {
     public let finalTranscriptWaitNanoseconds: UInt64
     public let quickClose: Bool
     public let submissionDiagnosticsEnabled: Bool
+    public let releaseLatencyLogger: ReleaseLatencyLogWriting?
     public let audioActivityInterval: TimeInterval
     public let audioActivityNow: @Sendable () -> Date
     public let emit: (_ event: TranscriptionSessionEvent) -> Void
@@ -174,6 +175,7 @@ public struct TranscriptionSessionRuntimeOptions {
         finalTranscriptWaitNanoseconds: UInt64 = 1_500_000_000,
         quickClose: Bool = false,
         submissionDiagnosticsEnabled: Bool = false,
+        releaseLatencyLogger: ReleaseLatencyLogWriting? = nil,
         audioActivityInterval: TimeInterval = 0.25,
         audioActivityNow: @escaping @Sendable () -> Date = Date.init,
         emit: @escaping (_ event: TranscriptionSessionEvent) -> Void = { _ in },
@@ -187,6 +189,7 @@ public struct TranscriptionSessionRuntimeOptions {
         self.finalTranscriptWaitNanoseconds = finalTranscriptWaitNanoseconds
         self.quickClose = quickClose
         self.submissionDiagnosticsEnabled = submissionDiagnosticsEnabled
+        self.releaseLatencyLogger = releaseLatencyLogger
         self.audioActivityInterval = audioActivityInterval
         self.audioActivityNow = audioActivityNow
         self.emit = emit
@@ -197,6 +200,27 @@ public struct TranscriptionSessionRuntimeOptions {
 private struct GatedAudioChunk: Sendable {
     let data: Data
     let mutedByGate: Bool
+}
+
+private final class ReleaseLatencyTurn {
+    let turnId = UUID().uuidString
+    let releaseTimestamp: String
+    let trigger: String
+    let startedNanoseconds: UInt64
+    var textSource = "unknown"
+    var durations = ReleaseLatencyDurations()
+    var sectionsProcessed = 0
+    var focusedInput = ReleaseLatencyFocusedInput.notAttempted()
+    var finished = false
+
+    init(trigger: String, marker: ReleaseLatencyReleaseMarker? = nil) {
+        self.trigger = trigger
+        self.releaseTimestamp = marker?.releaseTimestamp ?? releaseLatencyTimestamp()
+        self.startedNanoseconds = marker?.detectedNanoseconds ?? DispatchTime.now().uptimeNanoseconds
+        if let marker {
+            self.durations.runtimeSchedulingMs = releaseLatencyMilliseconds(from: marker.detectedNanoseconds)
+        }
+    }
 }
 
 public final class TranscriptionSessionRuntime {
@@ -340,15 +364,32 @@ public final class TranscriptionSessionRuntime {
     }
 
     public func submitPending() async throws {
+        let latencyTurn = beginReleaseLatencyTurn(trigger: "submitPending")
         guard state == .listening, transcriberStarted, !stopping else {
             submissionDiagnostic(
                 "[untype] WARNING: push-to-talk release ignored because the session is \(state.rawValue); no transcript was submitted.",
                 warning: true
             )
+            finishReleaseLatencyTurn(
+                latencyTurn,
+                outcome: "ignored_release",
+                errorCode: "session_not_listening",
+                errorMessage: "Push-to-talk release ignored because the session was not listening."
+            )
             return
         }
         submissionDiagnostic("[untype] push-to-talk release: requesting provider final text", warning: false)
-        try await finalizePendingUtterance()
+        do {
+            try await finalizePendingUtterance(latencyTurn: latencyTurn)
+        } catch {
+            finishReleaseLatencyTurn(
+                latencyTurn,
+                outcome: "failed",
+                errorCode: releaseLatencyErrorCode(error),
+                errorMessage: error.localizedDescription
+            )
+            throw error
+        }
     }
 
     public func toggleOperator(_ key: OperatorKey) async throws {
@@ -356,15 +397,32 @@ public final class TranscriptionSessionRuntime {
     }
 
     public func stop(reason: String, submitPending: Bool = false) async {
+        await stop(reason: reason, submitPending: submitPending, releaseMarker: nil)
+    }
+
+    public func stop(
+        reason: String,
+        submitPending: Bool,
+        releaseMarker: ReleaseLatencyReleaseMarker?
+    ) async {
         guard !stopping, !stopped else {
             return
         }
         if submitPending {
+            let latencyTurn = reason == "ui-hotkey-release"
+                ? beginReleaseLatencyTurn(trigger: reason, marker: releaseMarker)
+                : nil
             if state == .listening, transcriberStarted {
                 do {
                     submissionDiagnostic("[untype] push-to-talk release: requesting provider final text", warning: false)
-                    try await finalizePendingUtterance()
+                    try await finalizePendingUtterance(latencyTurn: latencyTurn)
                 } catch {
+                    finishReleaseLatencyTurn(
+                        latencyTurn,
+                        outcome: "failed",
+                        errorCode: releaseLatencyErrorCode(error),
+                        errorMessage: error.localizedDescription
+                    )
                     record(error)
                     diagnostic("[untype] WARNING: failed to submit pending utterance: \(error.localizedDescription)", warning: true)
                 }
@@ -372,6 +430,12 @@ public final class TranscriptionSessionRuntime {
                 submissionDiagnostic(
                     "[untype] WARNING: push-to-talk release happened before the \(options.sttProviderLabel) stream was ready; no transcript was submitted.",
                     warning: true
+                )
+                finishReleaseLatencyTurn(
+                    latencyTurn,
+                    outcome: "no_text",
+                    errorCode: "stream_not_ready",
+                    errorMessage: "Push-to-talk release happened before the provider stream was ready."
                 )
             }
         }
@@ -451,7 +515,7 @@ public final class TranscriptionSessionRuntime {
         diagnostic(message, warning: warning)
     }
 
-    private func finalizePendingUtterance() async throws {
+    private func finalizePendingUtterance(latencyTurn: ReleaseLatencyTurn?) async throws {
         pendingSubmissionInProgress = true
         defer {
             pendingSubmissionInProgress = false
@@ -464,25 +528,37 @@ public final class TranscriptionSessionRuntime {
                     "[untype] push-to-talk release: Quick Close submitting latest partial transcript",
                     warning: false
                 )
+                latencyTurn?.textSource = "quick_close_partial"
                 try await protocolController.final(fallback)
-                try await submitPendingTranscript()
+                try await submitPendingTranscript(latencyTurn: latencyTurn)
             } else {
                 diagnostic(
                     "[untype] WARNING: push-to-talk release did not have finalized or partial transcript text available for Quick Close; no text was submitted.",
                     warning: true
+                )
+                latencyTurn?.textSource = "no_submitted_text"
+                finishReleaseLatencyTurn(
+                    latencyTurn,
+                    outcome: "no_text",
+                    errorCode: "quick_close_no_text",
+                    errorMessage: "Quick Close release had no finalized or partial transcript text."
                 )
             }
             return
         }
         let shouldWaitForFinal = !protocolController.hasPendingContent
         let finalGeneration = shouldWaitForFinal ? await finalTranscriptWaiter.currentGeneration() : nil
+        let commitStarted = DispatchTime.now().uptimeNanoseconds
         try await transcriber.commit()
+        latencyTurn?.durations.providerCommitRequestMs = releaseLatencyMilliseconds(from: commitStarted)
         var receivedFinal = false
         if let finalGeneration {
+            let waitStarted = DispatchTime.now().uptimeNanoseconds
             receivedFinal = await finalTranscriptWaiter.waitForNext(
                 after: finalGeneration,
                 timeoutNanoseconds: options.finalTranscriptWaitNanoseconds
             )
+            latencyTurn?.durations.providerFinalWaitMs = releaseLatencyMilliseconds(from: waitStarted)
         }
         if !protocolController.hasPendingContent {
             if shouldWaitForFinal && !receivedFinal {
@@ -493,31 +569,123 @@ public final class TranscriptionSessionRuntime {
                     )
                     suppressLateProviderPartials = true
                     suppressLateProviderFinals = true
+                    latencyTurn?.textSource = "timeout_fallback_partial"
                     try await protocolController.final(fallback)
                 } else {
                     diagnostic(
                         "[untype] WARNING: push-to-talk release did not receive finalized transcript from \(options.sttProviderLabel) before timeout; no text was submitted.",
                         warning: true
                     )
+                    latencyTurn?.textSource = "no_submitted_text"
+                    finishReleaseLatencyTurn(
+                        latencyTurn,
+                        outcome: "no_text",
+                        errorCode: "provider_final_timeout_no_text",
+                        errorMessage: "Provider final text did not arrive before timeout and no partial transcript was available."
+                    )
                     return
                 }
             } else {
+                latencyTurn?.textSource = "no_submitted_text"
+                finishReleaseLatencyTurn(
+                    latencyTurn,
+                    outcome: "no_text",
+                    errorCode: "no_pending_content",
+                    errorMessage: "Provider finalization completed without pending protocol content."
+                )
                 return
             }
         } else if shouldWaitForFinal {
             submissionDiagnostic("[untype] push-to-talk release: provider final text received", warning: false)
+            latencyTurn?.textSource = "provider_final_text"
         } else {
             submissionDiagnostic("[untype] push-to-talk release: provider final text already available", warning: false)
+            latencyTurn?.textSource = "provider_final_already_available"
         }
-        try await submitPendingTranscript()
+        try await submitPendingTranscript(latencyTurn: latencyTurn)
     }
 
-    private func submitPendingTranscript() async throws {
+    private func submitPendingTranscript(latencyTurn: ReleaseLatencyTurn?) async throws {
         submissionDiagnostic("[untype] push-to-talk release: submitting transcript for processing", warning: false)
-        try await protocolController.submitPending()
+        let submissionStarted = DispatchTime.now().uptimeNanoseconds
+        let summary = try await protocolController.submitPending()
+        latencyTurn?.durations.protocolSubmissionMs = releaseLatencyMilliseconds(from: submissionStarted)
+        latencyTurn?.durations.protocolOperatorProcessingMs = summary.operatorProcessingMs
+        latencyTurn?.durations.refineMs = summary.refineMs
+        latencyTurn?.durations.translateMs = summary.translateMs
+        latencyTurn?.durations.clipboardMs = summary.clipboardMs
+        latencyTurn?.durations.focusedInputMs = summary.focusedInputMs
+        latencyTurn?.sectionsProcessed = summary.sectionsProcessed
+        latencyTurn?.focusedInput = summary.focusedInput ?? .notAttempted()
         latestPartialTranscript = nil
         suppressLateProviderPartials = true
         submissionDiagnostic("[untype] push-to-talk release: processing completed", warning: false)
+        finishReleaseLatencyTurn(
+            latencyTurn,
+            outcome: releaseLatencyOutcome(for: summary)
+        )
+    }
+
+    private func beginReleaseLatencyTurn(
+        trigger: String,
+        marker: ReleaseLatencyReleaseMarker? = nil
+    ) -> ReleaseLatencyTurn? {
+        guard options.releaseLatencyLogger != nil else {
+            return nil
+        }
+        return ReleaseLatencyTurn(trigger: trigger, marker: marker)
+    }
+
+    private func finishReleaseLatencyTurn(
+        _ latencyTurn: ReleaseLatencyTurn?,
+        outcome: String,
+        errorCode: String? = nil,
+        errorMessage: String? = nil
+    ) {
+        guard let latencyTurn, !latencyTurn.finished, let logger = options.releaseLatencyLogger else {
+            return
+        }
+        latencyTurn.finished = true
+        let record = ReleaseLatencyLogRecord(
+            turnId: latencyTurn.turnId,
+            releaseTimestamp: latencyTurn.releaseTimestamp,
+            trigger: latencyTurn.trigger,
+            sttProvider: options.sttProviderLabel,
+            quickClose: options.quickClose,
+            textSource: latencyTurn.textSource,
+            outcome: outcome,
+            totalMs: releaseLatencyMilliseconds(from: latencyTurn.startedNanoseconds),
+            durationsMs: latencyTurn.durations,
+            sectionsProcessed: latencyTurn.sectionsProcessed,
+            focusedInput: latencyTurn.focusedInput,
+            errorCode: errorCode,
+            errorMessage: errorMessage
+        )
+        do {
+            try logger.append(record)
+        } catch {
+            diagnostic("[untype] WARNING: failed to write release latency log: \(error.localizedDescription)", warning: true)
+        }
+    }
+
+    private func releaseLatencyOutcome(for summary: ProtocolSubmissionSummary) -> String {
+        guard let focusedInput = summary.focusedInput, focusedInput.attempted else {
+            return "processed_without_focused_input"
+        }
+        if focusedInput.ok == true {
+            return "delivered_to_focused_input"
+        }
+        return "focused_input_failed"
+    }
+
+    private func releaseLatencyErrorCode(_ error: Error) -> String {
+        if let error = error as? FocusedInputDeliveryError {
+            return error.code ?? "focused_input_failed"
+        }
+        if let error = error as? UntypeError {
+            return error.code
+        }
+        return "runtime_error"
     }
 
     private var shouldAcceptProviderPartial: Bool {

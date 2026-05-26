@@ -20,8 +20,22 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Dependency Vetting Log
 - 2026-05-23: No new runtime dependencies added. Initial SwiftPM scaffold uses only Apple/Swift standard libraries and platform frameworks.
+- 2026-05-27: No new runtime dependencies added for configurable prompts. Implementation uses Swift/Foundation file IO and existing provider payload code.
+- 2026-05-27: No new runtime dependencies added for composite refine-plus-translate prompts. Implementation reuses the existing Swift/Foundation HTTP and JSON code.
 
 ## Completed Items
+
+### 2026-05-27 - Composite refine-plus-translate prompt added
+
+Resolved the LLM latency issue where sections with both `refine` and `translate` active required one refinement request followed by a second translation request. The runtime now provisions and loads three composite prompt files under `~/.tool-agents/untype/prompts/`: a composite system prompt, a composite refinement template, and a composite translation template. CLI and UI runtimes wire a composite processor that reuses the selected Azure OpenAI or Google Gemini provider, asks for JSON with `refined_text` and `translated_text`, records the existing raw/refined/output/language protocol fields, and skips the old sequential path for combined sections. Composite failures remain fail-open and do not trigger a sequential fallback. Added plan/scan artifacts, configuration and function documentation, provider request/parser tests, prompt validation tests, and protocol routing/failure coverage; `swift test` passes (156/156).
+
+### 2026-05-27 - Configurable prompt files added
+
+Resolved the prompt-tuning gap where refinement, translation, and provider transcription context were hardcoded in source. Startup now provisions and reads user-editable prompt files from `~/.tool-agents/untype/prompts/`, covering LLM refinement, LLM translation system behavior, translation user-template construction, Soniox transcription context, ElevenLabs first-chunk previous text, and ElevenLabs realtime keyterms. Follow-up fix: prompt provisioning now happens immediately after STT provider resolution, before API-key validation, so an early missing-key configuration error no longer prevents the prompt folder from being created. The resolver validates required prompts and provider limits before sessions start, and prompt contents remain excluded from diagnostics/logs/state. Added project prompt templates, configuration documentation, technical research, plan/scan artifacts, and regression coverage; `swift test` passes (150/150).
+
+### 2026-05-26 - Push-to-talk release latency logging added
+
+Resolved the diagnostic gap where maintainers could see live release-stage UI messages but could not collect durable timing records for analysis. Added disabled-by-default release latency logging with `--release-latency-log`, `--no-release-latency-log`, `--release-latency-log-path`, `UNTYPE_RELEASE_LATENCY_LOG`, and `UNTYPE_RELEASE_LATENCY_LOG_PATH`. When enabled, release attempts append privacy-safe JSONL records to `~/.tool-agents/untype/release-latency.jsonl` or the configured path, capturing total release-to-focused-input timing from UI release detection, UI-to-runtime scheduling delay, provider finalization, protocol/operator processing, text-source selection, focused-input delivery result metadata, and no-text/failure outcomes without persisting transcript text, processed text, clipboard contents, prompts, provider payloads, secrets, or target application contents. Added configuration and analysis documentation plus regression coverage; `swift test` passes (141/141).
 
 ### 2026-05-26 - Quick Close push-to-talk release policy added
 
