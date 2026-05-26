@@ -23,6 +23,18 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-05-26 - macOS packaging script added
+
+Resolved the first packaging automation gap by adding `scripts/package-macos-app.sh` and `packaging/macos/untype.entitlements`. The script builds release SwiftPM products, runs tests by default, creates `untype.app`, compiles a native double-click launcher for UI mode, writes app metadata, supports explicit unsigned local packaging, supports Developer ID signing, supports optional notarization/stapling, and produces zip archives under `.build/deploy/`. Verified help output, fail-fast required arguments, unsigned packaging, generated app contents, launcher Mach-O output, shell syntax, and `swift test` (130/130).
+
+### 2026-05-26 - macOS deployment guide documented
+
+Resolved the deployment-planning documentation gap by adding `docs/design/deployment-guide.md`. The guide documents the current SwiftPM executable status, the manual `.app` bundle layout, required microphone metadata and hardened-runtime entitlement, Developer ID signing, notarization, stapling, Gatekeeper verification, and signed-app smoke testing required before public distribution.
+
+### 2026-05-26 - Push-to-talk overlay theme aligned with main app
+
+Resolved a visual inconsistency where the push-to-talk overlay could read as a separate floating surface from the main native UI. The overlay now follows the main app's appearance setting, renders compact operator indicators using the same amber chip/status-dot language as the Transcript operator controls, and renders its phase as a compact status pill while preserving the non-activating panel and wrap/grow layout behavior. `swift build` and `swift test` (130/130) pass.
+
 ### 2026-05-26 - Transcript operator labels collapse by center width
 
 Resolved a responsive layout issue where the Transcript row operator chip labels could wrap when the app window still looked wide overall but the leading monitor sidebar and/or trailing inspector reduced the usable center column. `UntypeOperatorChip` now supports hiding its visible label while preserving accessibility text, and the Transcript action row measures its own central content width before deciding whether to show labels or leave only the status dot plus `R`/`T`/`C`/`I`. `swift build` and `swift test` (130/130) pass.

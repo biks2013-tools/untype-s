@@ -294,6 +294,7 @@ private final class UntypeUIModel: ObservableObject {
                 appearance: appearance
             ))
             try UntypeUISettingsStore.save(settings)
+            overlay?.refreshTheme()
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
         }
@@ -2175,6 +2176,10 @@ private final class UntypeOverlayController: ObservableObject {
         applyPanelFrameIfNeeded()
     }
 
+    func refreshTheme() {
+        operatorVersion += 1
+    }
+
     func hideAfterDelay() {
         hideTask?.cancel()
         hideTask = Task.detached { [weak self] in
@@ -2288,6 +2293,14 @@ private final class UntypeOverlayController: ObservableObject {
             ("I", settings.focusedInput)
         ]
     }
+
+    fileprivate var preferredColorScheme: ColorScheme? {
+        switch model?.settings.appearance {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
 }
 
 @MainActor
@@ -2306,11 +2319,26 @@ private struct UntypeOverlayView: View {
         }
     }
 
+    private var overlayBorderColor: Color {
+        switch phaseTone {
+        case .recording:
+            return UntypeDesignTokens.recordingRed
+        case .accent:
+            return UntypeDesignTokens.accentAmber
+        case .ok:
+            return UntypeDesignTokens.successGreen
+        case .warn:
+            return UntypeDesignTokens.warnGold
+        case .off:
+            return Color.primary.opacity(0.08)
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             // Live transcript line — top region, leaves room at the bottom for chips and phase.
             Text(controller.overlayText.isEmpty ? " " : controller.overlayText)
-                .font(.system(size: 13))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2323,19 +2351,7 @@ private struct UntypeOverlayView: View {
             // Bottom-left: operator chips
             HStack(spacing: 5) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in
-                    Text(item.label)
-                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                        .frame(width: 20, height: 18)
-                        .foregroundStyle(item.enabled ? Color.white : Color.secondary)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(item.enabled ? UntypeDesignTokens.accentAmber : Color.primary.opacity(0.06))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .strokeBorder(item.enabled ? UntypeDesignTokens.accentAmber.opacity(0.5) : Color.primary.opacity(0.10))
-                        )
-                        .accessibilityLabel("Operator \(item.label), \(item.enabled ? "on" : "off")")
+                    overlayOperatorIndicator(letter: item.label, enabled: item.enabled)
                 }
             }
             .padding(.leading, 14)
@@ -2351,22 +2367,55 @@ private struct UntypeOverlayView: View {
                     .foregroundStyle(phaseTone.color)
                     .tracking(0.6)
             }
-            .frame(height: 18)
+            .padding(.horizontal, 8)
+            .frame(height: 20)
+            .background(.thinMaterial, in: Capsule(style: .continuous))
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(phaseTone.color.opacity(0.30), lineWidth: 1)
+            )
             .padding(.trailing, 14)
             .padding(.bottom, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             .accessibilityLabel("Phase \(controller.overlayPhase)")
         }
         .frame(width: controller.overlaySize.width, height: controller.overlaySize.height, alignment: .topLeading)
-        .background(.regularMaterial)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isRecording ? UntypeDesignTokens.recordingRed.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1)
+                .fill(overlayBorderColor.opacity(isRecording ? 0.10 : 0.05))
+                .allowsHitTesting(false)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(overlayBorderColor.opacity(isRecording ? 0.55 : 0.28), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: .black.opacity(0.35), radius: 22, x: 0, y: 10)
+        .preferredColorScheme(controller.preferredColorScheme)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Push to talk overlay")
+    }
+
+    private func overlayOperatorIndicator(letter: String, enabled: Bool) -> some View {
+        HStack(spacing: 5) {
+            UntypeStatusDot(tone: !enabled ? .off : (isRecording ? .recording : .accent), size: 5)
+            Text(letter)
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(enabled ? UntypeDesignTokens.accentAmber : Color.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 18)
+        .background(
+            Capsule(style: .continuous)
+                .fill(enabled ? UntypeDesignTokens.accentAmber.opacity(0.16) : Color.primary.opacity(0.04))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(enabled ? UntypeDesignTokens.accentAmber.opacity(0.45) : Color.primary.opacity(0.10))
+        )
+        .accessibilityLabel("Operator \(letter), \(enabled ? "on" : "off")")
     }
 }
 

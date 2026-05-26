@@ -202,7 +202,13 @@ The titlebar brand mark/app-name area toggles the leading Monitor sidebar. Hidin
 
 The Transcript action row measures the usable center monitor column width after the leading sidebar and trailing inspector take their space. When that central width falls below the labeled-chip threshold, the `Refine`, `Translate`, `Clipboard`, and `Input` operator chips hide their text labels and keep only the status dot plus `R`, `T`, `C`, or `I`, preventing the chip text from wrapping while preserving the same toggle actions and accessibility labels.
 
+The push-to-talk overlay follows the same appearance choice as the main app (`system`, `light`, or `dark`) even though it is hosted in a separate non-activating `NSPanel`. Its compact `R`/`T`/`C`/`I` operator indicators use the main app's amber chip language with status dots, and its phase indicator uses a compact status-pill treatment with the same phase tone colors as the main window.
+
 Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remains pending. Signed/notarized app distribution is still an open design gap.
+
+Deployable macOS application packaging is documented in `docs/design/deployment-guide.md`. The current project remains a SwiftPM executable package, so the production deployment path is to bundle the release executable and helper into `untype.app`, add app metadata and microphone usage text, sign with Developer ID and hardened runtime, notarize the archive, staple the ticket, and verify Gatekeeper behavior before distributing.
+
+The repository includes `scripts/package-macos-app.sh` for repeatable macOS packaging. The script builds SwiftPM release outputs, runs tests by default, creates `untype.app`, compiles a native launcher so double-clicking the app opens UI mode, adds microphone metadata, uses `packaging/macos/untype.entitlements`, optionally signs with Developer ID, optionally notarizes/staples with `notarytool`, and writes distributable archives under `.build/deploy/`.
 
 ### Proposed macOS UI Modernization
 The proposed next UI direction is documented in `docs/design/plan-016-macos-ui-modernization-proposal.md` and is grounded in the current source review, Apple Human Interface Guidelines research in `docs/reference/macos-ui-guidelines-modernization-research.md`, and a Claude Design handoff bundle saved at `docs/reference/design-bundle-macos-modernization/`.
