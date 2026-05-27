@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title>untype app icon</title>
+  <desc>An orange rounded-square macOS app icon with a white rounded lowercase u mark, based on the supplied reference icon.</desc>
+  <defs>
+    <linearGradient id="tile" x1="194" y1="104" x2="812" y2="908" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffb84a"/>
+      <stop offset="0.46" stop-color="#f28b1d"/>
+      <stop offset="1" stop-color="#d56c0d"/>
+    </linearGradient>
+    <linearGradient id="innerGlow" x1="276" y1="198" x2="734" y2="838" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffd27a" stop-opacity="0.52"/>
+      <stop offset="0.5" stop-color="#ffb545" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#b84f08" stop-opacity="0.24"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="310" y1="304" x2="714" y2="742" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fff6e7"/>
+    </linearGradient>
+    <filter id="tileShadow" x="-18%" y="-14%" width="136%" height="142%">
+      <feDropShadow dx="0" dy="34" stdDeviation="42" flood-color="#5e2603" flood-opacity="0.34"/>
+    </filter>
+    <filter id="markShadow" x="-16%" y="-16%" width="132%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#8a3a04" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="none"/>
+  <g filter="url(#tileShadow)">
+    <rect x="116" y="116" width="792" height="792" rx="196" fill="url(#tile)"/>
+    <rect x="150" y="150" width="724" height="724" rx="166" fill="url(#innerGlow)" opacity="0.85"/>
+    <path d="M196 302c72-92 187-146 316-146 167 0 306 86 376 216-68-47-151-74-240-74-192 0-360 124-419 301-58-83-72-194-33-297z" fill="#ffffff" opacity="0.18"/>
+    <path d="M160 700c86 100 214 162 356 162 138 0 262-58 348-151-36 116-143 197-271 197H342c-83 0-154-33-207-86-14-14-24-78 25-122z" fill="#9a3e05" opacity="0.12"/>
+  </g>
+
+  <g filter="url(#markShadow)">
+    <path
+      d="M313 314c0-30 25-55 55-55h3c30 0 55 25 55 55v257c0 75 40 117 88 117s88-42 88-117V314c0-30 25-55 55-55h3c30 0 55 25 55 55v257c0 137-86 229-201 229s-201-92-201-229V314z"
+      fill="url(#mark)"/>
+    <path
+      d="M368 259c30 0 55 25 55 55v252c0 98 50 151 91 151s91-53 91-151V314c0-30 25-55 55-55"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="18"
+      stroke-linecap="round"
+      opacity="0.35"/>
+  </g>
+</svg>

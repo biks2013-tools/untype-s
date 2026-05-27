@@ -134,24 +134,43 @@ public typealias FocusedInputHelperRunner = (
     _ timeoutSeconds: TimeInterval
 ) async throws -> FocusedInputHelperProcessResult
 
+public typealias FocusedInputInProcessRunner = (
+    _ args: [String],
+    _ stdinData: Data
+) -> FocusedInputHelperRunResult
+
 public final class FocusedInputDelivery {
     public static let defaultTimeoutSeconds: TimeInterval = 10
 
     private let helperPath: String?
     private let method: FocusedInputDeliveryMethod
     private let timeoutSeconds: TimeInterval
+    private let bundleURL: URL?
+    private let executablePath: String?
+    private let useInProcessForBundledApp: Bool
     private let runner: FocusedInputHelperRunner
+    private let inProcessRunner: FocusedInputInProcessRunner
 
     public init(
         helperPath: String? = nil,
         method: FocusedInputDeliveryMethod = .auto,
         timeoutSeconds: TimeInterval = FocusedInputDelivery.defaultTimeoutSeconds,
-        runner: @escaping FocusedInputHelperRunner = runFocusedInputHelperProcess
+        bundleURL: URL? = Bundle.main.bundleURL,
+        executablePath: String? = Bundle.main.executableURL?.path ?? CommandLine.arguments.first,
+        useInProcessForBundledApp: Bool = true,
+        runner: @escaping FocusedInputHelperRunner = runFocusedInputHelperProcess,
+        inProcessRunner: @escaping FocusedInputInProcessRunner = { args, stdinData in
+            FocusedInputHelperMain.run(arguments: args, inputData: stdinData)
+        }
     ) {
         self.helperPath = helperPath
         self.method = method
         self.timeoutSeconds = timeoutSeconds
+        self.bundleURL = bundleURL
+        self.executablePath = executablePath
+        self.useInProcessForBundledApp = useInProcessForBundledApp
         self.runner = runner
+        self.inProcessRunner = inProcessRunner
     }
 
     public func send(_ text: String) async throws {
@@ -165,8 +184,15 @@ public final class FocusedInputDelivery {
     }
 
     public func deliver(_ text: String) async throws -> FocusedInputDeliveryResult {
+        let args = ["send", "--method", method.rawValue]
+        if helperPath == nil,
+           useInProcessForBundledApp,
+           Self.isBundledApp(bundleURL: bundleURL, executablePath: executablePath) {
+            return try Self.mapInProcessResult(inProcessRunner(args, Data(text.utf8)))
+        }
+
         let path = try helperPath ?? Self.resolveHelperPath()
-        let process = try await runner(path, ["send", "--method", method.rawValue], text, timeoutSeconds)
+        let process = try await runner(path, args, text, timeoutSeconds)
         do {
             let parsed = try Self.parseHelperResult(process.stdout)
             if parsed.ok, process.exitCode == 0 {
@@ -190,6 +216,37 @@ public final class FocusedInputDelivery {
                 diagnostics: Self.trimForDiagnostics(process.stderr)
             )
         }
+    }
+
+    public static func isBundledApp(bundleURL: URL?) -> Bool {
+        isBundledApp(bundleURL: bundleURL, executablePath: nil)
+    }
+
+    public static func isBundledApp(bundleURL: URL?, executablePath: String?) -> Bool {
+        if let bundleURL {
+            let path = bundleURL.standardizedFileURL.path
+            if bundleURL.pathExtension == "app" || pathContainsAppBundle(path) {
+                return true
+            }
+        }
+        if let executablePath {
+            return pathContainsAppBundle(executablePath)
+        }
+        return false
+    }
+
+    static func mapInProcessResult(_ run: FocusedInputHelperRunResult) throws -> FocusedInputDeliveryResult {
+        if run.result.ok, run.exitCode == .success {
+            return run.result
+        }
+        if !run.result.ok, run.exitCode == .expectedFailure {
+            return run.result
+        }
+        throw FocusedInputDeliveryError(
+            message: "\(run.result.code ?? "focused_input_helper_failed"): \(run.result.message ?? "Focused input helper failed.")",
+            code: run.result.code,
+            helperExitCode: run.exitCode.rawValue
+        )
     }
 
     public static func parseHelperResult(_ stdout: String) throws -> FocusedInputDeliveryResult {
@@ -259,6 +316,11 @@ public final class FocusedInputDelivery {
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(path)
+    }
+
+    private static func pathContainsAppBundle(_ path: String) -> Bool {
+        path.localizedCaseInsensitiveContains(".app/Contents/")
+            || path.localizedCaseInsensitiveContains(".app/Contents")
     }
 }
 

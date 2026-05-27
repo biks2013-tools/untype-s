@@ -1,11 +1,12 @@
 import Darwin
+import Foundation
 import UntypeCore
 
 @main
 struct UntypeExecutable {
     static func main() async {
         let args = Array(CommandLine.arguments.dropFirst())
-        if args.first == "ui" {
+        if BundledAppLaunch.shouldLaunchUI(arguments: args, bundleURL: Bundle.main.bundleURL) {
             do {
                 exit(Int32(try NativeUntypeUILauncher.launchBlockingOnCurrentThread()))
             } catch let error as UntypeError {

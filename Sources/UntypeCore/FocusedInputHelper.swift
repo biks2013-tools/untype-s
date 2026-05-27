@@ -35,7 +35,7 @@ public enum FocusedInputHelperMain {
     private static let hotkeySettleDelaySeconds: TimeInterval = 0.10
     private static let unicodeInterCharacterDelaySeconds: TimeInterval = 0.006
     private static let unicodePostDeliveryDelaySeconds: TimeInterval = 0.20
-    private static let pasteboardRestoreDelaySeconds: TimeInterval = 0.25
+    private static let pasteboardRestoreDelaySeconds: TimeInterval = 0.80
 
     public static func run(arguments: [String], inputData: Data) -> FocusedInputHelperRunResult {
         do {
@@ -133,6 +133,25 @@ public enum FocusedInputHelperMain {
 
     private static func deliverAuto(_ text: String) throws -> FocusedInputDeliveryResult {
         Thread.sleep(forTimeInterval: hotkeySettleDelaySeconds)
+        try requireAccessibility()
+
+        if let element = try? focusedElement(), isBrowserTarget(element) {
+            fputs("browser focused element detected; trying paste-keycode.\n", stderr)
+            do {
+                return try pasteWithKeyCode(text)
+            } catch {
+                fputs("paste-keycode unavailable; trying unicode-events.\n", stderr)
+            }
+
+            if text.utf16.count <= unicodeAutoThreshold {
+                return try unicodeType(text)
+            }
+
+            throw FocusedInputDeliveryError(
+                message: "paste-keycode failed and unicode-events was skipped for long browser text.",
+                code: "focused_input_delivery_failed"
+            )
+        }
 
         do {
             return try axInsert(text)
@@ -353,6 +372,43 @@ public enum FocusedInputHelperMain {
             return nil
         }
         return raw as? String
+    }
+
+    private static func isBrowserTarget(_ element: AXUIElement) -> Bool {
+        var pid = pid_t()
+        guard AXUIElementGetPid(element, &pid) == .success,
+              let bundleIdentifier = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        else {
+            return false
+        }
+        return isBrowserBundleIdentifier(bundleIdentifier)
+    }
+
+    public static func isBrowserBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        let normalized = bundleIdentifier.lowercased()
+        let exact: Set<String> = [
+            "com.apple.safari",
+            "com.apple.safaritechnologypreview",
+            "com.google.chrome",
+            "com.google.chrome.canary",
+            "com.microsoft.edgemac",
+            "com.microsoft.edgemac.canary",
+            "org.mozilla.firefox",
+            "org.mozilla.firefoxdeveloperedition",
+            "com.brave.browser",
+            "com.vivaldi.vivaldi",
+            "com.operasoftware.opera",
+            "com.operasoftware.operagx",
+            "company.thebrowser.browser"
+        ]
+        if exact.contains(normalized) {
+            return true
+        }
+        return normalized.contains("chromium")
+            || normalized.contains("firefox")
+            || normalized.contains("edgemac")
+            || normalized.contains("brave")
+            || normalized.contains("vivaldi")
     }
 
     private static func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool {

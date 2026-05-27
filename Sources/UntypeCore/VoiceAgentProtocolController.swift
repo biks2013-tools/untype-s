@@ -367,12 +367,18 @@ public final class VoiceAgentProtocolController {
                 let elapsed = releaseLatencyMilliseconds(from: started)
                 summary.focusedInputMs = elapsed
                 summary.focusedInput = ReleaseLatencyFocusedInput.from(result)
+                guard result.ok else {
+                    throw FocusedInputDeliveryError(
+                        message: "\(result.code ?? "focused_input_failed"): \(result.message ?? "Focused input delivery failed.")",
+                        code: result.code
+                    )
+                }
                 try writeProtocol(.inputSent(sectionId: sectionId))
-                operatorDiagnostic(.input, stage: "completed")
+                operatorDiagnostic(.input, stage: "completed via \(result.method ?? "unknown")")
             } catch {
                 summary.focusedInputMs = summary.focusedInputMs ?? 0
                 summary.focusedInput = ReleaseLatencyFocusedInput.failure(error: error)
-                warn("input operator failed: \(error.localizedDescription). Check that the target control is focused before command send completes, and grant Accessibility permission to the terminal app running untype.")
+                warn("input operator failed: \(error.localizedDescription) Check that the target control is focused before command send completes, and grant Accessibility permission to the app running untype.")
             }
         }
         summary.operatorProcessingMs = releaseLatencyMilliseconds(from: sectionStarted)

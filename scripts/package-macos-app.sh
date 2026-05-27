@@ -39,6 +39,9 @@ Signing:
   --notary-profile  notarytool keychain profile. Requires --sign-identity.
   --unsigned        Create an unsigned local app bundle and zip for development only.
 
+Icon:
+  --icon            Override the default packaging/macos/AppIcon.icns file.
+
 Outputs:
   <output-dir>/untype.app
   <output-dir>/untype-<version>.zip
@@ -127,6 +130,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+DEFAULT_ICON_PATH="$PROJECT_ROOT/packaging/macos/AppIcon.icns"
+if [[ -z "$ICON_PATH" && -f "$DEFAULT_ICON_PATH" ]]; then
+  ICON_PATH="$DEFAULT_ICON_PATH"
+fi
+
 require_command swift
 require_command ditto
 require_command plutil
@@ -164,6 +172,7 @@ CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 INFO_PLIST="$CONTENTS/Info.plist"
+PKGINFO="$CONTENTS/PkgInfo"
 ZIP="$STAGE/$APP_NAME-$VERSION.zip"
 FINAL_ZIP="$STAGE/$APP_NAME-$VERSION-notarized.zip"
 
@@ -174,38 +183,6 @@ mkdir -p "$MACOS" "$RESOURCES"
 cp "$UNTYPE_BINARY" "$MACOS/untype"
 cp "$HELPER_BINARY" "$MACOS/untype-input-helper"
 chmod +x "$MACOS/untype" "$MACOS/untype-input-helper"
-
-LAUNCHER_SOURCE="$STAGE/untype-launcher.swift"
-cat > "$LAUNCHER_SOURCE" <<'SWIFT'
-import Darwin
-import Foundation
-
-let launcherPath = CommandLine.arguments[0]
-let executableURL = URL(fileURLWithPath: launcherPath)
-    .deletingLastPathComponent()
-    .appendingPathComponent("untype")
-let executablePath = executableURL.path
-let launchArguments = ["untype", "ui"] + Array(CommandLine.arguments.dropFirst())
-
-var cArguments = launchArguments.map { strdup($0) }
-cArguments.append(nil)
-defer {
-    for argument in cArguments where argument != nil {
-        free(argument)
-    }
-}
-
-execv(executablePath, &cArguments)
-let message = "failed to launch untype ui: \(String(cString: strerror(errno)))\n"
-message.withCString { pointer in
-    _ = fputs(pointer, stderr)
-}
-exit(127)
-SWIFT
-
-note "Compiling double-click UI launcher"
-swiftc -O "$LAUNCHER_SOURCE" -o "$MACOS/untype-launcher"
-chmod +x "$MACOS/untype-launcher"
 
 if [[ -n "$ICON_PATH" ]]; then
   [[ -f "$ICON_PATH" ]] || fail "icon file does not exist: $ICON_PATH"
@@ -223,7 +200,7 @@ cat > "$INFO_PLIST" <<EOF
   <key>CFBundleDisplayName</key>
   <string>$PRODUCT_NAME</string>
   <key>CFBundleExecutable</key>
-  <string>untype-launcher</string>
+  <string>untype</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -257,6 +234,12 @@ cat >> "$INFO_PLIST" <<'EOF'
 EOF
 
 plutil -lint "$INFO_PLIST" >/dev/null
+printf 'APPL????' > "$PKGINFO"
+
+if command -v xattr >/dev/null 2>&1; then
+  note "Removing removable extended attributes"
+  xattr -cr "$APP"
+fi
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   note "Signing nested executables"
@@ -269,11 +252,6 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
     --entitlements "$ENTITLEMENTS" \
     --sign "$SIGN_IDENTITY" \
     "$MACOS/untype"
-
-  codesign --force --timestamp --options runtime \
-    --entitlements "$ENTITLEMENTS" \
-    --sign "$SIGN_IDENTITY" \
-    "$MACOS/untype-launcher"
 
   note "Signing app bundle"
   codesign --force --timestamp --options runtime \
@@ -288,7 +266,7 @@ else
 fi
 
 note "Creating notarization archive"
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --keepParent --norsrc "$APP" "$ZIP"
 
 if [[ -n "$NOTARY_PROFILE" ]]; then
   note "Submitting archive for notarization"
@@ -301,7 +279,7 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
   xcrun stapler validate "$APP"
 
   note "Creating final notarized archive"
-  ditto -c -k --keepParent "$APP" "$FINAL_ZIP"
+  ditto -c -k --keepParent --norsrc "$APP" "$FINAL_ZIP"
 
   note "Assessing with Gatekeeper"
   spctl --assess --type execute --verbose=4 "$APP"

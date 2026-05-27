@@ -79,7 +79,7 @@ scripts/package-macos-app.sh \
   --unsigned
 ```
 
-The script builds release products, runs tests by default, creates `untype.app`, compiles a small native launcher so double-clicking the app opens UI mode, writes `Info.plist`, includes `packaging/macos/untype.entitlements`, optionally signs and notarizes, and writes archives under `.build/deploy/`.
+The script builds release products, runs tests by default, creates `untype.app`, uses `untype` itself as the bundle executable so double-clicking the app opens UI mode without an intermediate launcher, writes `Info.plist` and `PkgInfo`, includes `packaging/macos/untype.entitlements`, includes `packaging/macos/AppIcon.icns` by default, removes removable extended attributes when possible, optionally signs and notarizes, and writes clean `ditto --norsrc` archives under `.build/deploy/`.
 
 ## Manual App Bundle Steps
 
@@ -121,12 +121,9 @@ Create `Info.plist`:
 /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string untype records microphone audio only while you start listening or hold the push-to-talk hotkey, then sends it to the configured transcription provider." "$APP/Contents/Info.plist"
 ```
 
-In the current code, `untype ui` is the UI entrypoint. For a double-clickable `.app`, either:
+In the current code, `untype ui` remains the CLI UI entrypoint, and no-argument launches from inside `untype.app` also open UI mode. The app bundle must declare `CFBundleExecutable` as `untype` so the long-running process that installs the Quartz push-to-talk event tap matches the bundled app identity that receives Accessibility/Input Monitoring permissions.
 
-1. Change the executable entrypoint so bundled app launches default to UI mode, or
-2. Add a tiny app launcher executable that calls the same UI launcher path directly.
-
-Do not ship a public `.app` until double-click launch opens the UI without requiring Terminal arguments.
+Do not reintroduce an intermediate launcher executable for double-click startup unless the global hotkey path is revalidated with the bundled app identity.
 
 ## Create Entitlements
 
@@ -249,13 +246,13 @@ On a clean macOS user account or clean machine:
 4. Launch by double-clicking.
 5. Confirm the UI opens without Terminal arguments.
 6. Grant microphone permission when prompted.
-7. Grant Accessibility/Input Monitoring permissions in System Settings if needed.
+7. Grant Accessibility/Input Monitoring permissions in System Settings if needed. If replacing an older build, remove the old `untype.app` entries from both panes, add the rebuilt `/Applications/untype.app`, then quit and relaunch before testing the global hotkey.
 8. Configure provider credentials in the documented config locations.
 9. Start a session and confirm live transcription.
 10. Hold and release the push-to-talk hotkey.
 11. Confirm the overlay appears and disappears.
 12. Confirm clipboard output works when enabled.
-13. Confirm focused-input delivery works in a real target app.
+13. Confirm focused-input delivery works in a real target app. Bundled app UI sessions perform this delivery in the `untype.app` process, so the permission entry to verify is the rebuilt `untype.app`, not the nested `untype-input-helper`.
 14. Quit and relaunch; verify non-secret UI settings persist.
 
 Use `test_scripts/ui-mode-smoke.md` as the manual smoke-test checklist and extend it with signed-app checks before the first release.
@@ -263,7 +260,7 @@ Use `test_scripts/ui-mode-smoke.md` as the manual smoke-test checklist and exten
 ## Recommended Repository Changes Before First Release
 
 1. Decide the final bundle identifier and app name.
-2. Add an app icon and pass it to `scripts/package-macos-app.sh --icon`.
+2. Review whether the default `packaging/macos/AppIcon.icns` is the final public-release brand icon; if not, pass the replacement to `scripts/package-macos-app.sh --icon`.
 3. Add a CI release job that runs build, tests, app bundle creation, signing, notarization, stapling, and final verification.
 4. Decide whether to distribute `.zip`, `.dmg`, or both.
 5. Document end-user installation and permission setup in `README.md`.
@@ -275,7 +272,7 @@ For local testing, `swift build -c release` is enough.
 For a real deployable macOS app, ship only after:
 
 1. The release binaries are inside `untype.app`.
-2. `Info.plist` and entitlements are correct.
+2. `Info.plist`, `PkgInfo`, and entitlements are correct.
 3. All nested code and the app bundle are Developer ID signed with hardened runtime.
 4. The archive is notarized by Apple.
 5. The notarization ticket is stapled.

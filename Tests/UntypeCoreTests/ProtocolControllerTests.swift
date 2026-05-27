@@ -297,6 +297,44 @@ private let allOperatorsOff = OperatorState(
     #expect(rendered.text == "raw words\n\nraw words\n\n")
 }
 
+@Test func protocolControllerTreatsFocusedInputOkFalseAsFailure() async throws {
+    let rendered = MemoryOutput()
+    let protocolOutput = MemoryOutput()
+    let diagnostics = MemoryOutput()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: rendered, mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: controllerMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: true),
+        translationPolicy: .opposite,
+        focusedInputWriter: { _ in
+            FocusedInputDeliveryResult.failure(
+                code: "focused_element_unavailable",
+                message: "Could not read the focused UI element."
+            )
+        },
+        diagnostics: ProtocolControllerDiagnostics(write: { line, _ in diagnostics.write(line + "\n") }),
+        visibleOperatorDiagnostics: true
+    )
+
+    try controller.startSession()
+    try await controller.final("raw words command send")
+
+    let events = try protocolEvents(protocolOutput.text)
+    #expect(eventTypes(events) == [
+        "session.started",
+        "section.submitted",
+        "section.processed",
+        "protocol.warning"
+    ])
+    #expect(events[3]["message"] as? String == "input operator failed: focused_element_unavailable: Could not read the focused UI element. Check that the target control is focused before command send completes, and grant Accessibility permission to the app running untype.")
+    #expect(!protocolOutput.text.contains("input.sent"))
+    #expect(diagnostics.text.contains("[untype] protocol input operator started"))
+    #expect(diagnostics.text.contains("[untype] protocol warning: input operator failed"))
+    #expect(rendered.text == "raw words\n\nraw words\n\n")
+}
+
 @Test func protocolControllerPersistsLatestOperatorSettingsSnapshot() async throws {
     let rendered = MemoryOutput()
     let controller = VoiceAgentProtocolController(

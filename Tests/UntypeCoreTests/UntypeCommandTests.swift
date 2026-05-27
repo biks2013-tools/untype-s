@@ -68,6 +68,16 @@ import Testing
     #expect(stderr.text.contains("invalid_configuration: bad ui config"))
 }
 
+@Test func bundledAppLaunchWithoutArgumentsDispatchesUI() {
+    let appURL = URL(fileURLWithPath: "/Applications/untype.app")
+
+    #expect(BundledAppLaunch.shouldLaunchUI(arguments: [], bundleURL: appURL))
+    #expect(BundledAppLaunch.shouldLaunchUI(arguments: ["-psn_0_12345"], bundleURL: appURL))
+    #expect(BundledAppLaunch.shouldLaunchUI(arguments: ["ui"], bundleURL: URL(fileURLWithPath: "/tmp/untype")))
+    #expect(!BundledAppLaunch.shouldLaunchUI(arguments: ["--help"], bundleURL: appURL))
+    #expect(!BundledAppLaunch.shouldLaunchUI(arguments: [], bundleURL: URL(fileURLWithPath: "/tmp/untype")))
+}
+
 @Test func missingDefaultProviderApiKeyExitsWithConfigurationError() async {
     let stdout = MemoryOutput()
     let stderr = MemoryOutput()

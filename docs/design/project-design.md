@@ -56,6 +56,10 @@
   - `~/aiwork/coding-platform/untype-s/docs/design/plan-016-macos-ui-modernization-proposal.md`
 - Monitor sidebar collapse:
   - `~/aiwork/coding-platform/untype-s/docs/design/plan-018-monitor-sidebar-collapse.md`
+- Bundled app focused-input delivery:
+  - `~/aiwork/coding-platform/untype-s/docs/reference/refined-request-bundled-app-focused-input-delivery.md`
+  - `~/aiwork/coding-platform/untype-s/docs/reference/codebase-scan-bundled-app-focused-input-delivery.md`
+  - `~/aiwork/coding-platform/untype-s/docs/design/plan-029-bundled-app-focused-input-delivery.md`
 - Research:
   - `~/aiwork/coding-platform/untype-s/docs/research/avfoundation-audio-capture.md`
   - `~/aiwork/coding-platform/untype-s/docs/research/soniox-websocket-swift.md`
@@ -89,6 +93,7 @@ Initial implementation may combine some modules while the skeleton stabilizes, b
 - Soniox and ElevenLabs are implemented as direct WebSocket adapters over a mockable transport boundary.
 - Azure OpenAI and Google LLM refiners are implemented for parity; the other six accepted LLM provider names remain explicit stubs until approved.
 - UI parity uses SwiftUI for views and AppKit for lifecycle, non-activating overlay, and macOS event/permission details.
+- Bundled app focused-input delivery runs the existing AX/paste/Unicode insertion implementation in the `untype.app` process so macOS TCC permissions apply to the app bundle identity; CLI and unbundled runs continue using the sibling `untype-input-helper` subprocess. Bundled detection accepts both the `.app` bundle URL and executable paths inside `.app/Contents/MacOS`, browser targets use paste-keycode before Unicode fallback to avoid fragile AX value insertion in browser text fields, and `ok=false` delivery results are surfaced as input-operator warnings instead of false `input.sent` success. This decision follows the bundled app integration points in `docs/reference/codebase-scan-bundled-app-focused-input-delivery.md`.
 - Tests use `swift test`; live provider and macOS permission checks are documented manual smoke tests under `test_scripts/`.
 
 ## Configuration
@@ -135,8 +140,9 @@ The CLI now builds a live `TranscriptionSessionRuntime` through `UntypeRuntimeFa
 The protocol controller now uses concrete macOS delivery implementations in the live runtime:
 - `MacOSClipboardWriter` writes processed section output directly to `NSPasteboard.general` without passing text through process arguments.
 - `FocusedInputDelivery` launches a sibling `untype-input-helper` executable with arguments limited to `send --method <method>` and writes processed text through the helper process stdin.
+- When running inside `untype.app`, `FocusedInputDelivery` executes the same focused-input implementation in-process instead of spawning the helper, preserving stdin-style data flow while aligning Accessibility/Input Monitoring checks with the app bundle identity.
 - `untype-input-helper` is a Swift executable target that preserves the source helper contract: `diagnose`, `send --method auto|ax-value|unicode-events|paste-keycode`, one JSON result line on stdout, diagnostics on stderr, exit code `0` for success, and exit code `2` for expected delivery failures.
-- The helper attempts Accessibility AX value insertion first, then a clipboard-preserving Command-V paste fallback, then Unicode key events only as a short-text compatibility fallback. This keeps the default path from simulating one key pair per character in browser/editor fields. Accessibility denial returns `accessibility_not_trusted` with an actionable message.
+- The helper attempts Accessibility AX value insertion first for normal targets. For browser targets, where AX value insertion is commonly unreliable, it tries the clipboard-preserving Command-V paste path first and falls back to Unicode key events only for short text. This keeps the default path from simulating one key pair per character in browser/editor fields. Accessibility denial returns `accessibility_not_trusted` with an actionable message.
 - Focused-input failures remain fail-open protocol warnings so transcription sessions continue when the target control is unavailable or permissions are missing.
 
 Automated tests verify helper JSON parsing, expected failure handling, stdin-only text delivery, command parsing, and injected clipboard writing. The live focused-input permission and delivery smoke procedure is documented in `test_scripts/focused-input-smoke.md`; manual execution remains pending.
@@ -228,7 +234,11 @@ Live UI verification is documented in `test_scripts/ui-mode-smoke.md` and remain
 
 Deployable macOS application packaging is documented in `docs/design/deployment-guide.md`. The current project remains a SwiftPM executable package, so the production deployment path is to bundle the release executable and helper into `untype.app`, add app metadata and microphone usage text, sign with Developer ID and hardened runtime, notarize the archive, staple the ticket, and verify Gatekeeper behavior before distributing.
 
-The repository includes `scripts/package-macos-app.sh` for repeatable macOS packaging. The script builds SwiftPM release outputs, runs tests by default, creates `untype.app`, compiles a native launcher so double-clicking the app opens UI mode, adds microphone metadata, uses `packaging/macos/untype.entitlements`, optionally signs with Developer ID, optionally notarizes/staples with `notarytool`, and writes distributable archives under `.build/deploy/`.
+The repository includes `scripts/package-macos-app.sh` for repeatable macOS packaging. The script builds SwiftPM release outputs, runs tests by default, creates `untype.app`, declares `untype` itself as `CFBundleExecutable`, opens UI mode for no-argument app-bundle launches, adds microphone metadata and `PkgInfo`, uses `packaging/macos/untype.entitlements`, includes `packaging/macos/AppIcon.icns` by default, removes removable extended attributes when possible, optionally signs with Developer ID, optionally notarizes/staples with `notarytool`, and writes clean `ditto --norsrc` distributable archives under `.build/deploy/`.
+
+The packaged app intentionally does not use a separate `untype-launcher` executable. The process that LaunchServices starts is the same `untype` process that installs the Quartz push-to-talk event tap, keeping Accessibility/Input Monitoring identity aligned with the app bundle that users authorize in System Settings.
+
+The default app icon source lives at `packaging/macos/AppIcon.svg`, with generated review and packaging artifacts at `packaging/macos/AppIcon.png`, `packaging/macos/AppIcon.iconset/`, and `packaging/macos/AppIcon.icns`. The selected mark is based on the user-provided orange `u` reference icon: a warm orange rounded-square tile with a centered white rounded lowercase `u`, adapted with macOS-style depth and highlights. Release packaging can still override the icon with `scripts/package-macos-app.sh --icon`.
 
 ### Proposed macOS UI Modernization
 The proposed next UI direction is documented in `docs/design/plan-016-macos-ui-modernization-proposal.md` and is grounded in the current source review, Apple Human Interface Guidelines research in `docs/reference/macos-ui-guidelines-modernization-research.md`, and a Claude Design handoff bundle saved at `docs/reference/design-bundle-macos-modernization/`.

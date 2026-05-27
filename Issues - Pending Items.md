@@ -20,10 +20,26 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Dependency Vetting Log
 - 2026-05-23: No new runtime dependencies added. Initial SwiftPM scaffold uses only Apple/Swift standard libraries and platform frameworks.
+- 2026-05-27: No new runtime dependencies added for macOS packaging script hardening. Implementation uses existing macOS command-line tools.
+- 2026-05-27: No new runtime dependencies added for the default app icon. Icon generation used local macOS `qlmanage`, `sips`, and `iconutil`.
+- 2026-05-27: No new runtime dependencies added for bundled-app global hotkey packaging. Implementation uses existing Swift/Foundation bundle detection and existing packaging tools.
 - 2026-05-27: No new runtime dependencies added for configurable prompts. Implementation uses Swift/Foundation file IO and existing provider payload code.
 - 2026-05-27: No new runtime dependencies added for composite refine-plus-translate prompts. Implementation reuses the existing Swift/Foundation HTTP and JSON code.
+- 2026-05-27: No new runtime dependencies added for bundled-app focused-input delivery. Implementation reuses existing Swift/AppKit/ApplicationServices focused-input code.
 
 ## Completed Items
+
+### 2026-05-27 - Bundled app focused-input delivery fixed
+
+Resolved a bundled-app issue where refined and translated output could be processed and shown by `untype.app` but not inserted into the active foreground application. The root cause was that bundled UI delivery launched the nested `Contents/MacOS/untype-input-helper` subprocess for Accessibility and keyboard-event work, while users grant Accessibility/Input Monitoring permissions to the app bundle identity. `FocusedInputDelivery` now runs the same focused-input implementation in-process when launched from `untype.app`, so TCC authorization applies to the rebuilt app bundle. Follow-up hardening detects bundled mode even when the executable path resolves inside `.app/Contents/MacOS`, routes browser targets through paste-keycode before falling back to Unicode events, and makes protocol `ok=false` delivery results visible input-operator warnings instead of false `input.sent` success. CLI and unbundled runs still use the helper subprocess and keep processed text out of command-line arguments. Added regression coverage for bundled helper resolution, bundled in-process delivery, executable-path bundled detection, unbundled helper delivery, browser bundle detection, `ok=false` protocol warning behavior, and argv privacy. Verified `swift build`, `swift test` (167/167), unsigned packaging, bundled `CFBundleExecutable=untype`, bundled `untype-input-helper` presence, zip cleanliness, and bundled CLI help output.
+
+### 2026-05-27 - Bundled app global hotkey identity fixed
+
+Resolved a packaged-app issue where push-to-talk could fail while another app had focus even after Accessibility and Input Monitoring were enabled. The root cause was the app bundle declaring `CFBundleExecutable=untype-launcher`, then replacing that process with `Contents/MacOS/untype ui` via `execv`; that made the process installing the Quartz event tap differ from the bundle executable users authorized in System Settings. The package now declares `CFBundleExecutable=untype`, removes the generated launcher, and routes no-argument `.app` launches to UI mode inside `untype` itself. Users replacing older builds should remove old `untype.app` entries from Accessibility and Input Monitoring, add the rebuilt `/Applications/untype.app`, then quit and relaunch.
+
+### 2026-05-27 - Default macOS app icon added
+
+Resolved the packaging visual gap where `untype.app` had no committed default icon unless release packaging supplied `--icon`. Added a deterministic vector-derived icon under `packaging/macos/AppIcon.svg`, generated `AppIcon.png`, the full macOS `AppIcon.iconset/`, and `AppIcon.icns`, and updated `scripts/package-macos-app.sh` to use the default `.icns` when no override is provided. The icon was revised to match the user-provided orange `u` reference with a macOS-style rounded-square tile, white rounded `u`, and subtle depth. The app bundle now includes `Contents/Resources/AppIcon.icns` and `CFBundleIconFile=AppIcon`; `--icon` remains available for a future final brand override.
 
 ### 2026-05-27 - Composite refine-plus-translate prompt added
 
@@ -43,7 +59,7 @@ Resolved the release-latency issue where Soniox often produced accurate partial 
 
 ### 2026-05-26 - macOS packaging script added
 
-Resolved the first packaging automation gap by adding `scripts/package-macos-app.sh` and `packaging/macos/untype.entitlements`. The script builds release SwiftPM products, runs tests by default, creates `untype.app`, compiles a native double-click launcher for UI mode, writes app metadata, supports explicit unsigned local packaging, supports Developer ID signing, supports optional notarization/stapling, and produces zip archives under `.build/deploy/`. Verified help output, fail-fast required arguments, unsigned packaging, generated app contents, launcher Mach-O output, shell syntax, and `swift test` (130/130).
+Resolved the first packaging automation gap by adding `scripts/package-macos-app.sh` and `packaging/macos/untype.entitlements`. The script builds release SwiftPM products, runs tests by default, creates `untype.app`, writes app metadata, supports explicit unsigned local packaging, supports Developer ID signing, supports optional notarization/stapling, and produces zip archives under `.build/deploy/`. Follow-up hardening on 2026-05-27 added `Contents/PkgInfo`, removes removable extended attributes when possible, uses `ditto --norsrc` so distributable zips do not contain local AppleDouble `._*` metadata entries, and removed the intermediate `untype-launcher` so `untype` itself is the bundle executable. Verified help output, fail-fast required arguments, unsigned packaging, generated app contents, clean zip contents, shell syntax, and `swift test` (161/161).
 
 ### 2026-05-26 - macOS deployment guide documented
 
