@@ -42,7 +42,7 @@ public enum UntypeRuntimeFactory {
         )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery()
-        let releaseLatencyLogger = makeReleaseLatencyLogger(config.releaseLatencyLogging)
+        let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
         let controller = VoiceAgentProtocolController(
             mode: protocolConfig.interactionMode,
             renderer: renderer,
@@ -133,7 +133,7 @@ public enum UntypeRuntimeFactory {
         )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery()
-        let releaseLatencyLogger = makeReleaseLatencyLogger(config.releaseLatencyLogging)
+        let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
         let controller = VoiceAgentProtocolController(
             mode: protocolConfig.interactionMode,
             renderer: renderer,
@@ -212,9 +212,12 @@ public enum UntypeRuntimeFactory {
         return nil
     }
 
-    private static func makeReleaseLatencyLogger(_ config: ReleaseLatencyLoggingConfig) -> ReleaseLatencyLogWriting? {
+    private static func makeReleaseLatencyLogger(_ config: ReleaseLatencyLoggingConfig) throws -> ReleaseLatencyLogWriting? {
         guard config.enabled else {
             return nil
+        }
+        if config.resetOnStart {
+            try ReleaseLatencyJsonlLogger.resetOnStartIfNeeded(path: config.path)
         }
         return ReleaseLatencyJsonlLogger(path: config.path)
     }

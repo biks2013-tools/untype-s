@@ -53,6 +53,62 @@ import Testing
     #expect(!text.contains("api-key"))
 }
 
+@Test func releaseLatencyJsonlLoggerResetOnStartClearsExistingCustomPathOnce() throws {
+    let temp = LatencyTemporaryDirectory()
+    let path = temp.url
+        .appendingPathComponent("custom")
+        .appendingPathComponent("release-latency.jsonl")
+        .path
+    try FileManager.default.createDirectory(
+        at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try "old record\n".write(toFile: path, atomically: true, encoding: .utf8)
+
+    try ReleaseLatencyJsonlLogger.resetOnStartIfNeeded(path: path)
+
+    #expect(try String(contentsOfFile: path, encoding: .utf8) == "")
+
+    let logger = ReleaseLatencyJsonlLogger(path: path)
+    try logger.append(sampleReleaseLatencyRecord(turnId: "turn-1"))
+
+    try "replacement record\n".write(toFile: path, atomically: true, encoding: .utf8)
+    try ReleaseLatencyJsonlLogger.resetOnStartIfNeeded(path: path)
+
+    #expect(try String(contentsOfFile: path, encoding: .utf8) == "replacement record\n")
+}
+
+@Test func releaseLatencyJsonlLoggerPreservesExistingLogWhenResetIsNotRequested() throws {
+    let temp = LatencyTemporaryDirectory()
+    let path = temp.url
+        .appendingPathComponent("release-latency.jsonl")
+        .path
+    try "old record\n".write(toFile: path, atomically: true, encoding: .utf8)
+
+    let logger = ReleaseLatencyJsonlLogger(path: path)
+    try logger.append(sampleReleaseLatencyRecord(turnId: "turn-2"))
+
+    let text = try String(contentsOfFile: path, encoding: .utf8)
+    #expect(text.hasPrefix("old record\n"))
+    #expect(text.contains(#""turn_id":"turn-2""#))
+}
+
+private func sampleReleaseLatencyRecord(turnId: String) -> ReleaseLatencyLogRecord {
+    ReleaseLatencyLogRecord(
+        turnId: turnId,
+        releaseTimestamp: "2026-05-26T20:00:00.000Z",
+        trigger: "ui-hotkey-release",
+        sttProvider: "soniox",
+        quickClose: false,
+        textSource: "provider_final",
+        outcome: "delivered_to_focused_input",
+        totalMs: 20,
+        durationsMs: ReleaseLatencyDurations(focusedInputMs: 3),
+        sectionsProcessed: 1,
+        focusedInput: .notAttempted()
+    )
+}
+
 private final class LatencyTemporaryDirectory {
     let url: URL
 

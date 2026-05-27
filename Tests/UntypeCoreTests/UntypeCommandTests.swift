@@ -160,6 +160,7 @@ import Testing
         .appendingPathComponent("untype")
         .appendingPathComponent("release-latency.jsonl")
         .path)
+    #expect(config.releaseLatencyLogging.resetOnStart == false)
 }
 
 @Test func releaseLatencyLoggingCanBeEnabledByEnvAndPathOverriddenByFlag() throws {
@@ -170,6 +171,7 @@ import Testing
         shell: [
             "SONIOX_API_KEY": "test-key",
             "UNTYPE_RELEASE_LATENCY_LOG": "on",
+            "UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START": "on",
             "UNTYPE_RELEASE_LATENCY_LOG_PATH": temp.url.appendingPathComponent("env.jsonl").path
         ]
     )
@@ -182,6 +184,41 @@ import Testing
 
     #expect(config.releaseLatencyLogging.enabled)
     #expect(config.releaseLatencyLogging.path == flagPath)
+    #expect(config.releaseLatencyLogging.resetOnStart)
+}
+
+@Test func releaseLatencyLogResetOnStartCanBeDisabledByEnvironment() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "test-key",
+            "UNTYPE_RELEASE_LATENCY_LOG": "on",
+            "UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START": "off"
+        ]
+    )
+
+    let config = try resolver.resolve(argv: ["--no-refine"])
+
+    #expect(config.releaseLatencyLogging.enabled)
+    #expect(config.releaseLatencyLogging.resetOnStart == false)
+}
+
+@Test func releaseLatencyLogResetOnStartRejectsInvalidBoolean() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "test-key",
+            "UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START": "maybe"
+        ]
+    )
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--no-refine"])
+    }
 }
 
 @Test func promptFilesAreProvisionedAndLoadedFromUserConfigFolder() throws {

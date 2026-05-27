@@ -359,6 +359,11 @@ public struct ConfigResolver: Sendable {
             flagName: "--release-latency-log-path",
             envName: "UNTYPE_RELEASE_LATENCY_LOG_PATH"
         )
+        let releaseLatencyLogResetOnStart = try parseBoolean(
+            chain.get("UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START")?.value,
+            flagName: "UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START",
+            envName: "UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START"
+        ) ?? false
 
         let refine = try parsed.refineOverride
             ?? parseBoolean(
@@ -425,7 +430,8 @@ public struct ConfigResolver: Sendable {
             prompts: promptConfig,
             releaseLatencyLogging: ReleaseLatencyLoggingConfig(
                 enabled: releaseLatencyLogEnabled,
-                path: releaseLatencyLogPath
+                path: releaseLatencyLogPath,
+                resetOnStart: releaseLatencyLogResetOnStart
             ),
             verbose: verbose,
             warnings: expiryWarnings(envName: keyName, isoDate: apiKeyExpiresAt)

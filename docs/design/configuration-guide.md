@@ -64,6 +64,7 @@ The log is privacy-safe by design. It records timings, source/outcome labels, se
 |---|---|---|---|---|
 | Release latency logging enabled | `--release-latency-log` / `--no-release-latency-log` | `UNTYPE_RELEASE_LATENCY_LOG` | `false` | Enables or disables append-only JSONL timing records for push-to-talk release attempts. |
 | Release latency log path | `--release-latency-log-path <path>` | `UNTYPE_RELEASE_LATENCY_LOG_PATH` | `~/.tool-agents/untype/release-latency.jsonl` | Selects the JSONL file used when latency logging is enabled. |
+| Reset release latency log on startup | none | `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START` | `false` | Clears the configured JSONL latency log once per application process startup when release latency logging is enabled. |
 
 Boolean values accepted in `.env` or shell variables are `true`, `false`, `yes`, `no`, `on`, `off`, `1`, and `0`.
 
@@ -72,6 +73,7 @@ For routine diagnostic use, place the enable flag in `~/.tool-agents/untype/.env
 
 ```env
 UNTYPE_RELEASE_LATENCY_LOG=on
+UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=off
 ```
 
 Use `UNTYPE_RELEASE_LATENCY_LOG_PATH` only when a specific analysis run should be isolated:
@@ -79,9 +81,12 @@ Use `UNTYPE_RELEASE_LATENCY_LOG_PATH` only when a specific analysis run should b
 ```env
 UNTYPE_RELEASE_LATENCY_LOG=on
 UNTYPE_RELEASE_LATENCY_LOG_PATH=/tmp/untype-release-latency.jsonl
+UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on
 ```
 
 The default path lives under the existing user config directory. The logger creates `~/.tool-agents/untype` with `0700` permissions and the JSONL file with `0600` permissions.
+
+Set `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on` for runs where the configured latency log should start empty every time the application process launches. The reset applies to `UNTYPE_RELEASE_LATENCY_LOG_PATH` when a custom path is configured. The setting has no effect while `UNTYPE_RELEASE_LATENCY_LOG` is disabled.
 
 ### Disabling
 Remove the variable, set it to `off`, or pass `--no-release-latency-log`:
@@ -116,7 +121,7 @@ The end marker for "text appeared in the active input control" is focused-input 
 2. Start UI mode with `.build/debug/untype ui`.
 3. Enable push-to-talk and focused input, focus a disposable editor field, press the hotkey, speak, and release.
 4. Disable logging after the run.
-5. Archive the JSONL file with the date and scenario name, or clear it before the next run.
+5. Archive the JSONL file with the date and scenario name, or set `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on` before the next isolated run.
 6. Compare `total_ms` and `durations_ms`:
    - High `runtime_scheduling_ms` points to UI/runtime scheduling delay before the release request reached the runtime.
    - High `provider_final_wait_ms` points to provider finalization or endpoint/VAD behavior.
@@ -127,7 +132,14 @@ The end marker for "text appeared in the active input control" is focused-input 
    - `outcome=no_text` means the release produced no submitted transcript text.
 
 ### Clearing or Archiving
-The logger appends during normal operation and does not rotate files. Archive or remove the file manually when a diagnostic run is complete:
+The logger appends during normal operation and does not rotate files. To make each application launch start with an empty configured log, set:
+
+```env
+UNTYPE_RELEASE_LATENCY_LOG=on
+UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on
+```
+
+Archive or remove the file manually when a diagnostic run must be preserved or deleted outside the startup reset flow:
 
 ```sh
 mv ~/.tool-agents/untype/release-latency.jsonl ~/Desktop/release-latency-$(date +%Y%m%d-%H%M%S).jsonl

@@ -3,10 +3,12 @@ import Foundation
 public struct ReleaseLatencyLoggingConfig: Equatable, Sendable {
     public let enabled: Bool
     public let path: String
+    public let resetOnStart: Bool
 
-    public init(enabled: Bool, path: String) {
+    public init(enabled: Bool, path: String, resetOnStart: Bool) {
         self.enabled = enabled
         self.path = path
+        self.resetOnStart = resetOnStart
     }
 }
 
@@ -28,6 +30,8 @@ public struct ReleaseLatencyReleaseMarker: Equatable, Sendable {
 }
 
 public final class ReleaseLatencyJsonlLogger: ReleaseLatencyLogWriting, @unchecked Sendable {
+    private static let resetRegistry = ReleaseLatencyResetRegistry()
+
     private let url: URL
     private let fileManager: FileManager
     private let lock = NSLock()
@@ -35,6 +39,26 @@ public final class ReleaseLatencyJsonlLogger: ReleaseLatencyLogWriting, @uncheck
     public init(path: String, fileManager: FileManager = .default) {
         self.url = URL(fileURLWithPath: path)
         self.fileManager = fileManager
+    }
+
+    public static func resetOnStartIfNeeded(path: String, fileManager: FileManager = .default) throws {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let pathKey = url.path
+
+        guard resetRegistry.claim(pathKey) else {
+            return
+        }
+
+        do {
+            let directory = url.deletingLastPathComponent()
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try Data().write(to: url, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            resetRegistry.release(pathKey)
+            throw error
+        }
     }
 
     public func append(_ record: ReleaseLatencyLogRecord) throws {
@@ -59,6 +83,27 @@ public final class ReleaseLatencyJsonlLogger: ReleaseLatencyLogWriting, @uncheck
         try handle.seekToEnd()
         try handle.write(contentsOf: data)
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+}
+
+private final class ReleaseLatencyResetRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: Set<String> = []
+
+    func claim(_ path: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !paths.contains(path) else {
+            return false
+        }
+        paths.insert(path)
+        return true
+    }
+
+    func release(_ path: String) {
+        lock.lock()
+        paths.remove(path)
+        lock.unlock()
     }
 }
 
