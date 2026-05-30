@@ -48,6 +48,29 @@ import Testing
     #expect(savedDocument == document)
 }
 
+@Test func uiTranscriptSectionCopyPayloadPreservesExactNonEmptyText() {
+    let raw = UntypeUITranscriptSectionCopyPayload(
+        kind: .raw,
+        text: "  dictated words\n"
+    )
+    let processed = UntypeUITranscriptSectionCopyPayload(
+        kind: .processed,
+        text: "Refined words."
+    )
+
+    #expect(raw?.kind == .raw)
+    #expect(raw?.text == "  dictated words\n")
+    #expect(raw?.kind.displayName == "raw")
+    #expect(processed?.kind == .processed)
+    #expect(processed?.text == "Refined words.")
+    #expect(processed?.kind.eventName == "processed")
+}
+
+@Test func uiTranscriptSectionCopyPayloadRejectsEmptyText() {
+    #expect(UntypeUITranscriptSectionCopyPayload(kind: .raw, text: " \n") == nil)
+    #expect(UntypeUITranscriptSectionCopyPayload(kind: .processed, text: "") == nil)
+}
+
 @Test func uiExportActionRouterRejectsEmptyContent() {
     let router = UntypeUIExportActionRouter(
         copyText: { _ in Issue.record("copy should not run for empty content") },

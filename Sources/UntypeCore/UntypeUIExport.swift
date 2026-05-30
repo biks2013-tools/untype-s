@@ -23,6 +23,45 @@ public enum UntypeUIExportKind: String, Equatable, Sendable {
     }
 }
 
+public enum UntypeUITranscriptSectionCopyKind: String, Equatable, Sendable {
+    case raw
+    case processed
+
+    public var displayName: String {
+        switch self {
+        case .raw:
+            return "raw"
+        case .processed:
+            return "processed output"
+        }
+    }
+
+    public var eventName: String {
+        switch self {
+        case .raw:
+            return "raw"
+        case .processed:
+            return "processed"
+        }
+    }
+}
+
+public struct UntypeUITranscriptSectionCopyPayload: Equatable, Sendable {
+    public let kind: UntypeUITranscriptSectionCopyKind
+    public let text: String
+
+    public init?(
+        kind: UntypeUITranscriptSectionCopyKind,
+        text: String
+    ) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        self.kind = kind
+        self.text = text
+    }
+}
+
 public struct UntypeUIExportDocument: Equatable, Sendable {
     public let kind: UntypeUIExportKind
     public let text: String

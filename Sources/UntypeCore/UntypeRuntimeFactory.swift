@@ -107,7 +107,8 @@ public enum UntypeRuntimeFactory {
         transcript: @escaping @Sendable (_ event: UITranscriptEvent) -> Void,
         protocolOutput: TextOutput,
         diagnosticsOutput: TextOutput,
-        eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void
+        eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void,
+        focusedInputPreparation: @escaping @Sendable () async -> Void = {}
     ) throws -> UntypeRuntimeSession {
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
         let controllerDiagnostics = ProtocolControllerDiagnostics { line, warning in
@@ -132,7 +133,7 @@ public enum UntypeRuntimeFactory {
             prompts: config.prompts
         )
         let clipboardWriter = MacOSClipboardWriter()
-        let focusedInputDelivery = FocusedInputDelivery()
+        let focusedInputDelivery = FocusedInputDelivery(forceInProcess: true)
         let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
         let controller = VoiceAgentProtocolController(
             mode: protocolConfig.interactionMode,
@@ -147,7 +148,10 @@ public enum UntypeRuntimeFactory {
             translator: translator,
             compositeRefineTranslator: compositeRefineTranslator,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
-            focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
+            focusedInputWriter: { text in
+                await focusedInputPreparation()
+                return try await focusedInputDelivery.deliver(text)
+            },
             diagnostics: controllerDiagnostics,
             visibleOperatorDiagnostics: true
         )

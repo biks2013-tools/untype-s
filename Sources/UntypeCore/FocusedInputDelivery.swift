@@ -148,6 +148,7 @@ public final class FocusedInputDelivery {
     private let bundleURL: URL?
     private let executablePath: String?
     private let useInProcessForBundledApp: Bool
+    private let forceInProcess: Bool
     private let runner: FocusedInputHelperRunner
     private let inProcessRunner: FocusedInputInProcessRunner
 
@@ -158,6 +159,7 @@ public final class FocusedInputDelivery {
         bundleURL: URL? = Bundle.main.bundleURL,
         executablePath: String? = Bundle.main.executableURL?.path ?? CommandLine.arguments.first,
         useInProcessForBundledApp: Bool = true,
+        forceInProcess: Bool = false,
         runner: @escaping FocusedInputHelperRunner = runFocusedInputHelperProcess,
         inProcessRunner: @escaping FocusedInputInProcessRunner = { args, stdinData in
             FocusedInputHelperMain.run(arguments: args, inputData: stdinData)
@@ -169,6 +171,7 @@ public final class FocusedInputDelivery {
         self.bundleURL = bundleURL
         self.executablePath = executablePath
         self.useInProcessForBundledApp = useInProcessForBundledApp
+        self.forceInProcess = forceInProcess
         self.runner = runner
         self.inProcessRunner = inProcessRunner
     }
@@ -186,8 +189,10 @@ public final class FocusedInputDelivery {
     public func deliver(_ text: String) async throws -> FocusedInputDeliveryResult {
         let args = ["send", "--method", method.rawValue]
         if helperPath == nil,
-           useInProcessForBundledApp,
-           Self.isBundledApp(bundleURL: bundleURL, executablePath: executablePath) {
+           forceInProcess || (
+               useInProcessForBundledApp &&
+               Self.isBundledApp(bundleURL: bundleURL, executablePath: executablePath)
+           ) {
             return try Self.mapInProcessResult(inProcessRunner(args, Data(text.utf8)))
         }
 

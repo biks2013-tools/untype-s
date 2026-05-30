@@ -26,8 +26,24 @@ The source project has unit tests but no live provider or UI automation harness.
 - 2026-05-27: No new runtime dependencies added for configurable prompts. Implementation uses Swift/Foundation file IO and existing provider payload code.
 - 2026-05-27: No new runtime dependencies added for composite refine-plus-translate prompts. Implementation reuses the existing Swift/Foundation HTTP and JSON code.
 - 2026-05-27: No new runtime dependencies added for bundled-app focused-input delivery. Implementation reuses existing Swift/AppKit/ApplicationServices focused-input code.
+- 2026-05-30: No new runtime dependencies added for turn-level raw/processed copy controls. Implementation reuses existing SwiftUI/AppKit UI code and the existing macOS pasteboard writer.
+- 2026-05-30: No new runtime dependencies added for background-focus push-to-talk hotkey hardening. Implementation reuses existing macOS Carbon/ApplicationServices/AppKit frameworks.
+- 2026-05-30: No new runtime dependencies added for manual permission setup activation. Implementation reuses the existing SwiftUI onboarding sheet and permission status model.
+- 2026-05-30: No new runtime dependencies added for focused-input target restoration. Implementation reuses existing AppKit workspace activation tracking and the existing focused-input delivery path.
 
 ## Completed Items
+
+### 2026-05-30 - Focused-input target restoration added
+
+Resolved a native UI focused-input issue where processed output could be produced and copied but not inserted into the intended edit control because `untype.app` had regained foreground focus before the input operator delivered text, or because UI mode still routed delivery through `untype-input-helper` and macOS rejected that helper for Accessibility. The UI now records the most recent external foreground application, captures the intended delivery target when manual or push-to-talk recording starts, and restores that target immediately before focused-input delivery when `untype` is frontmost. UI sessions now force in-process focused-input delivery so Accessibility trust applies to the app/`untype` UI process instead of `untype-input-helper`; CLI delivery still uses the helper subprocess. Processed text still flows through the existing focused-input writer, and diagnostics remain privacy-safe. If no external target can be restored, the UI logs a warning telling the user to focus the target edit control before release.
+
+### 2026-05-30 - Manual permission setup popup activation added
+
+Resolved a usability gap where the OS permission/setup popup was only shown automatically at startup/status changes and could be suppressed for 24 hours after selecting `Skip for now`. The top control cluster now exposes a visible `lock.shield` permission setup button with `Option-Command-P`, and the right-side Permissions inspector also exposes an explicit `Open Permission Setup` command. Both refresh current credential/permission status and present the existing onboarding sheet on demand. The manual action bypasses the automatic skip suppression without changing the automatic onboarding rules. The sheet continues to avoid persisting transient permission status, and its ready-state `Get started` action now dismisses the sheet.
+
+### 2026-05-30 - Background-focus push-to-talk hotkey detection restored
+
+Resolved a native UI regression where the press-and-hold push-to-talk hotkey could stop being detected when another application had keyboard focus. The previous implementation depended primarily on a Quartz `CGEvent` tap and fell back to AppKit `NSEvent` monitors; when the event tap was unavailable or blocked by macOS permission state, the fallback path was not a reliable global press/release detector for background focus. The hotkey monitor now also registers a Carbon global hotkey with `RegisterEventHotKey`, listening for pressed and released events even when `untype.app` is not frontmost. Quartz remains the preferred path because it can suppress the hotkey, Carbon provides the background-focus fallback, and AppKit monitors remain as the last fallback/local path. All sources share `UntypeHotkeySharedState`, so duplicate press/release events do not start or stop multiple sessions. Users may still need to remove stale `untype.app` entries from Accessibility/Input Monitoring, add the rebuilt app identity, and relaunch after installing a new package.
 
 ### 2026-05-27 - Bundled app focused-input delivery fixed
 

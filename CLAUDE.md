@@ -190,6 +190,11 @@
 
 - Every time you are asked to solve an issue, you must resolve it AND thoroughly document both the issue and the solution.
 
+## Project-Specific Guardrails
+
+- **Do not break push-to-talk.** Any change to the native UI, session controls, hotkey configuration, permission flow, overlay, runtime startup/stop logic, or available protocol features must preserve the full push-to-talk wiring: configured hotkey listening must remain active when enabled, press and release events must reach the hotkey-owned runtime session, the audio gate must open on press and close on release, the recording/finalizing overlay must be shown and hidden correctly, and processed output delivery must still run after release.
+- Before finishing UI or feature changes that can affect push-to-talk, verify the relevant wiring in `NativeUntypeUILauncher`, `UntypeHotkeyMonitor`, `HotkeySessionControl`, and `TranscriptionSessionRuntime`. Prefer running `swift build`, focused hotkey/push-to-talk tests when available, and a manual smoke check when macOS permissions or overlay behavior cannot be automated.
+
 <dependency-vetting>
 - Before adding ANY new runtime dependency to a project (`package.json`, `pyproject.toml`, `go.mod`, etc.), you MUST verify the version you are about to pin is free of known security advisories. Apply this rule especially to:
   - **Browser/embedded-engine packages:** `electron`, `puppeteer`, `playwright`, `chromium`, `webview2` — they ship with full browser engines and accumulate CVEs fast.

@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import Combine
 import Foundation
 import SwiftUI
@@ -241,6 +242,9 @@ private final class UntypeUIModel: ObservableObject {
     private var warmSessionRecycleInFlight = false
     private var lastAudioEventCategory: String?
     private var lastAudioEventLoggedAt = Date.distantPast
+    private var workspaceActivationObserver: NSObjectProtocol?
+    private var lastExternalFocusedInputApplication: NSRunningApplication?
+    private var sessionFocusedInputApplication: NSRunningApplication?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
     private let audioEventInterval: TimeInterval = 2
 
@@ -250,11 +254,81 @@ private final class UntypeUIModel: ObservableObject {
         if let errorMessage = result.errorMessage {
             appendEvent("diagnostic.warning: \(errorMessage)")
         }
+        installFocusedInputApplicationTracker()
     }
 
     func configureHotkeyServices() {
         hotkeyMonitor?.configure(settings: settings)
         reconcileHotkeyWarmSession()
+    }
+
+    private func installFocusedInputApplicationTracker() {
+        rememberFocusedInputCandidate(NSWorkspace.shared.frontmostApplication)
+        workspaceActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.rememberFocusedInputCandidate(application)
+            }
+        }
+    }
+
+    private func rememberFocusedInputCandidate(_ application: NSRunningApplication?) {
+        guard let application, isExternalFocusedInputApplication(application) else {
+            return
+        }
+        lastExternalFocusedInputApplication = application
+    }
+
+    private func captureFocusedInputTarget(reason: String) {
+        guard settings.focusedInput else {
+            sessionFocusedInputApplication = nil
+            return
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        rememberFocusedInputCandidate(frontmost)
+        sessionFocusedInputApplication = isExternalFocusedInputApplication(frontmost)
+            ? frontmost
+            : lastExternalFocusedInputApplication
+        if let name = sessionFocusedInputApplication?.localizedName {
+            appendEvent("diagnostic.info: [untype] focused-input target captured: \(name) (\(reason))")
+        }
+    }
+
+    func prepareFocusedInputDelivery() {
+        guard settings.focusedInput else {
+            return
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        rememberFocusedInputCandidate(frontmost)
+        if isExternalFocusedInputApplication(frontmost) {
+            return
+        }
+        guard let target = sessionFocusedInputApplication ?? lastExternalFocusedInputApplication,
+              isExternalFocusedInputApplication(target)
+        else {
+            appendEvent("diagnostic.warning: [untype] focused-input target unavailable; focus the target edit control before releasing push-to-talk")
+            return
+        }
+        let activated = target.activate(options: [.activateAllWindows])
+        if activated {
+            appendEvent("diagnostic.info: [untype] focused-input target restored: \(target.localizedName ?? "external app")")
+        } else {
+            appendEvent("diagnostic.warning: [untype] could not restore focused-input target: \(target.localizedName ?? "external app")")
+        }
+    }
+
+    private func isExternalFocusedInputApplication(_ application: NSRunningApplication?) -> Bool {
+        guard let application else {
+            return false
+        }
+        return application.processIdentifier != ProcessInfo.processInfo.processIdentifier
+            && !application.isTerminated
     }
 
     func update(_ patch: UntypeUISettingsPatch) {
@@ -307,6 +381,7 @@ private final class UntypeUIModel: ObservableObject {
     func startManualSession() {
         stopHotkeyWarmSession(restartAfterStop: false)
         if runtime == nil, sessionOwner == nil {
+            captureFocusedInputTarget(reason: "manual-session")
             startSession(owner: .manual)
         }
     }
@@ -350,6 +425,7 @@ private final class UntypeUIModel: ObservableObject {
         captureState = "recording"
         latestTranscript = ""
         timeline.clearPartial()
+        captureFocusedInputTarget(reason: "hotkey-press")
         clearWarmSessionRecycleTimer()
         overlay?.show(phase: "recording", text: latestTranscript)
         let control = hotkeySessionControl ?? HotkeySessionControl()
@@ -408,6 +484,21 @@ private final class UntypeUIModel: ObservableObject {
 
     func copyTranscriptExport() {
         copyExport(transcriptExportDocument)
+    }
+
+    func copyTranscriptSection(
+        _ text: String,
+        kind: UntypeUITranscriptSectionCopyKind
+    ) {
+        guard let payload = UntypeUITranscriptSectionCopyPayload(kind: kind, text: text) else {
+            return
+        }
+        do {
+            try MacOSClipboardWriter.writeToSystemPasteboard(payload.text)
+            appendEvent("transcript.\(payload.kind.eventName).copied")
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
     }
 
     func saveTranscriptExport() {
@@ -531,6 +622,12 @@ private final class UntypeUIModel: ObservableObject {
                         dispatchToUI { [modelBox] in
                             modelBox.model?.handleSessionEvent(event, owner: owner)
                         }
+                    },
+                    focusedInputPreparation: {
+                        await MainActor.run {
+                            modelBox.model?.prepareFocusedInputDelivery()
+                        }
+                        try? await Task.sleep(nanoseconds: 150_000_000)
                     }
                 )
                 dispatchToUI { [modelBox] in
@@ -596,6 +693,7 @@ private final class UntypeUIModel: ObservableObject {
                 self.runtime = nil
                 self.sessionOwner = nil
                 self.hotkeySessionControl = nil
+                self.sessionFocusedInputApplication = nil
                 self.sessionState = "idle"
                 self.captureState = "idle"
                 self.isRunning = false
@@ -613,6 +711,7 @@ private final class UntypeUIModel: ObservableObject {
         runtime = nil
         sessionOwner = nil
         hotkeySessionControl = nil
+        sessionFocusedInputApplication = nil
         hotkeyPressed = false
         sessionState = "idle"
         captureState = "idle"
@@ -956,6 +1055,11 @@ private struct UntypeRootView: View {
         }
     }
 
+    private func presentPermissionSetup() {
+        model.refreshCredentials()
+        showOnboarding = true
+    }
+
     @ToolbarContentBuilder
     private var compactToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
@@ -1022,6 +1126,14 @@ private struct UntypeRootView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .help("Refresh credentials and permission status")
+
+            Button {
+                presentPermissionSetup()
+            } label: {
+                Image(systemName: "lock.shield")
+            }
+            .help("Open permission setup")
+            .keyboardShortcut("p", modifiers: [.command, .option])
 
             Menu {
                 Picker("Appearance", selection: appearanceBinding) {
@@ -1603,6 +1715,7 @@ private struct UntypeRootView: View {
                         title: "User said",
                         status: "recorded",
                         text: userText,
+                        copyKind: .raw,
                         accent: .secondary,
                         background: Color.primary.opacity(0.04)
                     )
@@ -1612,6 +1725,7 @@ private struct UntypeRootView: View {
                         title: record.label,
                         status: record.status,
                         text: record.text,
+                        copyKind: record.kind == .issue ? nil : .processed,
                         accent: record.kind == .issue ? UntypeDesignTokens.warnGold : UntypeDesignTokens.accentAmber,
                         background: record.kind == .issue ? UntypeDesignTokens.warnGold.opacity(0.12) : UntypeDesignTokens.accentAmber.opacity(0.08)
                     )
@@ -1631,6 +1745,7 @@ private struct UntypeRootView: View {
         title: String,
         status: String,
         text: String,
+        copyKind: UntypeUITranscriptSectionCopyKind?,
         accent: Color,
         background: Color
     ) -> some View {
@@ -1644,13 +1759,13 @@ private struct UntypeRootView: View {
                         .textSelection(.enabled)
                         .padding(.top, 4)
                 } label: {
-                    historyRowHeader(title: title, status: status, accent: accent, preview: String(text.prefix(120)))
+                    historyRowHeader(title: title, status: status, accent: accent, preview: String(text.prefix(120)), copyText: text, copyKind: copyKind)
                 }
                 .padding(8)
                 .background(background, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerSmall, style: .continuous))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    historyRowHeader(title: title, status: status, accent: accent, preview: nil)
+                    historyRowHeader(title: title, status: status, accent: accent, preview: nil, copyText: text, copyKind: copyKind)
                     Text(text)
                         .font(.system(size: 13))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1662,7 +1777,14 @@ private struct UntypeRootView: View {
         }
     }
 
-    private func historyRowHeader(title: String, status: String, accent: Color, preview: String?) -> some View {
+    private func historyRowHeader(
+        title: String,
+        status: String,
+        accent: Color,
+        preview: String?,
+        copyText: String,
+        copyKind: UntypeUITranscriptSectionCopyKind?
+    ) -> some View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.system(size: 10.5, weight: .bold, design: .monospaced))
@@ -1677,6 +1799,9 @@ private struct UntypeRootView: View {
                     .truncationMode(.tail)
             }
             Spacer()
+            if let copyKind {
+                transcriptSectionCopyButton(text: copyText, kind: copyKind)
+            }
             Text(status)
                 .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
@@ -1694,7 +1819,7 @@ private struct UntypeRootView: View {
         Group {
             switch bubble.kind {
             case .raw:
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
                     Text("RAW")
                         .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -1703,25 +1828,29 @@ private struct UntypeRootView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    transcriptSectionCopyButton(text: bubble.text, kind: .raw)
                 }
             case .processed:
-                VStack(alignment: .leading, spacing: 4) {
-                    if !bubble.label.isEmpty || !bubble.status.isEmpty {
-                        HStack(spacing: 6) {
-                            Text(bubble.label)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(UntypeDesignTokens.accentAmber)
-                                .textCase(.uppercase)
-                            Text(bubble.status)
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !bubble.label.isEmpty || !bubble.status.isEmpty {
+                            HStack(spacing: 6) {
+                                Text(bubble.label)
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(UntypeDesignTokens.accentAmber)
+                                    .textCase(.uppercase)
+                                Text(bubble.status)
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        Text(bubble.text)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Text(bubble.text)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    transcriptSectionCopyButton(text: bubble.text, kind: .processed)
                 }
                 .padding(.leading, 10)
                 .overlay(alignment: .leading) {
@@ -1749,6 +1878,26 @@ private struct UntypeRootView: View {
                 .padding(9)
                 .background(UntypeDesignTokens.warnGold.opacity(0.12), in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerSmall, style: .continuous))
             }
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptSectionCopyButton(
+        text: String,
+        kind: UntypeUITranscriptSectionCopyKind
+    ) -> some View {
+        if UntypeUITranscriptSectionCopyPayload(kind: kind, text: text) != nil {
+            Button {
+                model.copyTranscriptSection(text, kind: kind)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Copy \(kind.displayName)")
+            .accessibilityLabel("Copy \(kind.displayName)")
         }
     }
 
@@ -1932,6 +2081,14 @@ private struct UntypeRootView: View {
                             tone: model.settings.focusedInput ? .accent : .off,
                             deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
                         )
+                        Button {
+                            presentPermissionSetup()
+                        } label: {
+                            Label("Open Permission Setup", systemImage: "lock.shield")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Open permission setup")
                     }
                 }
 
@@ -2546,8 +2703,10 @@ private struct UntypeOnboardingView: View {
                 Button(primaryActionTitle) {
                     if let url = primaryActionURL {
                         NSWorkspace.shared.open(url)
-                    } else {
+                    } else if needsCredential {
                         model.refreshCredentials()
+                    } else {
+                        onDismiss()
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -2754,6 +2913,7 @@ private final class UntypeHotkeyMonitor {
     private var globalMonitor: Any?
     private var descriptor: UntypeHotkeyDescriptor?
     private var eventTap: UntypeQuartzHotkeyEventTap?
+    private var carbonMonitor: UntypeCarbonHotkeyMonitor?
     private let state = UntypeHotkeySharedState()
 
     init(model: UntypeUIModel) {
@@ -2773,6 +2933,21 @@ private final class UntypeHotkeyMonitor {
             if !AXIsProcessTrusted() {
                 model?.events.append("diagnostic.warning: Accessibility/Input Monitoring may be required for global hotkey release detection.")
             }
+            let carbonMonitor = UntypeCarbonHotkeyMonitor(
+                descriptor: descriptor,
+                state: state,
+                emit: { [weak self] event in
+                    dispatchToUI { [weak self] in
+                        self?.dispatch(event)
+                    }
+                }
+            )
+            let carbonStarted = carbonMonitor.start()
+            if carbonStarted {
+                self.carbonMonitor = carbonMonitor
+            } else {
+                model?.events.append("diagnostic.warning: Carbon global hotkey registration could not start. Background push-to-talk depends on the Quartz event tap or AppKit fallback monitors.")
+            }
             let tap = UntypeQuartzHotkeyEventTap(
                 descriptor: descriptor,
                 state: state,
@@ -2785,11 +2960,11 @@ private final class UntypeHotkeyMonitor {
             if tap.start() {
                 eventTap = tap
                 state.setReleaseHookAvailable(true)
-                model?.hotkeyMonitorStatus = "global event tap ready"
+                model?.hotkeyMonitorStatus = carbonStarted ? "global event tap + carbon hotkey ready" : "global event tap ready"
             } else {
-                state.setReleaseHookAvailable(false)
-                model?.hotkeyMonitorStatus = "fallback monitor active; press again if release is blocked"
-                model?.events.append("diagnostic.warning: Quartz hotkey event tap could not start. Falling back to NSEvent monitoring and press-to-toggle behavior if release is not detected.")
+                state.setReleaseHookAvailable(carbonStarted)
+                model?.hotkeyMonitorStatus = carbonStarted ? "carbon global hotkey ready; event tap unavailable" : "fallback monitor active; press again if release is blocked"
+                model?.events.append("diagnostic.warning: Quartz hotkey event tap could not start. \(carbonStarted ? "Using Carbon global hotkey press/release fallback." : "Falling back to NSEvent monitoring and press-to-toggle behavior if release is not detected.")")
                 globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
                     _ = self?.handle(event: event, source: "global-monitor", suppress: false)
                 }
@@ -2808,6 +2983,7 @@ private final class UntypeHotkeyMonitor {
 
     func stop() {
         eventTap?.stop()
+        carbonMonitor?.stop()
         if let localMonitor {
             NSEvent.removeMonitor(localMonitor)
         }
@@ -2815,6 +2991,7 @@ private final class UntypeHotkeyMonitor {
             NSEvent.removeMonitor(globalMonitor)
         }
         eventTap = nil
+        carbonMonitor = nil
         localMonitor = nil
         globalMonitor = nil
         state.reset()
@@ -2875,6 +3052,108 @@ private final class UntypeHotkeyMonitor {
             }
         }
     }
+}
+
+private final class UntypeCarbonHotkeyMonitor {
+    private let descriptor: UntypeHotkeyDescriptor
+    private let state: UntypeHotkeySharedState
+    private let emit: @Sendable (UntypeHotkeyEvent) -> Void
+    private var hotkeyRefs: [EventHotKeyRef] = []
+    private var handlerRef: EventHandlerRef?
+    private let signature = OSType(0x554E5450) // UNTP
+
+    init(
+        descriptor: UntypeHotkeyDescriptor,
+        state: UntypeHotkeySharedState,
+        emit: @escaping @Sendable (UntypeHotkeyEvent) -> Void
+    ) {
+        self.descriptor = descriptor
+        self.state = state
+        self.emit = emit
+    }
+
+    func start() -> Bool {
+        guard let keyCode = descriptor.carbonKeyCode else {
+            return false
+        }
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            untypeCarbonHotkeyEventHandler,
+            eventTypes.count,
+            &eventTypes,
+            Unmanaged.passUnretained(self).toOpaque(),
+            &handlerRef
+        )
+        guard handlerStatus == noErr else {
+            return false
+        }
+        for (index, modifiers) in descriptor.carbonModifierCombinations.enumerated() {
+            var hotkeyRef: EventHotKeyRef?
+            let hotkeyID = EventHotKeyID(
+                signature: signature,
+                id: UInt32(index + 1)
+            )
+            let status = RegisterEventHotKey(
+                UInt32(keyCode),
+                modifiers,
+                hotkeyID,
+                GetApplicationEventTarget(),
+                0,
+                &hotkeyRef
+            )
+            if status == noErr, let hotkeyRef {
+                hotkeyRefs.append(hotkeyRef)
+            }
+        }
+        if hotkeyRefs.isEmpty {
+            stop()
+            return false
+        }
+        return true
+    }
+
+    func stop() {
+        for hotkeyRef in hotkeyRefs {
+            UnregisterEventHotKey(hotkeyRef)
+        }
+        hotkeyRefs.removeAll()
+        if let handlerRef {
+            RemoveEventHandler(handlerRef)
+        }
+        handlerRef = nil
+    }
+
+    fileprivate func handle(event: EventRef?) -> OSStatus {
+        guard let event else {
+            return OSStatus(eventNotHandledErr)
+        }
+        switch GetEventKind(event) {
+        case UInt32(kEventHotKeyPressed):
+            if state.markPressed() {
+                emit(.press(source: "carbon-hotkey"))
+            }
+            return noErr
+        case UInt32(kEventHotKeyReleased):
+            if state.markReleased() {
+                emit(.release(source: "carbon-hotkey"))
+            }
+            return noErr
+        default:
+            return OSStatus(eventNotHandledErr)
+        }
+    }
+}
+
+private let untypeCarbonHotkeyEventHandler: EventHandlerUPP = { _, event, userInfo in
+    guard let userInfo else {
+        return OSStatus(eventNotHandledErr)
+    }
+    let monitor = Unmanaged<UntypeCarbonHotkeyMonitor>.fromOpaque(userInfo).takeUnretainedValue()
+    return monitor.handle(event: event)
 }
 
 private enum UntypeHotkeyEvent: Sendable {
@@ -3169,6 +3448,26 @@ private struct UntypeHotkeyDescriptor: Sendable {
         return UntypeHotkeyDescriptor.keyCodesByCode[code]
     }
 
+    var carbonKeyCode: CGKeyCode? {
+        keyCode
+    }
+
+    var carbonModifierCombinations: [UInt32] {
+        let base = carbonModifierMask(
+            control: control,
+            command: command,
+            option: option,
+            shift: shift
+        )
+        if commandOrControl {
+            return [
+                carbonModifierMask(control: true, command: false, option: option, shift: shift),
+                carbonModifierMask(control: false, command: true, option: option, shift: shift)
+            ]
+        }
+        return [base]
+    }
+
     private func modifiersMatch(_ flags: NSEvent.ModifierFlags) -> Bool {
         let normalized = flags.intersection(.deviceIndependentFlagsMask)
         return modifiersMatch(
@@ -3234,6 +3533,28 @@ private struct UntypeHotkeyDescriptor: Sendable {
             return true
         }
         return false
+    }
+
+    private func carbonModifierMask(
+        control hasControl: Bool,
+        command hasCommand: Bool,
+        option hasOption: Bool,
+        shift hasShift: Bool
+    ) -> UInt32 {
+        var modifiers: UInt32 = 0
+        if hasControl {
+            modifiers |= UInt32(controlKey)
+        }
+        if hasCommand {
+            modifiers |= UInt32(cmdKey)
+        }
+        if hasOption {
+            modifiers |= UInt32(optionKey)
+        }
+        if hasShift {
+            modifiers |= UInt32(shiftKey)
+        }
+        return modifiers
     }
 
     private enum Modifier {

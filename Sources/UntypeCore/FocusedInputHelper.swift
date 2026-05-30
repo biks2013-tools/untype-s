@@ -185,10 +185,27 @@ public enum FocusedInputHelperMain {
     private static func requireAccessibility() throws {
         guard accessibilityTrusted() else {
             throw FocusedInputDeliveryError(
-                message: "Grant Accessibility permission to \(helperName).",
+                message: "Grant Accessibility permission to \(accessibilityPermissionTargetName()).",
                 code: "accessibility_not_trusted"
             )
         }
+    }
+
+    private static func accessibilityPermissionTargetName() -> String {
+        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
+        if bundleURL.pathExtension == "app" {
+            return bundleURL.deletingPathExtension().lastPathComponent
+        }
+        if let executable = Bundle.main.executableURL?.lastPathComponent, !executable.isEmpty {
+            return executable
+        }
+        if let command = CommandLine.arguments.first {
+            let name = URL(fileURLWithPath: command).lastPathComponent
+            if !name.isEmpty {
+                return name
+            }
+        }
+        return helperName
     }
 
     private static func diagnose() -> FocusedInputDeliveryResult {

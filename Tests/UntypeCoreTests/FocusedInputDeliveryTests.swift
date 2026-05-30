@@ -156,6 +156,42 @@ import Testing
     ))
 }
 
+@Test func focusedInputDeliveryCanForceInProcessForUIRuns() async throws {
+    final class Capture {
+        var helperCalled = false
+        var inProcessText: String?
+    }
+
+    let capture = Capture()
+    let delivery = FocusedInputDelivery(
+        method: .auto,
+        bundleURL: URL(fileURLWithPath: "/tmp/untype"),
+        executablePath: "/tmp/untype",
+        forceInProcess: true,
+        runner: { _, _, _, _ in
+            capture.helperCalled = true
+            return FocusedInputHelperProcessResult(
+                exitCode: 0,
+                stdout: #"{"ok":true,"method":"paste-keycode"}"# + "\n"
+            )
+        },
+        inProcessRunner: { _, stdinData in
+            capture.inProcessText = String(decoding: stdinData, as: UTF8.self)
+            return FocusedInputHelperRunResult(
+                result: FocusedInputDeliveryResult.success(method: "paste-keycode"),
+                exitCode: .success
+            )
+        }
+    )
+
+    let result = try await delivery.deliver("processed ui text")
+
+    #expect(result.ok)
+    #expect(result.method == "paste-keycode")
+    #expect(!capture.helperCalled)
+    #expect(capture.inProcessText == "processed ui text")
+}
+
 @Test func focusedInputDeliveryKeepsHelperProcessForUnbundledRuns() async throws {
     final class Capture {
         var helperPath: String?
