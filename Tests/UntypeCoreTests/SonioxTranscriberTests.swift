@@ -109,6 +109,39 @@ import Testing
     #expect(finals == ["hi"])
 }
 
+@Test func sonioxTranscriberFlushesCommittedFinalsOnEndMarkerToken() async throws {
+    let socket = MockRealtimeWebSocket()
+    let transcriber = makeSonioxTranscriber(socket: socket)
+    var finals: [String] = []
+    transcriber.setHandlers(TranscriberEventHandlers(
+        partial: { _ in },
+        final: { finals.append($0) },
+        error: { _ in }
+    ))
+
+    try await transcriber.start()
+    await transcriber.handleTextFrame(#"{"tokens":[{"text":"command status","is_final":true},{"text":"<end>","is_final":true}]}"#)
+
+    #expect(finals == ["command status"])
+}
+
+@Test func sonioxTranscriberFlushesCommittedFinalsOnFinMarkerToken() async throws {
+    let socket = MockRealtimeWebSocket()
+    let transcriber = makeSonioxTranscriber(socket: socket)
+    var finals: [String] = []
+    transcriber.setHandlers(TranscriberEventHandlers(
+        partial: { _ in },
+        final: { finals.append($0) },
+        error: { _ in }
+    ))
+
+    try await transcriber.start()
+    await transcriber.handleTextFrame(#"{"tokens":[{"text":"hello ","is_final":true},{"text":"world","is_final":false}]}"#)
+    await transcriber.handleTextFrame(#"{"tokens":[{"text":"hello world command send","is_final":true},{"text":"<fin>","is_final":true}]}"#)
+
+    #expect(finals == ["hello world command send"])
+}
+
 @Test func sonioxTranscriberCommitsTokensOnCombinedFinalizedFrame() async throws {
     let socket = MockRealtimeWebSocket()
     let transcriber = makeSonioxTranscriber(socket: socket)

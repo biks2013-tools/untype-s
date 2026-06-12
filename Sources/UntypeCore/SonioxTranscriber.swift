@@ -289,7 +289,10 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         }
 
         if let tokens = object["tokens"] as? [[String: Any]] {
-            handleTokens(tokens)
+            let sawUtteranceBoundaryMarker = handleTokens(tokens)
+            if sawUtteranceBoundaryMarker {
+                await flushCommittedFinals()
+            }
         }
 
         if object["type"] as? String == "endpoint" || object["type"] as? String == "finalized" {
@@ -334,15 +337,22 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         return text
     }
 
-    private func handleTokens(_ tokens: [[String: Any]]) {
+    // Soniox does not send standalone endpoint/finalized frames; the `<end>`
+    // (endpoint detected) and `<fin>` (manual finalize complete) markers arrive
+    // as tokens inside a regular tokens frame. Returns true when the frame
+    // carried such a marker so the caller can flush committed finals — the same
+    // event synthesis the official @soniox/node SDK performs.
+    private func handleTokens(_ tokens: [[String: Any]]) -> Bool {
         var newFinals = ""
         var currentNonFinals = ""
+        var sawUtteranceBoundaryMarker = false
 
         for token in tokens {
             guard let text = token["text"] as? String else {
                 continue
             }
             if text == "<end>" || text == "<fin>" {
+                sawUtteranceBoundaryMarker = true
                 continue
             }
             if token["is_final"] as? Bool == true {
@@ -360,6 +370,8 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         if !display.isEmpty {
             handlers?.partial(display)
         }
+
+        return sawUtteranceBoundaryMarker
     }
 
     private func flushCommittedFinals() async {
