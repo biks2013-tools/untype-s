@@ -295,12 +295,7 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
             }
         }
 
-        if object["type"] as? String == "endpoint" || object["type"] as? String == "finalized" {
-            await flushCommittedFinals()
-            return
-        }
-
-        if object["finished"] as? Bool == true || object["type"] as? String == "finished" {
+        if object["finished"] as? Bool == true {
             await flushCommittedFinals()
             connected = false
             socket.close()
@@ -395,22 +390,26 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         connected = false
     }
 
+    // Real Soniox realtime error frames carry a numeric `error_code` plus an
+    // `error_message` string (the same shape the official @soniox/node SDK's
+    // mapErrorResponse consumes). There is no `type`/`error_type` field in the
+    // live protocol.
     private func serverError(from object: [String: Any]) -> UntypeError? {
-        let errorType = (object["error_type"] as? String)
-            ?? (object["errorType"] as? String)
-            ?? (object["type"] as? String == "error" ? "error" : nil)
-        guard let errorType else {
+        guard object["error_code"] != nil || object["error_message"] != nil else {
             return nil
         }
 
-        let message = (object["message"] as? String)
-            ?? (object["error"] as? String)
-            ?? "Soniox server returned \(errorType)."
-        let normalized = errorType.lowercased()
-        if normalized.contains("auth") || normalized.contains("unauthorized") || normalized.contains("permission") {
+        let code = object["error_code"] as? Int
+        let message = (object["error_message"] as? String)
+            ?? "Soniox server returned error code \(code.map(String.init) ?? "unknown")."
+        switch code {
+        case 401, 403:
             return .sonioxAuth("Soniox authentication failed: \(message)")
+        case 503:
+            return .sonioxNetwork(message)
+        default:
+            return .sonioxProtocol(message)
         }
-        return .sonioxProtocol(message)
     }
 }
 

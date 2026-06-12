@@ -83,7 +83,6 @@ import Testing
 
     try await transcriber.start()
     await transcriber.handleTextFrame(#"{"tokens":[{"text":"<end>","is_final":true},{"text":"<fin>","is_final":false}]}"#)
-    await transcriber.handleTextFrame(#"{"type":"endpoint"}"#)
 
     #expect(partials.isEmpty)
     #expect(finals.isEmpty)
@@ -103,9 +102,11 @@ import Testing
     try await transcriber.start()
     await transcriber.handleTextFrame(#"{"tokens":[{"text":"hi ","is_final":false}]}"#)
     await transcriber.handleTextFrame(#"{"tokens":[{"text":"hi ","is_final":true},{"text":"there","is_final":false}]}"#)
-    await transcriber.handleTextFrame(#"{"type":"endpoint"}"#)
+    await transcriber.handleTextFrame(#"{"tokens":[{"text":"<end>","is_final":true}]}"#)
 
-    #expect(partials == ["hi ", "hi there"])
+    // The marker-carrying frame re-emits the committed snapshot as a partial
+    // (same as the official SDK's result-then-endpoint event order).
+    #expect(partials == ["hi ", "hi there", "hi "])
     #expect(finals == ["hi"])
 }
 
@@ -154,7 +155,7 @@ import Testing
     ))
 
     try await transcriber.start()
-    await transcriber.handleTextFrame(#"{"type":"finalized","tokens":[{"text":"final text","is_final":true}]}"#)
+    await transcriber.handleTextFrame(#"{"tokens":[{"text":"final text","is_final":true},{"text":"<fin>","is_final":true}]}"#)
 
     #expect(partials == ["final text"])
     #expect(finals == ["final text"])
@@ -175,9 +176,9 @@ import Testing
     await transcriber.handleTextFrame(#"{"tokens":[{"text":"Εσύ ","is_final":true},{"text":"ρε","is_final":false}]}"#)
     await transcriber.handleTextFrame(#"{"tokens":[{"text":"Εσύ ","is_final":true},{"text":"ρε","is_final":false}]}"#)
     await transcriber.handleTextFrame(#"{"tokens":[{"text":"Εσύ ρε παιδί μου","is_final":true}]}"#)
-    await transcriber.handleTextFrame(#"{"type":"endpoint"}"#)
+    await transcriber.handleTextFrame(#"{"tokens":[{"text":"<end>","is_final":true}]}"#)
 
-    #expect(partials == ["Εσύ ρε", "Εσύ ρε", "Εσύ ρε παιδί μου"])
+    #expect(partials == ["Εσύ ρε", "Εσύ ρε", "Εσύ ρε παιδί μου", "Εσύ ρε παιδί μου"])
     #expect(!partials.joined(separator: "\n").contains("Εσύ Εσύ"))
     #expect(finals == ["Εσύ ρε παιδί μου"])
 }
@@ -212,9 +213,35 @@ import Testing
     ))
 
     try await transcriber.start()
-    await transcriber.handleTextFrame(#"{"type":"error","error_type":"auth_error","message":"bad key"}"#)
+    await transcriber.handleTextFrame(#"{"error_code":401,"error_message":"bad key"}"#)
 
     #expect(errors == [.sonioxAuth("Soniox authentication failed: bad key")])
+}
+
+@Test func sonioxTranscriberMapsServerProtocolAndNetworkErrorCodes() async throws {
+    let socket = MockRealtimeWebSocket()
+    let transcriber = makeSonioxTranscriber(socket: socket)
+    var errors: [UntypeError] = []
+    transcriber.setHandlers(TranscriberEventHandlers(
+        partial: { _ in },
+        final: { _ in },
+        error: { error in
+            if let error = error as? UntypeError {
+                errors.append(error)
+            }
+        }
+    ))
+
+    try await transcriber.start()
+    await transcriber.handleTextFrame(#"{"error_code":400,"error_message":"invalid audio format"}"#)
+    await transcriber.handleTextFrame(#"{"error_code":429,"error_message":"quota exceeded"}"#)
+    await transcriber.handleTextFrame(#"{"error_code":503,"error_message":"service unavailable"}"#)
+
+    #expect(errors.count == 3)
+    #expect(errors[0].code == "soniox_protocol")
+    #expect(errors[0].message == "invalid audio format")
+    #expect(errors[1].code == "soniox_protocol")
+    #expect(errors[2].code == "soniox_network")
 }
 
 @Test func sonioxTranscriberMapsConnectFailuresToNetworkError() async {

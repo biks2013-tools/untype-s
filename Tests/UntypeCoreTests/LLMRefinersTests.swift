@@ -320,7 +320,9 @@ private final class MockLLMHTTPClient: LLMHTTPClient {
 private func azureConfig(
     endpoint: String = "https://example.openai.azure.com",
     deployment: String = "gpt-5.4",
-    systemPrompt: String = "Clean this transcript."
+    systemPrompt: String = "Clean this transcript.",
+    maxOutputTokens: Int? = nil,
+    reasoningEffort: String? = nil
 ) -> LLMConfig {
     LLMConfig(
         enabled: true,
@@ -334,11 +336,16 @@ private func azureConfig(
             deployment: deployment,
             apiVersion: "2024-10-21"
         ),
-        verbose: false
+        verbose: false,
+        maxOutputTokens: maxOutputTokens,
+        reasoningEffort: reasoningEffort
     )
 }
 
-private func googleConfig(systemPrompt: String = "Clean this transcript.") -> LLMConfig {
+private func googleConfig(
+    systemPrompt: String = "Clean this transcript.",
+    maxOutputTokens: Int? = nil
+) -> LLMConfig {
     LLMConfig(
         enabled: true,
         provider: .google,
@@ -346,7 +353,8 @@ private func googleConfig(systemPrompt: String = "Clean this transcript.") -> LL
         systemPrompt: systemPrompt,
         requestTimeoutMs: 1_000,
         providerConfig: .google(apiKey: "google-key"),
-        verbose: false
+        verbose: false,
+        maxOutputTokens: maxOutputTokens
     )
 }
 
@@ -369,4 +377,69 @@ private func expectLLMError(kind: LLMRefinementFailureKind, operation: () async 
     } catch {
         Issue.record("Expected LLMRefinementError(\(kind.rawValue)), got \(error)")
     }
+}
+
+@Test func azureOpenAIRefinerSendsTuningParametersAndOmitsTemperatureForReasoningEfforts() async throws {
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "choices": [["message": ["content": "ok"]]]
+        ]))
+    ])
+    let refiner = try AzureOpenAIRefiner(
+        config: azureConfig(maxOutputTokens: 600, reasoningEffort: "minimal"),
+        httpClient: http
+    )
+
+    _ = try await refiner.refine("raw")
+
+    let body = try requestJSONObject(try #require(http.requests.first))
+    #expect(body["max_completion_tokens"] as? Int == 600)
+    #expect(body["reasoning_effort"] as? String == "minimal")
+    #expect(body["temperature"] == nil)
+}
+
+@Test func azureOpenAIRefinerKeepsTemperatureForNoneEffortAndForDefaults() async throws {
+    let noneHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "choices": [["message": ["content": "ok"]]]
+        ]))
+    ])
+    let noneRefiner = try AzureOpenAIRefiner(
+        config: azureConfig(reasoningEffort: "none"),
+        httpClient: noneHTTP
+    )
+    _ = try await noneRefiner.refine("raw")
+    let noneBody = try requestJSONObject(try #require(noneHTTP.requests.first))
+    #expect(noneBody["reasoning_effort"] as? String == "none")
+    #expect(noneBody["temperature"] as? Double == 0.2)
+
+    let defaultHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "choices": [["message": ["content": "ok"]]]
+        ]))
+    ])
+    let defaultRefiner = try AzureOpenAIRefiner(config: azureConfig(), httpClient: defaultHTTP)
+    _ = try await defaultRefiner.refine("raw")
+    let defaultBody = try requestJSONObject(try #require(defaultHTTP.requests.first))
+    #expect(defaultBody["reasoning_effort"] == nil)
+    #expect(defaultBody["max_completion_tokens"] == nil)
+    #expect(defaultBody["temperature"] as? Double == 0.2)
+}
+
+@Test func googleRefinerSendsMaxOutputTokensWhenConfigured() async throws {
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "candidates": [["content": ["parts": [["text": "ok"]]]]]
+        ]))
+    ])
+    let refiner = try GoogleRefiner(
+        config: googleConfig(maxOutputTokens: 450),
+        httpClient: http
+    )
+
+    _ = try await refiner.refine("raw")
+
+    let body = try requestJSONObject(try #require(http.requests.first))
+    let generationConfig = try #require(body["generationConfig"] as? [String: Any])
+    #expect(generationConfig["maxOutputTokens"] as? Int == 450)
 }

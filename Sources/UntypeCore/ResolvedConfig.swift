@@ -46,6 +46,34 @@ public struct LLMConfig: Equatable, Sendable {
     public let requestTimeoutMs: Int
     public let providerConfig: ProviderConfig
     public let verbose: Bool
+    /// Caps generated output (`max_completion_tokens` on Azure OpenAI,
+    /// `maxOutputTokens` on Google). nil omits the parameter.
+    public let maxOutputTokens: Int?
+    /// Reasoning effort for reasoning-capable chat models
+    /// (none|minimal|low|medium|high). nil omits the parameter.
+    public let reasoningEffort: String?
+
+    public init(
+        enabled: Bool,
+        provider: LLMProvider,
+        model: String,
+        systemPrompt: String,
+        requestTimeoutMs: Int,
+        providerConfig: ProviderConfig,
+        verbose: Bool,
+        maxOutputTokens: Int? = nil,
+        reasoningEffort: String? = nil
+    ) {
+        self.enabled = enabled
+        self.provider = provider
+        self.model = model
+        self.systemPrompt = systemPrompt
+        self.requestTimeoutMs = requestTimeoutMs
+        self.providerConfig = providerConfig
+        self.verbose = verbose
+        self.maxOutputTokens = maxOutputTokens
+        self.reasoningEffort = reasoningEffort
+    }
 }
 
 public struct MarkerConfig: Equatable, Sendable {

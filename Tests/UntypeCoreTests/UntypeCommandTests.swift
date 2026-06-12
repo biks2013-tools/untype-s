@@ -784,3 +784,46 @@ private final class FakeCommandRuntime: UntypeRuntimeSession, @unchecked Sendabl
 
     func toggleOperator(_ key: OperatorKey) async throws {}
 }
+
+@Test func llmTuningOptionsResolveFromFlagsAndEnvAndDefaultToNil() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+    let defaults = try resolver.resolve(argv: ["--api-key", "k", "--no-refine"])
+    #expect(defaults.llm.maxOutputTokens == nil)
+    #expect(defaults.llm.reasoningEffort == nil)
+
+    let flagged = try resolver.resolve(argv: [
+        "--api-key", "k", "--no-refine",
+        "--llm-max-output-tokens", "600",
+        "--llm-reasoning-effort", "Minimal"
+    ])
+    #expect(flagged.llm.maxOutputTokens == 600)
+    #expect(flagged.llm.reasoningEffort == "minimal")
+
+    let envResolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "UNTYPE_LLM_MAX_OUTPUT_TOKENS": "300",
+            "UNTYPE_LLM_REASONING_EFFORT": "high"
+        ]
+    )
+    let fromEnv = try envResolver.resolve(argv: ["--api-key", "k", "--no-refine"])
+    #expect(fromEnv.llm.maxOutputTokens == 300)
+    #expect(fromEnv.llm.reasoningEffort == "high")
+}
+
+@Test func llmTuningOptionsRejectInvalidValues() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--api-key", "k", "--no-refine", "--llm-max-output-tokens", "zero"])
+    }
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--api-key", "k", "--no-refine", "--llm-max-output-tokens", "0"])
+    }
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--api-key", "k", "--no-refine", "--llm-reasoning-effort", "extreme"])
+    }
+}

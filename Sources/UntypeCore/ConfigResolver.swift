@@ -401,6 +401,8 @@ public struct ConfigResolver: Sendable {
             chain: chain,
             validateRequiredSettings: validateLLMProviderConfig
         )
+        let llmMaxOutputTokens = try resolveLLMMaxOutputTokens(parsed: parsed, chain: chain)
+        let llmReasoningEffort = try resolveLLMReasoningEffort(parsed: parsed, chain: chain)
         let llm = LLMConfig(
             enabled: refine,
             provider: llmProvider,
@@ -408,7 +410,9 @@ public struct ConfigResolver: Sendable {
             systemPrompt: promptConfig.refinementSystemPrompt,
             requestTimeoutMs: Self.defaultLLMRequestTimeoutMs,
             providerConfig: providerConfig,
-            verbose: verbose
+            verbose: verbose,
+            maxOutputTokens: llmMaxOutputTokens,
+            reasoningEffort: llmReasoningEffort
         )
 
         return ResolvedConfig(
@@ -634,6 +638,44 @@ public struct ConfigResolver: Sendable {
             return flagValue
         }
         return chain.get(envKey)?.value ?? defaultValue
+    }
+
+    private static let allowedLLMReasoningEfforts = ["none", "minimal", "low", "medium", "high"]
+
+    private func resolveLLMMaxOutputTokens(parsed: ParsedArguments, chain: EnvChain) throws -> Int? {
+        let raw = resolveString(
+            flagValue: parsed.value(for: "--llm-max-output-tokens"),
+            chain: chain,
+            envKey: "UNTYPE_LLM_MAX_OUTPUT_TOKENS",
+            defaultValue: ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            return nil
+        }
+        guard let value = Int(raw), value > 0 else {
+            throw UntypeError.invalidConfiguration(
+                "--llm-max-output-tokens / UNTYPE_LLM_MAX_OUTPUT_TOKENS must be a positive integer. Got: '\(raw)'."
+            )
+        }
+        return value
+    }
+
+    private func resolveLLMReasoningEffort(parsed: ParsedArguments, chain: EnvChain) throws -> String? {
+        let raw = resolveString(
+            flagValue: parsed.value(for: "--llm-reasoning-effort"),
+            chain: chain,
+            envKey: "UNTYPE_LLM_REASONING_EFFORT",
+            defaultValue: ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !raw.isEmpty else {
+            return nil
+        }
+        guard Self.allowedLLMReasoningEfforts.contains(raw) else {
+            throw UntypeError.invalidConfiguration(
+                "--llm-reasoning-effort / UNTYPE_LLM_REASONING_EFFORT must be one of: \(Self.allowedLLMReasoningEfforts.joined(separator: ", ")). Got: '\(raw)'."
+            )
+        }
+        return raw
     }
 
     private static func defaultReleaseLatencyLogURL(home: URL) -> URL {
@@ -923,7 +965,8 @@ struct ParsedArguments: Sendable {
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
                 "--translation-policy", "--clipboard-default", "--input-default", "--protocol-output",
-                "--llm-provider", "--llm-model", "--release-latency-log-path":
+                "--llm-provider", "--llm-model", "--llm-max-output-tokens", "--llm-reasoning-effort",
+                "--release-latency-log-path":
                 let value: String
                 if let inline = split.value {
                     value = inline

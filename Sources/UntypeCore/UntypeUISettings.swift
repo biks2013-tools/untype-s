@@ -332,6 +332,20 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     }
 }
 
+extension UntypeUISettings {
+    /// The hotkey monitor must NOT be reconfigured for unrelated settings
+    /// changes: reconfiguration tears down the event tap / Carbon hotkey and
+    /// resets the shared pressed state, which permanently swallows the release
+    /// event of a push-to-talk key held during the change (e.g. an operator
+    /// toggle while dictating).
+    public static func hotkeyMonitorConfigurationChanged(
+        previous: UntypeUISettings,
+        next: UntypeUISettings
+    ) -> Bool {
+        previous.hotkey != next.hotkey || previous.hotkeyEnabled != next.hotkeyEnabled
+    }
+}
+
 public struct UntypeUIControlAvailability: Sendable, Equatable {
     public let sessionShapingControlsEnabled: Bool
     public let protocolOperatorControlsEnabled: Bool

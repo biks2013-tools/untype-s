@@ -135,6 +135,8 @@ public struct UntypeCommand {
       --refine, --no-refine                   Enable or disable LLM refinement. Env: UNTYPE_REFINE.
       --llm-provider <name>                   azure-openai, openai, anthropic, google, azure-ai-inference, ollama, litellm, or openai-compat. Env: UNTYPE_LLM_PROVIDER.
       --llm-model <name>                      LLM model/deployment name. Env: UNTYPE_LLM_MODEL.
+      --llm-max-output-tokens <n>             Cap LLM output tokens (max_completion_tokens / maxOutputTokens). Omitted when unset. Env: UNTYPE_LLM_MAX_OUTPUT_TOKENS.
+      --llm-reasoning-effort <level>          none, minimal, low, medium, or high for reasoning-capable models. Omitted when unset; non-none levels drop the temperature parameter. Env: UNTYPE_LLM_REASONING_EFFORT.
       -v, --verbose                           Emit diagnostic logs to stderr. Env: UNTYPE_VERBOSE.
 
     Configuration sources, highest priority first:

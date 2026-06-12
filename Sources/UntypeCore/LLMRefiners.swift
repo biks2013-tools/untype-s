@@ -70,12 +70,26 @@ public extension LLMHTTPClient {
     func cancelAll() {}
 }
 
-public final class URLSessionLLMHTTPClient: NSObject, LLMHTTPClient, URLSessionDataDelegate {
+public final class URLSessionLLMHTTPClient: NSObject, LLMHTTPClient, @unchecked Sendable {
+    // One process-wide session so TCP+TLS connections are kept alive and
+    // reused across refiner instances and recycled push-to-talk sessions.
+    // The previous per-instance ephemeral sessions paid a full DNS+TLS
+    // handshake on every release. Cache and cookies stay disabled to keep
+    // the ephemeral configuration's privacy behavior.
+    private static let sharedSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        return URLSession(configuration: configuration)
+    }()
+
     private let session: URLSession
+    private let lock = NSLock()
+    private var activeTasks: [Int: URLSessionDataTask] = [:]
 
     public override init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        session = URLSession(configuration: configuration)
+        session = Self.sharedSession
         super.init()
     }
 
@@ -84,7 +98,15 @@ public final class URLSessionLLMHTTPClient: NSObject, LLMHTTPClient, URLSessionD
         request.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
 
         return try await withCheckedThrowingContinuation { continuation in
-            let task = session.dataTask(with: request) { data, response, error in
+            // Written once before resume(), read only from the completion
+            // handler, which URLSession guarantees runs after resume().
+            let identifierBox = TaskIdentifierBox()
+            let task = session.dataTask(with: request) { [weak self] data, response, error in
+                if let self, let taskIdentifier = identifierBox.value {
+                    self.lock.lock()
+                    self.activeTasks.removeValue(forKey: taskIdentifier)
+                    self.lock.unlock()
+                }
                 if let error {
                     continuation.resume(throwing: error)
                     return
@@ -101,14 +123,26 @@ public final class URLSessionLLMHTTPClient: NSObject, LLMHTTPClient, URLSessionD
                     body: data ?? Data()
                 ))
             }
+            identifierBox.value = task.taskIdentifier
+            lock.lock()
+            activeTasks[task.taskIdentifier] = task
+            lock.unlock()
             task.resume()
         }
     }
 
+    private final class TaskIdentifierBox: @unchecked Sendable {
+        var value: Int?
+    }
+
     public func cancelAll() {
-        session.getAllTasks { tasks in
-            tasks.forEach { $0.cancel() }
-        }
+        // The session is shared; cancel only this client's tasks so disposing
+        // one refiner cannot abort another refiner's in-flight request.
+        lock.lock()
+        let tasks = Array(activeTasks.values)
+        activeTasks.removeAll()
+        lock.unlock()
+        tasks.forEach { $0.cancel() }
     }
 }
 
@@ -119,6 +153,8 @@ public final class AzureOpenAIRefiner: TextRefining {
     private let apiVersion: String
     private let systemPrompt: String
     private let requestTimeoutMs: Int
+    private let maxOutputTokens: Int?
+    private let reasoningEffort: String?
     private let verbose: Bool
     private let httpClient: LLMHTTPClient
     private var disposed = false
@@ -133,6 +169,8 @@ public final class AzureOpenAIRefiner: TextRefining {
         self.apiVersion = apiVersion
         self.systemPrompt = config.systemPrompt
         self.requestTimeoutMs = config.requestTimeoutMs
+        self.maxOutputTokens = config.maxOutputTokens
+        self.reasoningEffort = config.reasoningEffort
         self.verbose = config.verbose
         self.httpClient = httpClient
     }
@@ -171,13 +209,25 @@ public final class AzureOpenAIRefiner: TextRefining {
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": text]
-            ],
-            "temperature": 0.2
-        ])
+            ]
+        ]
+        if let maxOutputTokens {
+            body["max_completion_tokens"] = maxOutputTokens
+        }
+        if let reasoningEffort {
+            body["reasoning_effort"] = reasoningEffort
+        }
+        // Reasoning-capable deployments reject sampling parameters unless
+        // reasoning is off; send temperature only when no reasoning effort is
+        // configured (non-reasoning deployments) or it is explicitly "none".
+        if reasoningEffort == nil || reasoningEffort == "none" {
+            body["temperature"] = 0.2
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
 
@@ -241,6 +291,7 @@ public final class GoogleRefiner: TextRefining {
     private let model: String
     private let systemPrompt: String
     private let requestTimeoutMs: Int
+    private let maxOutputTokens: Int?
     private let verbose: Bool
     private let httpClient: LLMHTTPClient
     private var disposed = false
@@ -253,6 +304,7 @@ public final class GoogleRefiner: TextRefining {
         self.model = config.model
         self.systemPrompt = config.systemPrompt
         self.requestTimeoutMs = config.requestTimeoutMs
+        self.maxOutputTokens = config.maxOutputTokens
         self.verbose = config.verbose
         self.httpClient = httpClient
     }
@@ -304,11 +356,17 @@ public final class GoogleRefiner: TextRefining {
                     ]
                 ]
             ],
-            "generationConfig": [
-                "temperature": 0.2
-            ]
+            "generationConfig": generationConfig()
         ])
         return request
+    }
+
+    private func generationConfig() -> [String: Any] {
+        var config: [String: Any] = ["temperature": 0.2]
+        if let maxOutputTokens {
+            config["maxOutputTokens"] = maxOutputTokens
+        }
+        return config
     }
 
     private func perform(_ request: URLRequest) async throws -> LLMHTTPResponse {
@@ -482,7 +540,9 @@ public enum LLMRefinerFactory {
             systemPrompt: systemPrompt,
             requestTimeoutMs: config.requestTimeoutMs,
             providerConfig: config.providerConfig,
-            verbose: config.verbose
+            verbose: config.verbose,
+            maxOutputTokens: config.maxOutputTokens,
+            reasoningEffort: config.reasoningEffort
         )
         return try make(config: translationConfig)
     }
@@ -501,7 +561,9 @@ public enum LLMRefinerFactory {
             systemPrompt: prompts.compositeSystemPrompt,
             requestTimeoutMs: config.requestTimeoutMs,
             providerConfig: config.providerConfig,
-            verbose: config.verbose
+            verbose: config.verbose,
+            maxOutputTokens: config.maxOutputTokens,
+            reasoningEffort: config.reasoningEffort
         )
         guard let refiner = try make(config: compositeConfig) else {
             return nil

@@ -376,3 +376,29 @@ private final class UITemporaryDirectory {
         try? FileManager.default.removeItem(at: url)
     }
 }
+
+@Test func hotkeyMonitorReconfigurationOnlyForHotkeyRelevantChanges() {
+    let base = UntypeUISettings.default
+
+    var operatorToggle = base
+    operatorToggle.refine = !base.refine
+    #expect(!UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: operatorToggle))
+
+    var translateToggle = base
+    translateToggle.translate = !base.translate
+    translateToggle.clipboard = !base.clipboard
+    translateToggle.focusedInput = !base.focusedInput
+    #expect(!UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: translateToggle))
+
+    var layoutChange = base
+    layoutChange.windowWidth = base.windowWidth + 100
+    #expect(!UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: layoutChange))
+
+    var hotkeyChange = base
+    hotkeyChange.hotkey = "Control+F19"
+    #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: hotkeyChange))
+
+    var enabledChange = base
+    enabledChange.hotkeyEnabled = !base.hotkeyEnabled
+    #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: enabledChange))
+}

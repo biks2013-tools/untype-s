@@ -336,7 +336,9 @@ private final class UntypeUIModel: ObservableObject {
             let previous = settings
             settings = try settings.merged(patch).refreshingCredentialStatus()
             try UntypeUISettingsStore.save(settings)
-            hotkeyMonitor?.configure(settings: settings)
+            if UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: previous, next: settings) {
+                hotkeyMonitor?.configure(settings: settings)
+            }
             applyRuntimeOperatorChanges(previous: previous, next: settings)
             reconcileHotkeyWarmSession(restartExistingHotkeySession: !isProtocolSwitchOnlyChange(previous: previous, next: settings))
             overlay?.refreshOperators()
