@@ -21,6 +21,7 @@ public struct FocusedInputDeliveryResult: Codable, Equatable, Sendable {
     public let axValueSettable: Bool?
     public let axSelectedTextRangeReadable: Bool?
     public let axSelectedTextRangeSettable: Bool?
+    public let axSelectedTextSettable: Bool?
     public let pasteboardAvailable: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -37,6 +38,7 @@ public struct FocusedInputDeliveryResult: Codable, Equatable, Sendable {
         case axValueSettable = "ax_value_settable"
         case axSelectedTextRangeReadable = "ax_selected_text_range_readable"
         case axSelectedTextRangeSettable = "ax_selected_text_range_settable"
+        case axSelectedTextSettable = "ax_selected_text_settable"
         case pasteboardAvailable = "pasteboard_available"
     }
 
@@ -54,6 +56,7 @@ public struct FocusedInputDeliveryResult: Codable, Equatable, Sendable {
         axValueSettable: Bool? = nil,
         axSelectedTextRangeReadable: Bool? = nil,
         axSelectedTextRangeSettable: Bool? = nil,
+        axSelectedTextSettable: Bool? = nil,
         pasteboardAvailable: Bool? = nil
     ) {
         self.ok = ok
@@ -69,6 +72,7 @@ public struct FocusedInputDeliveryResult: Codable, Equatable, Sendable {
         self.axValueSettable = axValueSettable
         self.axSelectedTextRangeReadable = axSelectedTextRangeReadable
         self.axSelectedTextRangeSettable = axSelectedTextRangeSettable
+        self.axSelectedTextSettable = axSelectedTextSettable
         self.pasteboardAvailable = pasteboardAvailable
     }
 

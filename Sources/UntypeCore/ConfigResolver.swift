@@ -373,6 +373,14 @@ public struct ConfigResolver: Sendable {
             )
             ?? true
 
+        let llmStreaming = try parsed.switchValue(for: "--llm-streaming")
+            ?? parseBoolean(
+                chain.get("UNTYPE_LLM_STREAMING")?.value,
+                flagName: "--llm-streaming",
+                envName: "UNTYPE_LLM_STREAMING"
+            )
+            ?? false
+
         let llmProviderRaw = resolveString(
             flagValue: parsed.value(for: "--llm-provider"),
             chain: chain,
@@ -412,7 +420,8 @@ public struct ConfigResolver: Sendable {
             providerConfig: providerConfig,
             verbose: verbose,
             maxOutputTokens: llmMaxOutputTokens,
-            reasoningEffort: llmReasoningEffort
+            reasoningEffort: llmReasoningEffort,
+            streamingEnabled: llmStreaming
         )
 
         return ResolvedConfig(
@@ -953,6 +962,12 @@ struct ParsedArguments: Sendable {
                 index += 1
             case "--no-quick-close":
                 switches["--quick-close"] = false
+                index += 1
+            case "--llm-streaming":
+                switches["--llm-streaming"] = true
+                index += 1
+            case "--no-llm-streaming":
+                switches["--llm-streaming"] = false
                 index += 1
             case "--release-latency-log":
                 switches["--release-latency-log"] = true

@@ -232,6 +232,7 @@ public enum FocusedInputHelperMain {
                 axValueSettable: isSettable(element, kAXValueAttribute),
                 axSelectedTextRangeReadable: selectedRange(element) != nil,
                 axSelectedTextRangeSettable: isSettable(element, kAXSelectedTextRangeAttribute),
+                axSelectedTextSettable: isSettable(element, kAXSelectedTextAttribute),
                 pasteboardAvailable: pasteboardAvailable
             )
         } catch {
@@ -263,54 +264,59 @@ public enum FocusedInputHelperMain {
         let role = attributeString(element, kAXRoleAttribute)
         let subrole = attributeString(element, kAXSubroleAttribute)
 
-        guard isSettable(element, kAXValueAttribute) else {
+        // Formatting-safe caret insertion via AXSelectedText. This replaces the current
+        // selection (or inserts at the caret when the selection is empty) by routing
+        // through the control's insertText: implementation, so the inserted run adopts the
+        // surrounding typing attributes and the rest of the document is left untouched.
+        //
+        // We deliberately DO NOT fall back to rewriting the whole kAXValueAttribute: for a
+        // rich-text field that exposes a settable AXValue (e.g. the Outlook email compose
+        // body, which reports AXTextArea), writing the entire value back as a plain String
+        // flattens the whole message to plain text and wipes all formatting — fonts,
+        // bold/italic, colors, signatures. Instead, when AXSelectedText is unavailable we
+        // throw so auto-delivery falls through to paste-keycode / unicode typing, both of
+        // which insert at the caret without destroying surrounding formatting.
+        // See "Issues - Pending Items.md".
+        guard isSettable(element, kAXSelectedTextAttribute) else {
             throw FocusedInputDeliveryError(
-                message: "AXValue is not settable on the focused element.",
-                code: "value_not_settable"
-            )
-        }
-        guard let value = attributeString(element, kAXValueAttribute) else {
-            throw FocusedInputDeliveryError(
-                message: "AXValue is not readable on the focused element.",
-                code: "value_unavailable"
-            )
-        }
-        guard let selection = selectedRange(element) else {
-            throw FocusedInputDeliveryError(
-                message: "AXSelectedTextRange is not readable on the focused element.",
-                code: "selection_unavailable"
-            )
-        }
-
-        let utf16 = value.utf16
-        guard
-            selection.location >= 0,
-            selection.length >= 0,
-            selection.location <= utf16.count,
-            selection.location + selection.length <= utf16.count
-        else {
-            throw FocusedInputDeliveryError(
-                message: "AXSelectedTextRange is outside AXValue bounds.",
-                code: "selection_unavailable"
+                message: "Focused element does not support caret-safe AXSelectedText insertion.",
+                code: "selected_text_not_settable"
             )
         }
 
-        let lower = String.Index(utf16Offset: selection.location, in: value)
-        let upper = String.Index(utf16Offset: selection.location + selection.length, in: value)
-        var next = value
-        next.replaceSubrange(lower..<upper, with: text)
+        // Capture the value length before the insertion so we can confirm it actually
+        // took effect. Some web/Electron-backed editors (notably the current Outlook
+        // compose body) ACCEPT the AXSelectedText write and return success while
+        // performing no insertion at all — leaving the message untouched.
+        let beforeCount = attributeString(element, kAXValueAttribute)?.utf16.count
 
-        let setValueError = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, next as CFString)
-        guard setValueError == .success else {
+        let setSelectedError = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
+        )
+        guard setSelectedError == .success else {
             throw FocusedInputDeliveryError(
-                message: "Could not set AXValue on the focused element.",
-                code: "value_not_settable"
+                message: "Could not set AXSelectedText on the focused element.",
+                code: "selected_text_not_settable"
             )
         }
 
-        var cursor = CFRange(location: selection.location + text.utf16.count, length: 0)
-        if let rangeValue = AXValueCreate(.cfRange, &cursor) {
-            _ = AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
+        // Detect the silent no-op: when the value length is readable before and after
+        // and an empty caret insertion left it unchanged, the control ignored the write.
+        // Throw so auto-delivery falls through to a working method (paste-keycode /
+        // unicode typing) instead of reporting a success that never happened. We only
+        // treat an UNCHANGED length as a no-op; any length change means real text landed
+        // (a replaced selection legitimately changes the length), so we never re-insert
+        // and risk duplicating text.
+        if !text.isEmpty,
+           let before = beforeCount,
+           let after = attributeString(element, kAXValueAttribute)?.utf16.count,
+           after == before {
+            throw FocusedInputDeliveryError(
+                message: "AXSelectedText insertion was accepted but did not change the field.",
+                code: "selected_text_noop"
+            )
         }
 
         return .success(method: "ax-value", targetRole: role, targetSubrole: subrole)

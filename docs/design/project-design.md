@@ -281,6 +281,63 @@ Provenance for every UI module that lands under this plan must cite the correspo
 ## CLI Voice Command Responsiveness
 The CLI and UI runtime now ask the active STT provider to commit as soon as a partial transcript contains an actionable protocol marker such as `command status`, `command send`, or `command cancel`. Finalized transcripts still remain the only place where protocol actions execute, but this partial-triggered commit avoids the live CLI appearing unresponsive when the provider keeps voice commands in partial output until VAD, endpoint detection, or shutdown. The runtime deduplicates repeated partial snapshots so a single visible command does not repeatedly commit the provider.
 
+## Optional Configurable LLM Response Streaming (Design 034 — 2026-06-20)
+
+Provenance chain (refined-request -> research -> scan -> plan -> design):
+- Refined request: `docs/reference/refined-request-llm-streaming-toggle.md`
+- Research: `docs/research/swift-urlsession-sse-azure-openai-streaming.md`, `docs/research/gemini-streaming-and-partial-json.md`
+- Codebase scan: `docs/reference/codebase-scan-llm-streaming-toggle.md` (commit `e70d4fb…` == HEAD)
+- Plan: `docs/design/plan-034-llm-streaming-toggle.md`
+- Design: `docs/design/design-034-llm-streaming-toggle.md`
+
+Adds an off-by-default, user-toggleable feature that streams LLM **response tokens** for the
+`azure-openai` and `google` providers (Azure Chat Completions SSE `"stream": true`; Gemini
+`:streamGenerateContent?alt=sse`), renders the refined/translated text progressively in the overlay
+`finalizing` phase, and emits incremental progress to the agent-protocol JSONL output and verbose
+diagnostics — while keeping the one-shot path, atomic focused-input delivery, and push-to-talk wiring
+intact. The feature is implemented as NEW integration points wired into the existing surface, never a
+parallel pipeline or a replacement of the one-shot `perform` path.
+
+Key design decisions (full rationale in the design file):
+- Single switch `LLMConfig.streamingEnabled: Bool` (default `false`), threaded from
+  `ConfigResolver` (`--llm-streaming`/`--no-llm-streaming`, `UNTYPE_LLM_STREAMING`, UI toggle via
+  `sessionArguments()`) and read by the refiners; the two `LLMRefinerFactory` clones forward it
+  automatically. This is an optional-toggle default, NOT a no-fallback violation; the flag is
+  silently inert for non-`azure-openai`/`google` providers (resolved open question #3).
+- Additive `LLMHTTPClient.stream(_:timeoutMs:) -> AsyncThrowingStream<String, Error>` alongside the
+  unchanged buffered `perform`, using `URLSession.bytes(for:)` + `.lines` with status validated
+  before the body and a parallel `activeStreamTasks` registry feeding `cancelAll()` (since
+  `bytes(for:)` does not expose the `URLSessionDataTask`) — preserving the push-to-talk new-session
+  teardown that aborts in-flight streams.
+- Streaming refine dispatched via a narrow `StreamingTextRefining` protocol + runtime `as?` cast,
+  and an additive default-nil `onProgress` overload on `CompositeRefineTranslating.refineAndTranslate`,
+  both yielding ACCUMULATED display text; the committed result is always the strict final parse of the
+  complete response. Composite display uses a best-effort escape-aware `partialStringValue(forKey:in:)`
+  extractor for `refined_text`/`translated_text` (DISPLAY ONLY; resolved open question #1).
+  - **Update (2026-06-20, code review):** `TextRefining` was deliberately left UNCHANGED rather than
+    gaining a `refine(_:onProgress:)` protocol requirement as Decision 2 / contract C3 originally
+    specified. Adding a method to the widely-implemented `public TextRefining` protocol (e.g. test
+    `MockRefiner`) is source-fragile and a default that routes streaming to the one-shot method gives
+    a misleading streaming contract. Instead Unit B introduced `public protocol StreamingTextRefining`
+    in `LLMRefiners.swift`; `AzureOpenAIRefiner`/`GoogleRefiner` conform to both, and the controller
+    (`refine(_:using:onProgress:)`) + composite translator dispatch via `as? StreamingTextRefining`
+    with one-shot fallback. Net behavior matches C3's intent. design-034 Decision 2 and C3 updated to
+    reflect this as-implemented mechanism.
+- New `ProtocolEvent.streamingProgress(sectionId:accumulatedText:)` emitted to the JSONL writer and
+  verbose diagnostics, with the existing completion-time `sectionProcessed` left intact (resolved
+  open question #4).
+- Work partitioned into five file-disjoint units (A config, B transport+refiners, C
+  controller+protocol event, D factory+overlay, E docs). The streaming refine surface
+  (`StreamingTextRefining`), `CompositeRefineTranslating`'s `onProgress` overload, and the concrete
+  refiner bodies all live in `LLMRefiners.swift` (Unit B); `TextRefining` in
+  `VoiceAgentProtocolController.swift` (Unit C) is left unchanged and the controller consumes the
+  streaming surface via an `as? StreamingTextRefining` cast — keeping the two files disjoint while
+  honoring the single shared-contract definition.
+
+Guardrails (non-regressable): focused-input insertion stays ATOMIC on completion (overlay updates are
+display-only; `focused_input.ok=true` must hold); push-to-talk wiring is untouched;
+`FocusedInputDelivery` is Out-of-Scope.
+
 ## Open Design Gaps
 - Distribution target is local Swift executable first; app bundle/signing/notarization are required for final UI release planning but not resolved yet.
 - UI parity is partially implemented; live macOS permission verification, final visual review, and distribution packaging remain before final drop-in replacement.

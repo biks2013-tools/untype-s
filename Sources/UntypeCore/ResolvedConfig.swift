@@ -52,6 +52,11 @@ public struct LLMConfig: Equatable, Sendable {
     /// Reasoning effort for reasoning-capable chat models
     /// (none|minimal|low|medium|high). nil omits the parameter.
     public let reasoningEffort: String?
+    /// Enables streaming of LLM response tokens (Azure OpenAI SSE / Google
+    /// `streamGenerateContent`) for progressive overlay/diagnostics rendering.
+    /// Optional toggle with a documented default of `false` (one-shot path);
+    /// silently inert for providers other than `azure-openai` / `google`.
+    public let streamingEnabled: Bool
 
     public init(
         enabled: Bool,
@@ -62,7 +67,8 @@ public struct LLMConfig: Equatable, Sendable {
         providerConfig: ProviderConfig,
         verbose: Bool,
         maxOutputTokens: Int? = nil,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        streamingEnabled: Bool = false
     ) {
         self.enabled = enabled
         self.provider = provider
@@ -73,6 +79,7 @@ public struct LLMConfig: Equatable, Sendable {
         self.verbose = verbose
         self.maxOutputTokens = maxOutputTokens
         self.reasoningEffort = reasoningEffort
+        self.streamingEnabled = streamingEnabled
     }
 }
 

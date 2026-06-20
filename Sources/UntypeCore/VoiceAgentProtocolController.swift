@@ -43,6 +43,7 @@ public final class VoiceAgentProtocolController {
     private let focusedInputWriter: FocusedInputTextDelivery
     private let diagnostics: ProtocolControllerDiagnostics
     private let visibleOperatorDiagnostics: Bool
+    private let streamingProgress: (@Sendable (String) -> Void)?
 
     private var sessionStarted = false
     private var sessionEnded = false
@@ -64,7 +65,8 @@ public final class VoiceAgentProtocolController {
         inputWriter: @escaping TextDelivery = { _ in },
         focusedInputWriter: FocusedInputTextDelivery? = nil,
         diagnostics: ProtocolControllerDiagnostics = ProtocolControllerDiagnostics(write: { _, _ in }),
-        visibleOperatorDiagnostics: Bool = false
+        visibleOperatorDiagnostics: Bool = false,
+        streamingProgress: (@Sendable (String) -> Void)? = nil
     ) {
         self.mode = mode
         self.renderer = renderer
@@ -86,6 +88,7 @@ public final class VoiceAgentProtocolController {
         }
         self.diagnostics = diagnostics
         self.visibleOperatorDiagnostics = visibleOperatorDiagnostics
+        self.streamingProgress = streamingProgress
         self.stateMachine = VoiceCommandStateMachine(
             markers: markers,
             initialOperators: initialOperators,
@@ -257,6 +260,7 @@ public final class VoiceAgentProtocolController {
         let shouldCompositeProcess = operators.contains(.refine)
             && operators.contains(.translate)
             && compositeRefineTranslator != nil
+        let onProgress = makeStreamingProgressHandler(sectionId: sectionId)
 
         if shouldCompositeProcess {
             operatorDiagnostic(.refine, stage: "started")
@@ -269,7 +273,8 @@ public final class VoiceAgentProtocolController {
                     CompositeRefineTranslateRequest(
                         rawText: rawText,
                         targetLanguageName: languageDisplayName(targetLanguage!)
-                    )
+                    ),
+                    onProgress: onProgress
                 )
                 let elapsed = releaseLatencyMilliseconds(from: started)
                 summary.refineMs = elapsed
@@ -291,7 +296,7 @@ public final class VoiceAgentProtocolController {
                 operatorDiagnostic(.refine, stage: "started")
                 do {
                     let started = DispatchTime.now().uptimeNanoseconds
-                    let refined = try await refiner!.refine(current)
+                    let refined = try await refine(current, using: refiner!, onProgress: onProgress)
                     summary.refineMs = releaseLatencyMilliseconds(from: started)
                     if !refined.isEmpty {
                         refinedText = refined
@@ -318,7 +323,7 @@ public final class VoiceAgentProtocolController {
                         targetLanguage: languageDisplayName(targetLanguage!)
                     )
                     let started = DispatchTime.now().uptimeNanoseconds
-                    let translated = try await translator!.refine(prompt)
+                    let translated = try await refine(prompt, using: translator!, onProgress: onProgress)
                     summary.translateMs = releaseLatencyMilliseconds(from: started)
                     if !translated.isEmpty {
                         current = translated
@@ -383,6 +388,42 @@ public final class VoiceAgentProtocolController {
         }
         summary.operatorProcessingMs = releaseLatencyMilliseconds(from: sectionStarted)
         return summary
+    }
+
+    /// Builds the streaming progress closure forwarded to the refine/translate/composite
+    /// streaming call sites. When invoked (only when a streaming-capable refiner actually
+    /// streams), it (a) forwards the accumulated DISPLAY text to the injected overlay sink,
+    /// (b) emits a `streaming.progress` protocol event, and (c) writes one verbose diagnostic
+    /// line. It NEVER affects the committed result — that remains the strict final value
+    /// returned by the refine/translate/composite call.
+    private func makeStreamingProgressHandler(sectionId: String) -> ((String) -> Void) {
+        return { [weak self] accumulated in
+            guard let self else {
+                return
+            }
+            self.streamingProgress?(accumulated)
+            try? self.writeProtocol(.streamingProgress(sectionId: sectionId, accumulatedText: accumulated))
+            if self.visibleOperatorDiagnostics || self.verbose {
+                self.diagnostics.write(
+                    "[untype] protocol streaming progress: \(sectionId) (\(accumulated.count) chars)",
+                    false
+                )
+            }
+        }
+    }
+
+    /// Refines `text` through the given refiner, using the streaming overload when the refiner
+    /// conforms to `StreamingTextRefining` (and thus may stream); otherwise falls back to the
+    /// existing one-shot `refine(_:)` path. The returned value is always the strict final result.
+    private func refine(
+        _ text: String,
+        using refiner: TextRefining,
+        onProgress: @escaping (String) -> Void
+    ) async throws -> String {
+        if let streaming = refiner as? StreamingTextRefining {
+            return try await streaming.refine(text, onProgress: onProgress)
+        }
+        return try await refiner.refine(text)
     }
 
     private func writeProtocol(_ event: ProtocolEvent) throws {

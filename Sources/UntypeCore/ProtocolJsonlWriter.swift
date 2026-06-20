@@ -20,6 +20,7 @@ public enum ProtocolEvent: Sendable, Equatable {
         targetLanguage: ProtocolLanguage?,
         outputText: String
     )
+    case streamingProgress(sectionId: String, accumulatedText: String)
     case clipboardCopied(sectionId: String)
     case inputSent(sectionId: String)
     case sectionCancelled(sectionId: String, reason: SectionCancelReason)
@@ -119,6 +120,12 @@ private extension ProtocolEvent {
                 object["target_language"] = targetLanguage.rawValue
             }
             return object
+        case .streamingProgress(let sectionId, let accumulatedText):
+            return [
+                "type": "streaming.progress",
+                "section_id": sectionId,
+                "accumulated_text": accumulatedText
+            ]
         case .clipboardCopied(let sectionId):
             return [
                 "type": "clipboard.copied",

@@ -14,6 +14,8 @@ import Testing
     #expect(stdout.text.contains("untype ui"))
     #expect(stdout.text.contains("--quick-close"))
     #expect(stdout.text.contains("--release-latency-log"))
+    #expect(stdout.text.contains("--llm-streaming"))
+    #expect(stdout.text.contains("--no-llm-streaming"))
     #expect(stdout.text.contains("~/.tool-agents/untype/prompts/"))
     #expect(stderr.text.isEmpty)
 }
@@ -811,6 +813,97 @@ private final class FakeCommandRuntime: UntypeRuntimeSession, @unchecked Sendabl
     let fromEnv = try envResolver.resolve(argv: ["--api-key", "k", "--no-refine"])
     #expect(fromEnv.llm.maxOutputTokens == 300)
     #expect(fromEnv.llm.reasoningEffort == "high")
+}
+
+@Test func llmStreamingDefaultsToOffWhenUnset() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    let config = try resolver.resolve(argv: ["--api-key", "flag-key", "--no-refine"])
+
+    #expect(config.llm.streamingEnabled == false)
+}
+
+@Test func llmStreamingFlagEnablesStreaming() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    let config = try resolver.resolve(argv: ["--api-key", "flag-key", "--no-refine", "--llm-streaming"])
+
+    #expect(config.llm.streamingEnabled)
+}
+
+@Test func noLlmStreamingFlagDisablesStreaming() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    let config = try resolver.resolve(argv: ["--api-key", "flag-key", "--no-refine", "--no-llm-streaming"])
+
+    #expect(config.llm.streamingEnabled == false)
+}
+
+@Test func llmStreamingCanBeEnabledFromEnvironment() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "shell-key",
+            "UNTYPE_LLM_STREAMING": "on"
+        ]
+    )
+
+    let config = try resolver.resolve(argv: ["--no-refine"])
+
+    #expect(config.llm.streamingEnabled)
+}
+
+@Test func llmStreamingEnvOffIsHonored() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "shell-key",
+            "UNTYPE_LLM_STREAMING": "off"
+        ]
+    )
+
+    let config = try resolver.resolve(argv: ["--no-refine"])
+
+    #expect(config.llm.streamingEnabled == false)
+}
+
+@Test func llmStreamingFlagOverridesEnvironment() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "shell-key",
+            "UNTYPE_LLM_STREAMING": "on"
+        ]
+    )
+
+    let config = try resolver.resolve(argv: ["--no-refine", "--no-llm-streaming"])
+
+    #expect(config.llm.streamingEnabled == false)
+}
+
+@Test func llmStreamingRejectsInvalidEnvironmentBoolean() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(
+        cwd: temp.url,
+        home: temp.url,
+        shell: [
+            "SONIOX_API_KEY": "shell-key",
+            "UNTYPE_LLM_STREAMING": "maybe"
+        ]
+    )
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--no-refine"])
+    }
 }
 
 @Test func llmTuningOptionsRejectInvalidValues() throws {

@@ -133,6 +133,8 @@ public struct UntypeCommand {
       --input-default <on|off>                Initial protocol focused-input operator state. Env: UNTYPE_INPUT_DEFAULT.
       --protocol-output <path>                JSONL path required for hybrid mode. Env: UNTYPE_PROTOCOL_OUTPUT.
       --refine, --no-refine                   Enable or disable LLM refinement. Env: UNTYPE_REFINE.
+      --llm-streaming                         Stream LLM response tokens for progressive rendering (azure-openai/google only; inert otherwise). Default: off. Env: UNTYPE_LLM_STREAMING.
+      --no-llm-streaming                      Disable LLM response-token streaming (one-shot path).
       --llm-provider <name>                   azure-openai, openai, anthropic, google, azure-ai-inference, ollama, litellm, or openai-compat. Env: UNTYPE_LLM_PROVIDER.
       --llm-model <name>                      LLM model/deployment name. Env: UNTYPE_LLM_MODEL.
       --llm-max-output-tokens <n>             Cap LLM output tokens (max_completion_tokens / maxOutputTokens). Omitted when unset. Env: UNTYPE_LLM_MAX_OUTPUT_TOKENS.

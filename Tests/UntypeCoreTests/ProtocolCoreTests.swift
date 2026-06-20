@@ -122,6 +122,64 @@ private let operatorsOff = OperatorState(
     ])
 }
 
+@Test func streamingProgressEventSerializesToExpectedJsonlShape() throws {
+    let output = MemoryOutput()
+    let writer = JsonlProtocolWriter(output: output)
+
+    try writer.write(.streamingProgress(sectionId: "sec_000001", accumulatedText: "Hello, world"))
+
+    let events = try output.text.split(separator: "\n").map { try jsonObject(String($0)) }
+    #expect(events.count == 1)
+    #expect(events[0]["type"] as? String == "streaming.progress")
+    #expect(events[0]["section_id"] as? String == "sec_000001")
+    #expect(events[0]["accumulated_text"] as? String == "Hello, world")
+    // Must contain seq
+    #expect(events[0]["seq"] as? Int == 1)
+    // Must NOT contain fields from other events (e.g. no output_text, no raw_text)
+    #expect(events[0]["output_text"] == nil)
+    #expect(events[0]["raw_text"] == nil)
+}
+
+@Test func streamingProgressEventSerializesEmptyAccumulatedText() throws {
+    let output = MemoryOutput()
+    let writer = JsonlProtocolWriter(output: output)
+
+    try writer.write(.streamingProgress(sectionId: "sec_000099", accumulatedText: ""))
+
+    let events = try output.text.split(separator: "\n").map { try jsonObject(String($0)) }
+    #expect(events.count == 1)
+    #expect(events[0]["type"] as? String == "streaming.progress")
+    #expect(events[0]["section_id"] as? String == "sec_000099")
+    #expect(events[0]["accumulated_text"] as? String == "")
+}
+
+@Test func streamingProgressEventDoesNotAffectSectionProcessedShape() throws {
+    // Regression: existing sectionProcessed serialization must be unchanged.
+    let output = MemoryOutput()
+    let writer = JsonlProtocolWriter(output: output)
+
+    try writer.write(.streamingProgress(sectionId: "sec_000001", accumulatedText: "partial text"))
+    try writer.write(.sectionProcessed(
+        sectionId: "sec_000001",
+        operators: [.refine],
+        rawText: "raw input",
+        refinedText: "refined output",
+        sourceLanguage: .english,
+        targetLanguage: nil,
+        outputText: "refined output"
+    ))
+
+    let events = try output.text.split(separator: "\n").map { try jsonObject(String($0)) }
+    #expect(events.count == 2)
+    #expect(events[0]["type"] as? String == "streaming.progress")
+    #expect(events[1]["type"] as? String == "section.processed")
+    #expect(events[1]["output_text"] as? String == "refined output")
+    #expect(events[1]["raw_text"] as? String == "raw input")
+    #expect(events[1]["refined_text"] as? String == "refined output")
+    // seq must be monotonically increasing
+    #expect((events[0]["seq"] as? Int ?? 0) < (events[1]["seq"] as? Int ?? 0))
+}
+
 @Test func jsonlProtocolWriterEmitsMonotonicSeqValues() throws {
     let output = MemoryOutput()
     let writer = JsonlProtocolWriter(output: output)

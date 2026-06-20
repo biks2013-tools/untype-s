@@ -152,3 +152,34 @@ rm ~/.tool-agents/untype/release-latency.jsonl
 ```
 
 Do not leave latency logging enabled during routine use unless a diagnostic run is in progress.
+
+## LLM Response Streaming
+
+### Purpose
+
+Optionally streams LLM response tokens for the refine, translate, and composite refine+translate calls instead of issuing one blocking request and waiting for the full result. When enabled, the overlay `finalizing` phase updates progressively as tokens arrive and incremental progress is also emitted to the agent-protocol JSONL output (`streaming.progress` events) and the verbose diagnostics stream. This is a perceived-latency improvement only: the focused-input insertion stays atomic and happens exactly once on completion, using the strictly-parsed final text. Streaming is implemented for the `azure-openai` (Chat Completions SSE) and `google` (Gemini `streamGenerateContent` SSE) providers; for any other provider the flag is silently inert.
+
+### Variables and Flags
+
+| Purpose | CLI flag | Env var | Default | Description |
+| --- | --- | --- | --- | --- |
+| LLM response streaming enabled | `--llm-streaming` / `--no-llm-streaming` | `UNTYPE_LLM_STREAMING` | `false` | Enables or disables streaming of LLM response tokens for refine/translate/composite. Off by default (one-shot behavior). The UI settings toggle maps to this flag via `UntypeUISettings.sessionArguments()`. |
+
+Precedence follows the standard four-tier chain (see Configuration Priority): CLI flag > `UNTYPE_LLM_STREAMING` env var > config/UI setting > built-in default (`false`). Accepted env values: `true/false/yes/no/on/off/1/0`.
+
+### Behavior Notes
+
+- **Default off.** With no flag, env, or UI toggle set, behavior is identical to today's one-shot path.
+- **Provider support.** Only `azure-openai` and `google` stream. With the flag on and any other active provider, streaming has no effect and raises no error (silently inert) — this is not a no-fallback-rule violation because both the flag and the provider are present and valid; no missing-required-config value is substituted.
+- **Composite path.** The overlay shows a best-effort live extraction of `refined_text`/`translated_text` from the in-progress JSON for display only; the committed result is always parsed from the complete response by the existing strict parser.
+- **No expiry.** This is a boolean feature toggle with no secret or expiring value, so no expiration-tracking parameter is needed.
+
+### Recommended Storage
+
+Set it alongside the other LLM settings in `~/.tool-agents/untype/.env` when you want streaming on by default:
+
+```sh
+UNTYPE_LLM_STREAMING=on
+```
+
+Leave it unset (or `off`) for the default one-shot behavior.

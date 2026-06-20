@@ -108,7 +108,8 @@ public enum UntypeRuntimeFactory {
         protocolOutput: TextOutput,
         diagnosticsOutput: TextOutput,
         eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void,
-        focusedInputPreparation: @escaping @Sendable () async -> Void = {}
+        focusedInputPreparation: @escaping @Sendable () async -> Void = {},
+        streamingProgress: (@Sendable (String) -> Void)? = nil
     ) throws -> UntypeRuntimeSession {
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
         let controllerDiagnostics = ProtocolControllerDiagnostics { line, warning in
@@ -153,7 +154,8 @@ public enum UntypeRuntimeFactory {
                 return try await focusedInputDelivery.deliver(text)
             },
             diagnostics: controllerDiagnostics,
-            visibleOperatorDiagnostics: true
+            visibleOperatorDiagnostics: true,
+            streamingProgress: streamingProgress
         )
         let audioSource = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(config: config))
         let transcriber: RuntimeTranscriber

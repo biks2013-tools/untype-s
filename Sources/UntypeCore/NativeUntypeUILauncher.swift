@@ -630,6 +630,16 @@ private final class UntypeUIModel: ObservableObject {
                             modelBox.model?.prepareFocusedInputDelivery()
                         }
                         try? await Task.sleep(nanoseconds: 150_000_000)
+                    },
+                    streamingProgress: { accumulated in
+                        // DISPLAY ONLY: progressively update the already-existing
+                        // `finalizing` overlay phase as streamed LLM tokens arrive.
+                        // Hops to the main actor exactly like the transcript/eventSink
+                        // sinks above. Does NOT touch focused-input delivery, which stays
+                        // atomic on completion of the strictly-parsed final text.
+                        dispatchToUI { [modelBox] in
+                            modelBox.model?.overlay?.show(phase: "finalizing", text: accumulated)
+                        }
                     }
                 )
                 dispatchToUI { [modelBox] in

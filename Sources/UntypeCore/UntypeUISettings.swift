@@ -16,6 +16,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var llmEnabled: Bool
     public var llmProvider: String
     public var llmModel: String
+    public var llmStreaming: Bool
     public var apiKeyName: String
     public var apiKeyStatus: String
     public var expiryStatus: String
@@ -50,6 +51,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         llmEnabled: true,
         llmProvider: LLMProvider.azureOpenAI.rawValue,
         llmModel: "gpt-5.4",
+        llmStreaming: false,
         apiKeyName: "SONIOX_API_KEY",
         apiKeyStatus: "unknown",
         expiryStatus: "not set",
@@ -159,6 +161,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let llmModel = patch.llmModel {
             next.llmModel = llmModel
         }
+        if let llmStreaming = patch.llmStreaming {
+            next.llmStreaming = llmStreaming
+        }
         if let hotkeyEnabled = patch.hotkeyEnabled {
             next.hotkeyEnabled = hotkeyEnabled
         }
@@ -207,6 +212,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--input-default", normalized.focusedInput ? "on" : "off",
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
+            normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
             "--llm-provider", normalized.llmProvider,
             "--llm-model", normalized.llmModel
         ]
@@ -266,6 +272,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var llmEnabled: Bool?
     public var llmProvider: String?
     public var llmModel: String?
+    public var llmStreaming: Bool?
     public var hotkeyEnabled: Bool?
     public var hotkey: String?
     public var windowWidth: Double?
@@ -293,6 +300,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         llmEnabled: Bool? = nil,
         llmProvider: String? = nil,
         llmModel: String? = nil,
+        llmStreaming: Bool? = nil,
         hotkeyEnabled: Bool? = nil,
         hotkey: String? = nil,
         windowWidth: Double? = nil,
@@ -319,6 +327,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.llmEnabled = llmEnabled
         self.llmProvider = llmProvider
         self.llmModel = llmModel
+        self.llmStreaming = llmStreaming
         self.hotkeyEnabled = hotkeyEnabled
         self.hotkey = hotkey
         self.windowWidth = windowWidth
@@ -550,6 +559,7 @@ public enum UntypeUISettingsStore {
             llmEnabled: config.llm.enabled,
             llmProvider: config.llm.provider.rawValue,
             llmModel: config.llm.model,
+            llmStreaming: config.llm.streamingEnabled,
             apiKeyName: config.apiKeyEnvName,
             apiKeyStatus: "configured",
             expiryStatus: config.apiKeyExpiresAt ?? "not set",
@@ -612,6 +622,7 @@ private struct PersistedUISettings: Codable {
     let llmEnabled: Bool
     let llmProvider: String
     let llmModel: String
+    let llmStreaming: Bool?
     let hotkeyEnabled: Bool
     let hotkey: String
     let windowWidth: Double?
@@ -639,6 +650,7 @@ private struct PersistedUISettings: Codable {
         case llmEnabled
         case llmProvider
         case llmModel
+        case llmStreaming
         case hotkeyEnabled
         case hotkey
         case windowWidth
@@ -667,6 +679,7 @@ private struct PersistedUISettings: Codable {
         self.llmEnabled = settings.llmEnabled
         self.llmProvider = settings.llmProvider
         self.llmModel = settings.llmModel
+        self.llmStreaming = settings.llmStreaming
         self.hotkeyEnabled = settings.hotkeyEnabled
         self.hotkey = settings.hotkey
         self.windowWidth = settings.windowWidth
@@ -698,6 +711,7 @@ private struct PersistedUISettings: Codable {
                 llmEnabled: llmEnabled,
                 llmProvider: llmProvider,
                 llmModel: llmModel,
+                llmStreaming: llmStreaming ?? defaults.llmStreaming,
                 hotkeyEnabled: hotkeyEnabled,
                 hotkey: hotkey,
                 windowWidth: windowWidth ?? defaults.windowWidth,

@@ -25,6 +25,90 @@ import Testing
     #expect(!args.contains(settings.storageStatus))
 }
 
+@Test func uiSettingsDefaultLlmStreamingIsOff() {
+    #expect(UntypeUISettings.default.llmStreaming == false)
+}
+
+@Test func uiSettingsMergeAppliesLlmStreamingPatch() throws {
+    let enabled = try UntypeUISettings.default.merged(UntypeUISettingsPatch(llmStreaming: true))
+    #expect(enabled.llmStreaming)
+
+    let disabled = try enabled.merged(UntypeUISettingsPatch(llmStreaming: false))
+    #expect(disabled.llmStreaming == false)
+
+    let unchanged = try enabled.merged(UntypeUISettingsPatch(refine: true))
+    #expect(unchanged.llmStreaming)
+}
+
+@Test func uiSettingsSessionArgumentsEmitLlmStreamingFlag() throws {
+    let streaming = try UntypeUISettings.default.merged(UntypeUISettingsPatch(llmStreaming: true))
+    let streamingArgs = try streaming.sessionArguments()
+    #expect(streamingArgs.contains("--llm-streaming"))
+    #expect(!streamingArgs.contains("--no-llm-streaming"))
+
+    let nonStreaming = try UntypeUISettings.default.merged(UntypeUISettingsPatch(llmStreaming: false))
+    let nonStreamingArgs = try nonStreaming.sessionArguments()
+    #expect(nonStreamingArgs.contains("--no-llm-streaming"))
+    #expect(!nonStreamingArgs.contains("--llm-streaming"))
+}
+
+@Test func uiSettingsStoreRoundTripsLlmStreaming() throws {
+    let temp = UITemporaryDirectory()
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(llmStreaming: true))
+
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    #expect(loaded.llmStreaming)
+}
+
+@Test func uiSettingsLoadDefaultsLlmStreamingOffForOlderPersistedState() throws {
+    let temp = UITemporaryDirectory()
+    let config = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+    try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+    try """
+    {
+      "version" : 1,
+      "saved_at" : "2026-05-26T10:00:00Z",
+      "settings" : {
+        "clipboard" : false,
+        "endpointDetection" : true,
+        "focusedInput" : false,
+        "hotkey" : "Control+`",
+        "hotkeyEnabled" : false,
+        "languages" : [
+          "el",
+          "en"
+        ],
+        "llmEnabled" : true,
+        "llmModel" : "gpt-5.4",
+        "llmProvider" : "azure-openai",
+        "model" : "stt-rt-v4",
+        "protocolMode" : "dictation",
+        "provider" : "soniox",
+        "refine" : false,
+        "sampleRate" : 16000,
+        "selectedMonitorTab" : "transcript",
+        "settingsExpanded" : true,
+        "translate" : false,
+        "translationPolicy" : "opposite",
+        "windowHeight" : 760,
+        "windowWidth" : 1180
+      }
+    }
+    """.write(
+        to: UntypeUISettingsStore.path(home: temp.url),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    #expect(loaded.llmStreaming == false)
+}
+
 @Test func uiSettingsStorePersistsOnlyNonSecretFields() throws {
     let temp = UITemporaryDirectory()
     var settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
