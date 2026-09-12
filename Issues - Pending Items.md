@@ -58,6 +58,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - Build 11 released, published, and on Homebrew (v0.1.0-b11)
+Build 11 (`CFBundleVersion 11`, version 0.1.0) packaged from commit `f9604f9` with the standard pipeline (`--dmg`); suite 225/225 inside the pipeline. App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. Installed over build 10 (kept at `.build/deploy/untype.app.build10-backup`), same identity, no permission reset. GitHub Release https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b11 with `untype-0.1.0.dmg` (SHA-256 `0d6d5523090489bac01ec72a13c2d7024fea2e84cee1e82bbb1f4ca7707be411`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap updated via `scripts/update-homebrew-cask.sh --push` (tap commit `f22eb7d`): `brew style` clean, `brew audit --cask --online --strict` clean, `brew livecheck` = `0.1.0,11`. Ships the welcome-screen permission guide and the top-bar push-to-talk switch (entries above); the two manual checks listed there are still pending on-device.
+
 ### 2026-09-12 - Push-to-talk switch added to the top bar
 **Request:** a push-to-talk toggle at the top of the screen, left of the other toggles.
 
