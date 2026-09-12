@@ -24,6 +24,21 @@ On every configuration resolution (CLI start or a native-UI session start) `unty
 ### Recommended Use
 Point new users at this file instead of a separate example: after the first launch they open `~/.tool-agents/untype/.env`, uncomment `SONIOX_API_KEY=` (or `ELEVENLABS_API_KEY=` plus `UNTYPE_STT_PROVIDER=elevenlabs`) and, if they keep refinement on, the LLM provider block, then start a session again.
 
+## Credentials Editor (native UI)
+
+### Purpose
+The native UI can write provider credentials into `~/.tool-agents/untype/.env` so a new user never has to edit the file by hand. The editor is reachable from the onboarding sheet (step 3 "Provider credentials" → **Set keys…**, and the footer button when credentials are the only missing item) and from the settings inspector (Credentials group → **Edit keys…**).
+
+### Variables it manages
+`SONIOX_API_KEY`, `ELEVENLABS_API_KEY` (speech-to-text, at least one) and `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `GOOGLE_API_KEY` (LLM refinement/translation, optional). Secret fields are masked; a "Show" switch reveals them while editing. Every other variable stays file-only.
+
+### Behavior
+- Saving writes only the fields that changed, through `DotenvEditor` (`Sources/UntypeCore/DotenvEditor.swift`): an active `KEY=value` line is replaced in place (later duplicates of the same key are removed so a stale last-wins entry cannot shadow the new value), a commented `# KEY=` template line is activated in place so its description stays above it, and an unknown key is appended. Comments, ordering, and unrelated variables are preserved. An emptied field unsets the key by turning its line back into `# KEY=`.
+- A missing file is created from the commented template (see "Default `.env` Template") with the parent folders at `0700` and the file at `0600`.
+- Values containing `#`, leading/trailing spaces, or a leading quote are written quoted so the parser reads them back unchanged.
+- The editor shows and edits the user-level file only; values coming from `<cwd>/.env` or the shell environment are not displayed, although the status line still reports them as the effective source when they win the precedence chain.
+- Secret values never reach the event log or diagnostics; the saved event names only the affected keys.
+
 ## Prompt Configuration
 
 ### Purpose

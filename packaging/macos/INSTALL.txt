@@ -19,10 +19,14 @@ untype - installation notes
    After changing a permission, quit and relaunch untype.
 
 4. Provider credentials
-   On the first session start untype creates ~/.tool-agents/untype/.env as a
-   fully commented template listing every setting with its description and
-   default. Open it, remove the leading "# " on the lines you need, and fill
-   in at least one speech-to-text key:
+   The welcome screen's "Set keys..." button (also Settings > Credentials >
+   "Edit keys...") stores your provider keys in ~/.tool-agents/untype/.env,
+   readable only by you. Enter at least one speech-to-text key; the LLM keys
+   are only needed if you enable refinement or translation.
+
+   You can also edit that file directly: on the first session start untype
+   creates it as a fully commented template listing every setting with its
+   description and default. Remove the leading "# " on the lines you need:
 
      SONIOX_API_KEY=...          # default provider
      ELEVENLABS_API_KEY=...      # alternative provider

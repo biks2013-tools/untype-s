@@ -380,6 +380,28 @@ private final class UntypeUIModel: ObservableObject {
         settings = settings.refreshingCredentialStatus()
     }
 
+    /// Current values of the editable credentials in ~/.tool-agents/untype/.env
+    /// (user-level file only; cwd `.env` and shell values are not shown).
+    func loadCredentialValues() -> [String: String] {
+        let values = (try? DotenvEditor.read(DotenvEditor.userEnvURL())) ?? [:]
+        return values.filter { DotenvEditor.editableKeys.contains($0.key) }
+    }
+
+    /// Writes the given credentials into ~/.tool-agents/untype/.env (empty
+    /// values unset the key) and refreshes the credential status. Values are
+    /// never logged; only the affected key names reach the event log.
+    func saveCredentials(_ values: [String: String]) throws {
+        let allowed = values.filter { DotenvEditor.editableKeys.contains($0.key) }
+        try DotenvEditor.upsert(allowed, into: DotenvEditor.userEnvURL())
+        refreshCredentials()
+        let set = allowed.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.keys.sorted()
+        let cleared = allowed.filter { $0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.keys.sorted()
+        var parts: [String] = []
+        if !set.isEmpty { parts.append("set \(set.joined(separator: ", "))") }
+        if !cleared.isEmpty { parts.append("cleared \(cleared.joined(separator: ", "))") }
+        appendEvent("credentials.saved: \(parts.joined(separator: "; ")) -> ~/.tool-agents/untype/.env")
+    }
+
     func startManualSession() {
         stopHotkeyWarmSession(restartAfterStop: false)
         if runtime == nil, sessionOwner == nil {
@@ -994,6 +1016,7 @@ private final class WeakUntypeUIModelBox: @unchecked Sendable {
 private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showOnboarding: Bool = false
+    @State private var showCredentialsEditor: Bool = false
     private static let titlebarControlHeight: CGFloat = 54
     private static let transcriptOperatorLabelMinimumContentWidth: CGFloat = 760
 
@@ -1039,6 +1062,11 @@ private struct UntypeRootView: View {
         .sheet(isPresented: $showOnboarding) {
             UntypeOnboardingView(model: model) {
                 showOnboarding = false
+            }
+        }
+        .sheet(isPresented: $showCredentialsEditor) {
+            UntypeCredentialsEditorView(model: model) {
+                showCredentialsEditor = false
             }
         }
     }
@@ -2110,6 +2138,14 @@ private struct UntypeRootView: View {
                         inspectorStatusRow(model.settings.apiKeyName, value: model.settings.apiKeyStatus, tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus))
                         inspectorMonoRow("Source", value: model.settings.storageStatus)
                         inspectorMonoRow("Expiry", value: model.settings.expiryStatus)
+                        Button {
+                            showCredentialsEditor = true
+                        } label: {
+                            Label("Edit keys…", systemImage: "key")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Set provider API keys; stored in ~/.tool-agents/untype/.env")
                         if model.settings.storageStatus.lowercased().contains(".env") || model.settings.storageStatus.lowercased().contains("user") {
                             Text("~/.tool-agents/untype/.env")
                                 .font(.system(size: 11, design: .monospaced))
@@ -2606,9 +2642,175 @@ private struct UntypeOverlayView: View {
 // MARK: - Onboarding sheet
 
 @MainActor
+private struct UntypeCredentialsEditorView: View {
+    @ObservedObject var model: UntypeUIModel
+    var onDismiss: () -> Void
+    @State private var values: [String: String] = [:]
+    @State private var original: [String: String] = [:]
+    @State private var errorMessage: String?
+    @State private var revealSecrets = false
+
+    private struct Field {
+        let key: String
+        let label: String
+        let secret: Bool
+        let hint: String
+    }
+
+    private static let speechFields: [Field] = [
+        Field(key: "SONIOX_API_KEY", label: "Soniox API key", secret: true, hint: "Required when the provider is Soniox (default)."),
+        Field(key: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", secret: true, hint: "Required when the provider is ElevenLabs.")
+    ]
+
+    private static let llmFields: [Field] = [
+        Field(key: "AZURE_OPENAI_API_KEY", label: "Azure OpenAI API key", secret: true, hint: "Required for refinement with the azure-openai provider."),
+        Field(key: "AZURE_OPENAI_ENDPOINT", label: "Azure OpenAI endpoint", secret: false, hint: "https://<resource>.openai.azure.com"),
+        Field(key: "AZURE_OPENAI_DEPLOYMENT", label: "Azure OpenAI deployment", secret: false, hint: "Deployment name, e.g. gpt-5.4"),
+        Field(key: "AZURE_OPENAI_API_VERSION", label: "Azure OpenAI API version", secret: false, hint: "Leave empty to use the built-in default."),
+        Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required for refinement with the google provider.")
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(UntypeDesignTokens.accentAmber)
+                    .frame(width: 36, height: 36)
+                    .background(UntypeDesignTokens.accentAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Provider credentials")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Saved to ~/.tool-agents/untype/.env (readable only by you). Empty fields leave the key unset.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("Show", isOn: $revealSecrets)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help("Reveal secret values while editing")
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    section("Speech-to-text (at least one)", fields: Self.speechFields)
+                    section("LLM refinement and translation (optional)", fields: Self.llmFields)
+                }
+                .padding(.trailing, 4)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(UntypeStatusTone.warn.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                Text(changedSummary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") { onDismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(UntypeDesignTokens.accentAmber)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!hasChanges)
+            }
+        }
+        .padding(28)
+        .frame(width: 620, height: 560)
+        .background(.regularMaterial)
+        .onAppear(perform: load)
+    }
+
+    private func section(_ title: String, fields: [Field]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            UntypeSectionHeader(title)
+            ForEach(fields, id: \.key) { field in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(field.label)
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(field.key)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if !(original[field.key] ?? "").isEmpty {
+                            Text("set")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(UntypeStatusTone.ok.color)
+                                .textCase(.uppercase)
+                        }
+                    }
+                    Group {
+                        if field.secret && !revealSecrets {
+                            SecureField(field.hint, text: binding(for: field.key))
+                        } else {
+                            TextField(field.hint, text: binding(for: field.key))
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .autocorrectionDisabled()
+                }
+            }
+        }
+    }
+
+    private func binding(for key: String) -> Binding<String> {
+        Binding(
+            get: { values[key] ?? "" },
+            set: { values[key] = $0 }
+        )
+    }
+
+    private var hasChanges: Bool {
+        Self.allKeys.contains { (values[$0] ?? "") != (original[$0] ?? "") }
+    }
+
+    private var changedSummary: String {
+        let changed = Self.allKeys.filter { (values[$0] ?? "") != (original[$0] ?? "") }
+        if changed.isEmpty { return "No changes" }
+        return "\(changed.count) change\(changed.count == 1 ? "" : "s") pending"
+    }
+
+    private static var allKeys: [String] {
+        (speechFields + llmFields).map(\.key)
+    }
+
+    private func load() {
+        let current = model.loadCredentialValues()
+        original = current
+        values = current
+    }
+
+    private func save() {
+        var changes: [String: String] = [:]
+        for key in Self.allKeys where (values[key] ?? "") != (original[key] ?? "") {
+            changes[key] = values[key] ?? ""
+        }
+        guard !changes.isEmpty else {
+            onDismiss()
+            return
+        }
+        do {
+            try model.saveCredentials(changes)
+            onDismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+@MainActor
 private struct UntypeOnboardingView: View {
     @ObservedObject var model: UntypeUIModel
     var onDismiss: () -> Void
+    @State private var showCredentials = false
 
     var body: some View {
         VStack(spacing: 22) {
@@ -2653,8 +2855,9 @@ private struct UntypeOnboardingView: View {
                     title: "Provider credentials",
                     body: "At least one STT key (Soniox or ElevenLabs) and an LLM key if you want refinement.",
                     tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus),
-                    actionLabel: needsCredential ? "Open .env" : nil,
-                    deepLink: nil
+                    actionLabel: needsCredential ? "Set keys…" : nil,
+                    deepLink: nil,
+                    action: { showCredentials = true }
                 )
             }
 
@@ -2716,7 +2919,7 @@ private struct UntypeOnboardingView: View {
                     if let url = primaryActionURL {
                         NSWorkspace.shared.open(url)
                     } else if needsCredential {
-                        model.refreshCredentials()
+                        showCredentials = true
                     } else {
                         onDismiss()
                     }
@@ -2728,6 +2931,11 @@ private struct UntypeOnboardingView: View {
         .padding(32)
         .frame(width: 760, height: 560)
         .background(.regularMaterial)
+        .sheet(isPresented: $showCredentials) {
+            UntypeCredentialsEditorView(model: model) {
+                showCredentials = false
+            }
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -2759,7 +2967,7 @@ private struct UntypeOnboardingView: View {
     private var primaryActionTitle: String {
         if needsAccessibility { return "Grant Accessibility" }
         if needsMic { return "Grant Microphone" }
-        if needsCredential { return "Refresh credentials" }
+        if needsCredential { return "Set keys" }
         return "Get started"
     }
 
@@ -2775,7 +2983,8 @@ private struct UntypeOnboardingView: View {
         body: String,
         tone: UntypeStatusTone,
         actionLabel: String?,
-        deepLink: String?
+        deepLink: String?,
+        action: (() -> Void)? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
@@ -2805,7 +3014,9 @@ private struct UntypeOnboardingView: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let actionLabel {
                 Button(actionLabel) {
-                    if let link = deepLink, let url = URL(string: link) {
+                    if let action {
+                        action()
+                    } else if let link = deepLink, let url = URL(string: link) {
                         NSWorkspace.shared.open(url)
                     } else {
                         model.refreshCredentials()
