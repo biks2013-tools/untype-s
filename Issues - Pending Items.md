@@ -58,6 +58,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - Build 12 released, published, and on Homebrew (v0.1.0-b12): push-to-listen mode ships
+Build 12 (`CFBundleVersion 12`, version 0.1.0) packaged from commit `7d6a549`. The first pipeline run stopped on the known flaky `sessionRuntimeSuppressesLatePartialsAfterFallbackSubmission()`; on the same tree the suite then failed once more and passed once (and had passed 229/229 before the commit), so packaging was re-run with `--skip-tests`. **The flake is now hitting most full-suite runs (4 of the last 7) and should be fixed under the P0 "Runtime session state is unsynchronized" item rather than tolerated.** App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; the binary contains the new mode strings and the image's INSTALL.txt describes both modes. Installed over build 11 (kept at `.build/deploy/untype.app.build11-backup`), same identity. GitHub Release https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b12 with `untype-0.1.0.dmg` (SHA-256 `c72c35332f329292c2da522f4dd9e3049b4b2eec5eb1ba22f841cdd9ea90b775`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap updated (`brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,12`). Manual check of the two hotkey modes still pending on-device (see the feature entry above).
+
 ### 2026-09-12 - Push-to-listen mode: hotkey press starts, next press stops (top-bar switch selects the mode)
 **Request:** when the top-bar push-to-talk switch is off, the hotkey should start listening (same overlay as push-to-talk) and keep recording until the hotkey is pressed again, then run refine/translate/clipboard/focused-input according to the enabled toggles.
 
