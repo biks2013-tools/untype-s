@@ -2026,7 +2026,17 @@ private struct UntypeRootView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 // Session — read-only summary
-                inspectorGroup("Session") {
+                inspectorGroup("Session", accessory: {
+                    Button {
+                        showCredentialsEditor = true
+                    } label: {
+                        Label("Edit keys…", systemImage: "key")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Set provider API keys; stored in ~/.tool-agents/untype/.env")
+                }) {
                     inspectorStatusRow("State", value: model.sessionState, tone: UntypeStatusToneMap.session(isRunning: model.isRunning, isHotkeyPressed: model.hotkeyPressed))
                     inspectorMonoRow("Mode", value: model.settings.protocolMode)
                     inspectorMonoRow("STT provider", value: model.settings.provider)
@@ -2199,14 +2209,6 @@ private struct UntypeRootView: View {
                         inspectorStatusRow(model.settings.apiKeyName, value: model.settings.apiKeyStatus, tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus))
                         inspectorMonoRow("Source", value: model.settings.storageStatus)
                         inspectorMonoRow("Expiry", value: model.settings.expiryStatus)
-                        Button {
-                            showCredentialsEditor = true
-                        } label: {
-                            Label("Edit keys…", systemImage: "key")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Set provider API keys; stored in ~/.tool-agents/untype/.env")
                         if model.settings.storageStatus.lowercased().contains(".env") || model.settings.storageStatus.lowercased().contains("user") {
                             Text("~/.tool-agents/untype/.env")
                                 .font(.system(size: 11, design: .monospaced))
@@ -2229,8 +2231,22 @@ private struct UntypeRootView: View {
     }
 
     private func inspectorGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        inspectorGroup(title, accessory: { EmptyView() }, content: content)
+    }
+
+    /// Inspector group whose header row carries a trailing accessory (e.g. a
+    /// small action button aligned to the right of the title).
+    private func inspectorGroup<Accessory: View, Content: View>(
+        _ title: String,
+        @ViewBuilder accessory: () -> Accessory,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            UntypeSectionHeader(title)
+            HStack(alignment: .center, spacing: 8) {
+                UntypeSectionHeader(title)
+                Spacer(minLength: 8)
+                accessory()
+            }
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

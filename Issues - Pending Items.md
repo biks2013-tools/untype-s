@@ -58,6 +58,11 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - "Edit keys…" moved to the Session group header (inspector)
+**Request:** move the Edit keys button to the top right of the Session title.
+
+**Done:** `inspectorGroup` gained an overload with a trailing header `accessory` (title left, accessory right in one `HStack`); the Session group passes a small bordered "Edit keys…" button (key icon, `.controlSize(.small)`, same help text) that opens `UntypeCredentialsEditorView`, and the button was removed from the Credentials group (its status rows and the `.env` path hint remain). `swift build` green; `swift test` 229/229 on rerun after one occurrence of the known flake. Uncommitted; ships with the next build.
+
 ### 2026-09-12 - Build 12 released, published, and on Homebrew (v0.1.0-b12): push-to-listen mode ships
 Build 12 (`CFBundleVersion 12`, version 0.1.0) packaged from commit `7d6a549`. The first pipeline run stopped on the known flaky `sessionRuntimeSuppressesLatePartialsAfterFallbackSubmission()`; on the same tree the suite then failed once more and passed once (and had passed 229/229 before the commit), so packaging was re-run with `--skip-tests`. **The flake is now hitting most full-suite runs (4 of the last 7) and should be fixed under the P0 "Runtime session state is unsynchronized" item rather than tolerated.** App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; the binary contains the new mode strings and the image's INSTALL.txt describes both modes. Installed over build 11 (kept at `.build/deploy/untype.app.build11-backup`), same identity. GitHub Release https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b12 with `untype-0.1.0.dmg` (SHA-256 `c72c35332f329292c2da522f4dd9e3049b4b2eec5eb1ba22f841cdd9ea90b775`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap updated (`brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,12`). Manual check of the two hotkey modes still pending on-device (see the feature entry above).
 
