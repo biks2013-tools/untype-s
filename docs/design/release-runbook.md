@@ -278,6 +278,33 @@ Check: `gh release view v<version>-b<N> --repo BikS2013/untype-s` lists the thre
 
 ---
 
+## 7c. Update the Homebrew tap
+
+Homebrew users install with `brew tap BikS2013/untype && brew install --cask untype` from the tap repository `BikS2013/homebrew-untype` (checked out next to this repo at `../homebrew-untype`, like the deck worktree). The cask points at one GitHub release asset, so it must be regenerated after every published release:
+
+```sh
+scripts/update-homebrew-cask.sh \
+  --version <version> --build <N> \
+  --sha256 <SHA-256 of untype-<version>.dmg from step 4> \
+  --tap-dir ../homebrew-untype \
+  --push
+```
+
+The script rewrites `Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits, and pushes the tap. Then verify with Homebrew itself:
+
+```sh
+git -C "$(brew --repo biks2013/untype)" pull -q origin main   # Homebrew keeps its own clone of the tap
+brew style biks2013/untype/untype                              # "no offenses detected"
+brew audit --cask --online --strict biks2013/untype/untype     # no output = pass
+brew livecheck --cask biks2013/untype/untype                   # "<version>,<N> ==> <version>,<N>"
+```
+
+Do not run `brew install --cask untype` on the development Mac while untype is running: the cask's `uninstall quit:` stanza quits the app by bundle id, and the install would collide with `/Applications/untype.app`. To test an install here use a scratch folder: `brew install --cask --appdir="$(mktemp -d)" biks2013/untype/untype`, then `brew uninstall --cask untype` and relaunch the app.
+
+Check: `brew info --cask biks2013/untype/untype` shows the new `<version>,<N>` and no deprecation warning.
+
+---
+
 ## 8. Record the release
 
 The project keeps a ledger. Add, in `Issues - Pending Items.md` under *Completed Items*, one entry with: date, version + build, the command used, test count, `status: Accepted` for app and image, the SHA-256, and anything unusual (skipped tests, permission re-grant, rejected submission and its fix). Update `docs/design/deployment-guide.md` if the procedure itself changed. Do not run git commands unless asked.

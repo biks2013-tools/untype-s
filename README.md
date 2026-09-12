@@ -41,6 +41,17 @@ swift test
 
 Unit tests live under `Tests/UntypeCoreTests/`. Manual smoke tests for live microphone, provider, and macOS-permission checks live under `test_scripts/`.
 
+## Install (end users)
+
+Homebrew:
+
+```sh
+brew tap BikS2013/untype
+brew install --cask untype
+```
+
+Or download the notarized disk image from the [latest GitHub release](https://github.com/BikS2013/untype-s/releases/latest) and drag `untype.app` to Applications. First-launch steps (keys, permissions) are in the release notes and inside the image as `INSTALL.txt`; the tap lives at [BikS2013/homebrew-untype](https://github.com/BikS2013/homebrew-untype).
+
 ## Usage
 
 ```sh

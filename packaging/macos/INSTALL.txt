@@ -48,6 +48,9 @@ untype - installation notes
    text is inserted into the focused input control and, if enabled, copied
    to the clipboard.
 
+Homebrew alternative: brew tap BikS2013/untype && brew install --cask untype
+(upgrades with brew upgrade --cask untype).
+
 Upgrading: replace the app in Applications with the new version; existing
 permissions and settings are kept as long as the app stays signed with the
 same Developer ID.
