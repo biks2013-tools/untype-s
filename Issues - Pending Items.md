@@ -58,6 +58,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - Build 10 released and published (v0.1.0-b10): UI credentials editor ships
+Build 10 (`CFBundleVersion 10`, version 0.1.0) packaged from commit `c578e76` with the standard pipeline (`--dmg`); suite 225/225 inside the pipeline. App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. Installed over build 9 (kept at `.build/deploy/untype.app.build9-backup`), same identity, no permission reset. GitHub Release https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b10 with `untype-0.1.0.dmg` (SHA-256 `b5083c95045b69b16b04a25d215d9e2d6c9d32a3caf3f6f4803210d9dcbd77b0`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical; `releases/latest` resolves to this build. Release notes tell new users to set keys via the welcome screen and link the technical deck. Ships the credentials editor (entry above). Still open: the microphone "Grant" button only opens the Settings pane (no `requestAccess` call), so on a Mac where the app never captured audio there is no row to enable until the first Start Listening.
+
 ### 2026-09-12 - Provider keys can be set from the UI and are stored in `~/.tool-agents/untype/.env`
 **Request:** a way to set the API keys through the UI, with the app storing them in the `.env` file.
 
