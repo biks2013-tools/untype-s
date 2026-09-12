@@ -1,20 +1,21 @@
-# Deck archive pointer
+# Deck pointer
 
-The untype technical presentation (50 slides, generated photography, build sources, PDF, rebuild script) and its verification screenshots are archived on the orphan, docs-only branch **`deck-history`** at their original paths. Nothing else lives on that branch.
+The untype technical presentation (50 slides, generated photography, build sources, PDF, rebuild script) and its verification screenshots live on the orphan branch **`deck`**, at their original paths (`deck/`, `test_scripts/screenshots/`). The branch shares no history with `main`: changes on `main` never reach the deck and deck commits never reach the application.
 
-Retrieve without switching branches:
-
-```
-git show deck-history:deck/README.md                       # how the deck is built
-git show deck-history:deck/untype-deck.html > untype-deck.html
-git show deck-history:deck/untype-deck.pdf  > untype-deck.pdf
-git ls-tree -r deck-history --name-only                    # everything archived
-```
-
-To work on the deck, check the branch out in a linked worktree and rebuild there:
+Work on the deck in its own linked worktree, never by switching branches here:
 
 ```
-git worktree add ../untype-deck deck-history
+git worktree add ../untype-deck deck     # once; the folder sits next to this checkout
+cd ../untype-deck/deck
+./build.sh                               # edit src/, then rebuild, then commit on the deck branch
 ```
 
-The branch is append-only: never rebase, rewrite, delete or merge it. Archive commit: `0dd55e5` (2026-09-12).
+Read files without a worktree:
+
+```
+git show deck:deck/README.md
+git show deck:deck/untype-deck.pdf > untype-deck.pdf
+git ls-tree -r deck --name-only
+```
+
+Rules: never merge or cherry-pick between `deck` and `main` in either direction; push both branches if the repository is pushed to a remote. Initial commit on the branch: `0dd55e5` (2026-09-12).
