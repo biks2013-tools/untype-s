@@ -40,3 +40,5 @@ This repository is the Homebrew tap that `brew tap BikS2013/untype` clones. It i
 scripts/update-homebrew-cask.sh --version <version> --build <N> --sha256 <dmg sha256> --push
 git push origin main
 ```
+
+Layout note: in the application repository this tap is the `homebrew-tap/` subtree; edits land here through `git subtree push`.
