@@ -19,8 +19,10 @@ untype - installation notes
    After changing a permission, quit and relaunch untype.
 
 4. Provider credentials
-   Create the file ~/.tool-agents/untype/.env (plain text, one KEY=value per
-   line) with at least one speech-to-text key:
+   On the first session start untype creates ~/.tool-agents/untype/.env as a
+   fully commented template listing every setting with its description and
+   default. Open it, remove the leading "# " on the lines you need, and fill
+   in at least one speech-to-text key:
 
      SONIOX_API_KEY=...          # default provider
      ELEVENLABS_API_KEY=...      # alternative provider
@@ -34,8 +36,8 @@ untype - installation notes
      GOOGLE_API_KEY=...          # if you switch the LLM provider to google
 
    The prompt files the app uses are created in the same folder on first run.
-   Missing required settings are reported as errors; nothing is silently
-   defaulted.
+   Settings left commented out are simply unset: missing required settings
+   are reported as errors, nothing is silently defaulted.
 
 5. Use
    Hold the configured push-to-talk hotkey, speak, release. The processed

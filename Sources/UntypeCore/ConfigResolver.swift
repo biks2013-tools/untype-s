@@ -44,6 +44,7 @@ public struct ConfigResolver: Sendable {
     public func resolve(argv: [String]) throws -> ResolvedConfig {
         let parsed = try ParsedArguments(argv: argv)
         try validateLegacyConfigFolderMigration()
+        try provisionDefaultEnvFile()
         let chain = try EnvChain(cwd: cwd, home: home, shell: shell)
 
         let providerRaw = resolveString(
@@ -558,10 +559,17 @@ public struct ConfigResolver: Sendable {
     }
 
     private func ensurePromptDirectory(_ directory: URL) throws {
-        let fileManager = FileManager.default
+        try ensurePrivateDirectories(configDirectories() + [directory], purpose: "prompt configuration")
+    }
+
+    private func configDirectories() -> [URL] {
         let configRoot = home.appendingPathComponent(".tool-agents")
-        let appDirectory = configRoot.appendingPathComponent("untype")
-        for url in [configRoot, appDirectory, directory] {
+        return [configRoot, configRoot.appendingPathComponent("untype")]
+    }
+
+    private func ensurePrivateDirectories(_ urls: [URL], purpose: String) throws {
+        let fileManager = FileManager.default
+        for url in urls {
             do {
                 if !fileManager.fileExists(atPath: url.path) {
                     try fileManager.createDirectory(
@@ -573,9 +581,29 @@ public struct ConfigResolver: Sendable {
                 try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
             } catch {
                 throw UntypeError.invalidConfiguration(
-                    "Unable to create prompt configuration folder at \(displayPath(url)): \(error.localizedDescription)"
+                    "Unable to create \(purpose) folder at \(displayPath(url)): \(error.localizedDescription)"
                 )
             }
+        }
+    }
+
+    /// Writes the fully commented `.env` template to `~/.tool-agents/untype/.env`
+    /// when no such file exists. Never overwrites an existing file and never
+    /// changes resolved values: every line of the template is a comment.
+    private func provisionDefaultEnvFile() throws {
+        let directories = configDirectories()
+        let envURL = directories[1].appendingPathComponent(UntypeEnvTemplate.fileName)
+        guard !FileManager.default.fileExists(atPath: envURL.path) else {
+            return
+        }
+        try ensurePrivateDirectories(directories, purpose: "configuration")
+        do {
+            try UntypeEnvTemplate.content.write(to: envURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: envURL.path)
+        } catch {
+            throw UntypeError.invalidConfiguration(
+                "Unable to create default .env template at \(displayPath(envURL)): \(error.localizedDescription)"
+            )
         }
     }
 

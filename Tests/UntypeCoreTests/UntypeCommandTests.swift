@@ -257,6 +257,72 @@ import Testing
     #expect(config.prompts.elevenLabsKeyterms.isEmpty)
 }
 
+@Test func defaultEnvTemplateIsProvisionedWhenMissingAndChangesNoValue() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+    let envURL = temp.url
+        .appendingPathComponent(".tool-agents")
+        .appendingPathComponent("untype")
+        .appendingPathComponent(".env")
+    #expect(!FileManager.default.fileExists(atPath: envURL.path))
+
+    // Provisioning must not supply the missing API key: the no-fallback error still fires.
+    #expect(throws: UntypeError.self) {
+        try resolver.resolve(argv: ["--no-refine"])
+    }
+
+    #expect(FileManager.default.fileExists(atPath: envURL.path))
+    let attributes = try FileManager.default.attributesOfItem(atPath: envURL.path)
+    #expect((attributes[.posixPermissions] as? Int) == 0o600)
+
+    let written = try String(contentsOf: envURL, encoding: .utf8)
+    #expect(written == UntypeEnvTemplate.content)
+    for line in written.split(separator: "\n", omittingEmptySubsequences: false) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        #expect(trimmed.isEmpty || trimmed.hasPrefix("#"), "template line must be blank or a comment: \(line)")
+    }
+    #expect(try Dotenv.readIfExists(envURL).isEmpty)
+
+    // A later resolve with the key on the CLI succeeds and leaves the template in place.
+    let config = try resolver.resolve(argv: ["--api-key", "test-key", "--no-refine"])
+    #expect(config.apiKey == "test-key")
+    #expect(try String(contentsOf: envURL, encoding: .utf8) == UntypeEnvTemplate.content)
+}
+
+@Test func defaultEnvTemplateNeverOverwritesExistingFile() throws {
+    let temp = TemporaryDirectory()
+    let directory = temp.url.appendingPathComponent(".tool-agents").appendingPathComponent("untype")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let envURL = directory.appendingPathComponent(".env")
+    try "SONIOX_API_KEY=from-file\n".write(to: envURL, atomically: true, encoding: .utf8)
+
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+    let config = try resolver.resolve(argv: ["--no-refine"])
+
+    #expect(config.apiKey == "from-file")
+    #expect(try String(contentsOf: envURL, encoding: .utf8) == "SONIOX_API_KEY=from-file\n")
+}
+
+@Test func defaultEnvTemplateDocumentsEveryConfigurationVariable() {
+    let expected: Set<String> = [
+        "SONIOX_API_KEY", "SONIOX_API_KEY_EXPIRES_AT", "ELEVENLABS_API_KEY", "ELEVENLABS_API_KEY_EXPIRES_AT",
+        "UNTYPE_STT_PROVIDER", "UNTYPE_MODEL", "UNTYPE_ENDPOINT", "UNTYPE_LANGUAGES", "UNTYPE_SAMPLE_RATE",
+        "UNTYPE_ENABLE_ENDPOINT_DETECTION", "UNTYPE_QUICK_CLOSE",
+        "UNTYPE_REFINE", "UNTYPE_LLM_PROVIDER", "UNTYPE_LLM_MODEL",
+        "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_API_VERSION",
+        "GOOGLE_API_KEY", "UNTYPE_LLM_MAX_OUTPUT_TOKENS", "UNTYPE_LLM_REASONING_EFFORT", "UNTYPE_LLM_STREAMING",
+        "UNTYPE_INTERACTION_MODE", "UNTYPE_OUTPUT_MODE", "UNTYPE_GUARD_PHRASE", "UNTYPE_COMMAND_PHRASE",
+        "UNTYPE_SECTION_END_PHRASE", "UNTYPE_SECTION_CANCEL_PHRASE", "UNTYPE_LITERAL_NEXT_PHRASE",
+        "UNTYPE_REFINE_DEFAULT", "UNTYPE_TRANSLATE_DEFAULT", "UNTYPE_CLIPBOARD_DEFAULT", "UNTYPE_INPUT_DEFAULT",
+        "UNTYPE_TRANSLATION_POLICY", "UNTYPE_PROTOCOL_OUTPUT",
+        "UNTYPE_VERBOSE", "UNTYPE_RELEASE_LATENCY_LOG", "UNTYPE_RELEASE_LATENCY_LOG_PATH",
+        "UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START"
+    ]
+    let documented = Set(UntypeEnvTemplate.variableNames)
+    #expect(documented == expected, "missing: \(expected.subtracting(documented).sorted()); extra: \(documented.subtracting(expected).sorted())")
+    #expect(UntypeEnvTemplate.variableNames.count == expected.count, "duplicate variable lines in template")
+}
+
 @Test func customPromptFilesAreLoadedFromUserConfigFolder() throws {
     let temp = TemporaryDirectory()
     let promptDirectory = try makePromptDirectory(in: temp)

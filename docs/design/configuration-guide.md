@@ -10,6 +10,20 @@
 
 Required values must be provided explicitly. Missing required configuration raises a typed error; the application must not silently substitute a fallback for required settings.
 
+## Default `.env` Template
+
+### Purpose
+On every configuration resolution (CLI start or a native-UI session start) `untype` checks for `~/.tool-agents/untype/.env`. If the file does not exist it creates the folder (`0700`) and writes a **fully commented** template (`0600`) listing every configuration variable the application understands, grouped by area (speech-to-text, LLM refinement/translation, interaction and voice commands, diagnostics), each as `# NAME=` preceded by a one-line description with the allowed values and the built-in default.
+
+### Behavior
+- Every line of the template is a comment or blank, so provisioning never changes a resolved value. The no-fallback rule is untouched: a required setting that stays commented out is still reported as a configuration error (for example the missing STT API key on first start).
+- An existing `.env` is never modified, regardless of its content.
+- The template text lives in `Sources/UntypeCore/EnvTemplate.swift` (`UntypeEnvTemplate.content`). A unit test asserts the template documents exactly the set of variables the resolver reads, so adding a variable to the resolver without adding it to the template fails the suite.
+- Users enable a setting by deleting the leading `# ` and filling the value. Comments elsewhere in the file are preserved by the parser.
+
+### Recommended Use
+Point new users at this file instead of a separate example: after the first launch they open `~/.tool-agents/untype/.env`, uncomment `SONIOX_API_KEY=` (or `ELEVENLABS_API_KEY=` plus `UNTYPE_STT_PROVIDER=elevenlabs`) and, if they keep refinement on, the LLM provider block, then start a session again.
+
 ## Prompt Configuration
 
 ### Purpose
