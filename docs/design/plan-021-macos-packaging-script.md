@@ -48,3 +48,4 @@ Add a repeatable repository script that packages the SwiftPM release outputs int
 - `scripts/package-macos-app.sh --bundle-id com.example.untype --version 0.1.0 --build 1 --unsigned --skip-tests` passed on 2026-05-27.
 - The 2026-05-27 archive contains no AppleDouble `._*` entries after using `ditto --norsrc`.
 - `swift test` passed on 2026-05-27 with 160 tests passing.
+- 2026-09-12: added `--dmg` / `--dmg-only` (drag-to-Applications disk image with `Applications` shortcut and `packaging/macos/INSTALL.txt`; codesigned, notarized, stapled, Gatekeeper-assessed with the same identity/profile). `bash -n` passed; first image built from the stapled build 7 app.

@@ -13,6 +13,8 @@ ICON_PATH=""
 SKIP_TESTS=0
 SKIP_BUILD=0
 CREATE_UNSIGNED=0
+CREATE_DMG=0
+DMG_ONLY=0
 
 usage() {
   cat <<'EOF'
@@ -27,7 +29,9 @@ Usage:
     [--icon path/to/AppIcon.icns] \
     [--skip-tests] \
     [--skip-build] \
-    [--unsigned]
+    [--unsigned] \
+    [--dmg] \
+    [--dmg-only]
 
 Required:
   --bundle-id       Final CFBundleIdentifier. Example: com.example.untype
@@ -42,10 +46,22 @@ Signing:
 Icon:
   --icon            Override the default packaging/macos/AppIcon.icns file.
 
+Disk image:
+  --dmg             Also create a drag-to-Applications disk image containing
+                    the app, an Applications shortcut, and
+                    packaging/macos/INSTALL.txt. With --sign-identity the image
+                    is codesigned; with --notary-profile it is notarized and
+                    stapled as well.
+  --dmg-only        Skip build, tests, bundle creation, app signing and app
+                    notarization; only build the disk image from the existing
+                    <output-dir>/untype.app (which must already be signed and,
+                    for --notary-profile, stapled). Implies --dmg.
+
 Outputs:
   <output-dir>/untype.app
   <output-dir>/untype-<version>.zip
   <output-dir>/untype-<version>-notarized.zip when notarization is enabled
+  <output-dir>/untype-<version>.dmg when --dmg or --dmg-only is given
 EOF
 }
 
@@ -104,6 +120,17 @@ while [[ $# -gt 0 ]]; do
       CREATE_UNSIGNED=1
       shift
       ;;
+    --dmg)
+      CREATE_DMG=1
+      shift
+      ;;
+    --dmg-only)
+      CREATE_DMG=1
+      DMG_ONLY=1
+      SKIP_BUILD=1
+      SKIP_TESTS=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -147,6 +174,10 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
   require_command xcrun
 fi
 
+if [[ "$CREATE_DMG" -eq 1 ]]; then
+  require_command hdiutil
+fi
+
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
   note "Building release products"
   swift build -c release
@@ -157,15 +188,6 @@ if [[ "$SKIP_TESTS" -ne 1 ]]; then
   swift test
 fi
 
-BIN_DIR="$(swift build -c release --show-bin-path)"
-UNTYPE_BINARY="$BIN_DIR/untype"
-HELPER_BINARY="$BIN_DIR/untype-input-helper"
-ENTITLEMENTS="$PROJECT_ROOT/packaging/macos/untype.entitlements"
-
-[[ -x "$UNTYPE_BINARY" ]] || fail "missing release binary: $UNTYPE_BINARY"
-[[ -x "$HELPER_BINARY" ]] || fail "missing release helper binary: $HELPER_BINARY"
-[[ -f "$ENTITLEMENTS" ]] || fail "missing entitlements file: $ENTITLEMENTS"
-
 STAGE="$PROJECT_ROOT/$OUTPUT_DIR"
 APP="$STAGE/$APP_NAME.app"
 CONTENTS="$APP/Contents"
@@ -175,6 +197,57 @@ INFO_PLIST="$CONTENTS/Info.plist"
 PKGINFO="$CONTENTS/PkgInfo"
 ZIP="$STAGE/$APP_NAME-$VERSION.zip"
 FINAL_ZIP="$STAGE/$APP_NAME-$VERSION-notarized.zip"
+DMG="$STAGE/$APP_NAME-$VERSION.dmg"
+
+build_dmg() {
+  local dmg_stage="$STAGE/dmg-root"
+  local install_notes="$PROJECT_ROOT/packaging/macos/INSTALL.txt"
+
+  [[ -d "$APP" ]] || fail "missing app bundle for disk image: $APP"
+
+  note "Creating disk image at $DMG"
+  rm -rf "$dmg_stage" "$DMG"
+  mkdir -p "$dmg_stage"
+  ditto "$APP" "$dmg_stage/$APP_NAME.app"
+  ln -s /Applications "$dmg_stage/Applications"
+  if [[ -f "$install_notes" ]]; then
+    cp "$install_notes" "$dmg_stage/INSTALL.txt"
+  fi
+
+  hdiutil create -volname "$PRODUCT_NAME" -srcfolder "$dmg_stage" -ov -format UDZO -quiet "$DMG"
+  rm -rf "$dmg_stage"
+
+  if [[ -n "$SIGN_IDENTITY" ]]; then
+    note "Signing disk image"
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+    codesign --verify --verbose=2 "$DMG"
+  fi
+
+  if [[ -n "$NOTARY_PROFILE" ]]; then
+    note "Submitting disk image for notarization"
+    xcrun notarytool submit "$DMG" \
+      --keychain-profile "$NOTARY_PROFILE" \
+      --wait
+
+    note "Stapling disk image"
+    xcrun stapler staple "$DMG"
+    xcrun stapler validate "$DMG"
+
+    note "Assessing disk image with Gatekeeper"
+    spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG"
+  fi
+}
+
+if [[ "$DMG_ONLY" -ne 1 ]]; then
+BIN_DIR="$(swift build -c release --show-bin-path)"
+UNTYPE_BINARY="$BIN_DIR/untype"
+HELPER_BINARY="$BIN_DIR/untype-input-helper"
+ENTITLEMENTS="$PROJECT_ROOT/packaging/macos/untype.entitlements"
+
+[[ -x "$UNTYPE_BINARY" ]] || fail "missing release binary: $UNTYPE_BINARY"
+[[ -x "$HELPER_BINARY" ]] || fail "missing release helper binary: $HELPER_BINARY"
+[[ -f "$ENTITLEMENTS" ]] || fail "missing entitlements file: $ENTITLEMENTS"
+
 
 note "Creating app bundle at $APP"
 rm -rf "$APP" "$ZIP" "$FINAL_ZIP"
@@ -285,6 +358,12 @@ if [[ -n "$NOTARY_PROFILE" ]]; then
   spctl --assess --type execute --verbose=4 "$APP"
 fi
 
+fi
+
+if [[ "$CREATE_DMG" -eq 1 ]]; then
+  build_dmg
+fi
+
 cat <<EOF
 
 Packaged app:
@@ -294,11 +373,19 @@ Archive:
   $ZIP
 EOF
 
-if [[ -n "$NOTARY_PROFILE" ]]; then
+if [[ -n "$NOTARY_PROFILE" && "$DMG_ONLY" -ne 1 ]]; then
   cat <<EOF
 
 Notarized archive:
   $FINAL_ZIP
+EOF
+fi
+
+if [[ "$CREATE_DMG" -eq 1 ]]; then
+  cat <<EOF
+
+Disk image:
+  $DMG
 EOF
 fi
 

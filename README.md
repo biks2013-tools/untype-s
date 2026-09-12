@@ -82,6 +82,8 @@ test_scripts/    Manual smoke-test procedures
 - Functional requirements: [`docs/design/project-functions.md`](docs/design/project-functions.md)
 - Implementation plan: [`docs/design/plan-001-swift-drop-in-replacement.md`](docs/design/plan-001-swift-drop-in-replacement.md)
 - Open issues and backlog: [`Issues - Pending Items.md`](Issues%20-%20Pending%20Items.md)
+- Release runbook (rebuild, sign, notarize, package, distribute): [`docs/design/release-runbook.md`](docs/design/release-runbook.md)
+- Deployment guide (background and manual steps): [`docs/design/deployment-guide.md`](docs/design/deployment-guide.md)
 
 ## License
 

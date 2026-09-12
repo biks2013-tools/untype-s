@@ -1,5 +1,7 @@
 # Deployment Guide
 
+> Looking for the step-by-step procedure? Use **[`release-runbook.md`](release-runbook.md)** — it is the operational checklist (one-time setup, build, sign, notarize, disk image, install, smoke test, distribute, maintenance calendar). This guide keeps the background, the manual equivalents of what the script does, and the design rationale.
+
 This project currently builds SwiftPM executable products:
 
 - `untype`
@@ -65,7 +67,7 @@ scripts/package-macos-app.sh \
   --bundle-id "com.example.untype" \
   --version "0.1.0" \
   --build "1" \
-  --sign-identity "Developer ID Application: Your Name (TEAMID1234)" \
+  --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" \
   --notary-profile "untype-notary"
 ```
 
@@ -79,7 +81,44 @@ scripts/package-macos-app.sh \
   --unsigned
 ```
 
-The script builds release products, runs tests by default, creates `untype.app`, uses `untype` itself as the bundle executable so double-clicking the app opens UI mode without an intermediate launcher, writes `Info.plist` and `PkgInfo`, includes `packaging/macos/untype.entitlements`, includes `packaging/macos/AppIcon.icns` by default, removes removable extended attributes when possible, optionally signs and notarizes, and writes clean `ditto --norsrc` archives under `.build/deploy/`.
+The production procedure (used since build 7 on 2026-09-12) signs with the team's Developer ID Application identity and notarizes through the `untype-notary` keychain profile; the script submits, waits, staples, and runs the Gatekeeper assessment itself:
+
+```sh
+security find-identity -v -p codesigning   # must list "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)"
+scripts/package-macos-app.sh \
+  --bundle-id "com.local.untype" \
+  --version "0.1.0" \
+  --build "<next CFBundleVersion>" \
+  --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" \
+  --notary-profile untype-notary
+osascript -e 'tell application "untype" to quit'
+mv /Applications/untype.app .build/deploy/untype.app.previous
+ditto .build/deploy/untype.app /Applications/untype.app
+spctl --assess --type execute --verbose=4 /Applications/untype.app   # expect "accepted", source=Notarized Developer ID
+open -a /Applications/untype.app
+```
+
+Identity facts (login keychain, verified 2026-09-12):
+
+- `Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)` — expires 2027-02-01. Renew it in Xcode → Settings → Accounts → Manage Certificates (or on developer.apple.com → Certificates) before then, and export a `.p12` backup of the certificate + private key from Keychain Access: Apple cannot re-issue the private key. A renewed certificate changes the signing leaf and therefore requires one more re-grant of Accessibility/Input Monitoring.
+- `Apple Development: giorgos.marinos@gmail.com (4LF448TU3N)` — expires 2027-08-15. Usable for local-only builds (`--sign-identity` without `--notary-profile`) but Gatekeeper on other Macs rejects it; prefer the Developer ID procedure above so the TCC identity stays constant.
+- The `untype-notary` notarytool profile uses the App Store Connect API key `untype-notary` (Key ID `<KEY_ID>`, Developer role, Issuer ID `<ISSUER_ID>`) whose private key is stored at `~/.tool-agents/untype/AuthKey_<KEY_ID>.p8` (mode `0600`, never commit it; Apple allows a single download, so back it up). Re-register it on another machine with `xcrun notarytool store-credentials untype-notary --key <p8> --key-id <KEY_ID> --issuer <ISSUER_ID>`; check it with `xcrun notarytool history --keychain-profile untype-notary`.
+
+Distributable outputs: `.build/deploy/untype-0.1.0-notarized.zip` (stapled app inside) and, with `--dmg`, `.build/deploy/untype-0.1.0.dmg`.
+
+### Shareable disk image
+
+Add `--dmg` to the production command above to also produce a drag-to-Applications disk image (`untype-<version>.dmg`) containing the stapled app, an `Applications` shortcut, and `packaging/macos/INSTALL.txt` (end-user install, permission, and credential notes). The image is codesigned with the same identity, submitted to notarization, stapled, and assessed with `spctl --assess --type open --context context:primary-signature`. To rebuild only the image from an already signed and stapled `.build/deploy/untype.app` (no rebuild, no app re-notarization):
+
+```sh
+scripts/package-macos-app.sh \
+  --bundle-id "com.local.untype" --version "0.1.0" --build "<same build>" \
+  --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" \
+  --notary-profile untype-notary \
+  --dmg-only
+```
+
+Share the `.dmg`; recipients double-click it, drag the app to Applications, and follow `INSTALL.txt`. Keep `INSTALL.txt` in sync with the onboarding checklist in `NativeUntypeUILauncher` and the credential names in `ConfigResolver`.
 
 ## Manual App Bundle Steps
 

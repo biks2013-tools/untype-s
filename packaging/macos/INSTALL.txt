@@ -1,0 +1,47 @@
+untype - installation notes
+===========================
+
+1. Install
+   Drag "untype" onto the "Applications" shortcut in this window.
+   The app is signed with a Developer ID certificate and notarized by Apple,
+   so macOS opens it without any Gatekeeper warning. Requires macOS 14 or later.
+
+2. First launch
+   Open untype from Applications (or Spotlight). The window shows an
+   onboarding checklist for the items below.
+
+3. Permissions (System Settings > Privacy & Security)
+   - Microphone: grant when macOS asks on the first recording.
+   - Accessibility: add untype. Needed for the push-to-talk hotkey and for
+     inserting text into the focused input field.
+   - Input Monitoring: add untype if the hotkey does not fire while another
+     app is in front.
+   After changing a permission, quit and relaunch untype.
+
+4. Provider credentials
+   Create the file ~/.tool-agents/untype/.env (plain text, one KEY=value per
+   line) with at least one speech-to-text key:
+
+     SONIOX_API_KEY=...          # default provider
+     ELEVENLABS_API_KEY=...      # alternative provider
+
+   Optional, only if you enable LLM refinement / translation:
+
+     AZURE_OPENAI_API_KEY=...    # default LLM provider
+     AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com
+     AZURE_OPENAI_DEPLOYMENT=<deployment-name>
+     AZURE_OPENAI_API_VERSION=<api-version>
+     GOOGLE_API_KEY=...          # if you switch the LLM provider to google
+
+   The prompt files the app uses are created in the same folder on first run.
+   Missing required settings are reported as errors; nothing is silently
+   defaulted.
+
+5. Use
+   Hold the configured push-to-talk hotkey, speak, release. The processed
+   text is inserted into the focused input control and, if enabled, copied
+   to the clipboard.
+
+Upgrading: replace the app in Applications with the new version; existing
+permissions and settings are kept as long as the app stays signed with the
+same Developer ID.
