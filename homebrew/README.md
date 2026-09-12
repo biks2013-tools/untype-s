@@ -33,8 +33,10 @@ brew uninstall --zap --cask untype  # also removes prompts, UI state and the lat
 
 ## Maintainers
 
-The cask is regenerated from the untype-s repository after each release:
+This repository is the Homebrew tap that `brew tap BikS2013/untype` clones. It is maintained as a git subtree (`homebrew/`) of the application repository [BikS2013/untype-s](https://github.com/BikS2013/untype-s): edit the cask there and push the subtree back here, never commit here directly. After each release:
 
 ```bash
-scripts/update-homebrew-cask.sh --version <version> --build <N> --sha256 <dmg sha256> --tap-dir ../homebrew-untype --push
+# in untype-s
+scripts/update-homebrew-cask.sh --version <version> --build <N> --sha256 <dmg sha256> --push
+git push origin main
 ```
