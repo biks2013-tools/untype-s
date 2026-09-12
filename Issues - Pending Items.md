@@ -58,6 +58,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - Build 13 released, published, and on Homebrew (v0.1.0-b13)
+Build 13 (`CFBundleVersion 13`, version 0.1.0) packaged from commit `4a66e35`; suite 229/229 inside the pipeline on the first pass (no flake). App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. Installed over build 12 (kept at `.build/deploy/untype.app.build12-backup`), same identity. GitHub Release https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b13 with `untype-0.1.0.dmg` (SHA-256 `c76f01a0ef57de221201e2228fda57c597d6a7296ab78a344f47964a290be0d3`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap updated (`brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,13`). Ships the "Edit keys…" header placement.
+
 ### 2026-09-12 - "Edit keys…" moved to the Session group header (inspector)
 **Request:** move the Edit keys button to the top right of the Session title.
 
