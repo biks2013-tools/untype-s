@@ -280,7 +280,7 @@ Check: `gh release view v<version>-b<N> --repo BikS2013/untype-s` lists the thre
 
 ## 7c. Update the Homebrew tap
 
-Homebrew users install with `brew tap BikS2013/untype && brew install --cask untype` from the tap repository `BikS2013/homebrew-untype`. That repository is maintained as a **git subtree** of this one at `homebrew/` (remote `homebrew-tap`); the cask is edited here and pushed back to the tap, never committed in the tap directly. The cask points at one GitHub release asset, so it must be regenerated after every published release:
+Homebrew users install with `brew tap BikS2013/untype && brew install --cask untype` from the tap repository `BikS2013/homebrew-untype`. That repository is maintained as a **git subtree** of this one at `homebrew-tap/` (remote `homebrew-tap`); the cask is edited here and pushed back to the tap, never committed in the tap directly. The cask points at one GitHub release asset, so it must be regenerated after every published release:
 
 ```sh
 scripts/update-homebrew-cask.sh \
@@ -290,7 +290,7 @@ scripts/update-homebrew-cask.sh \
 git push origin main
 ```
 
-The script rewrites `homebrew/Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits it on the current branch, and runs `git subtree push --prefix=homebrew homebrew-tap main`, which is what updates the tap that Homebrew clones. The final `git push origin main` publishes the same commit in this repository. On a fresh clone add the remote once: `git remote add homebrew-tap https://github.com/BikS2013/homebrew-untype.git`. Then verify with Homebrew itself:
+The script rewrites `homebrew-tap/Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits it on the current branch, and runs `git subtree push --prefix=homebrew-tap homebrew-tap main`, which is what updates the tap that Homebrew clones. The final `git push origin main` publishes the same commit in this repository. On a fresh clone add the remote once: `git remote add homebrew-tap https://github.com/BikS2013/homebrew-untype.git`. Then verify with Homebrew itself:
 
 ```sh
 git -C "$(brew --repo biks2013/untype)" pull -q origin main   # Homebrew keeps its own clone of the tap

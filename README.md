@@ -50,7 +50,7 @@ brew tap BikS2013/untype
 brew install --cask untype
 ```
 
-Or download the notarized disk image from the [latest GitHub release](https://github.com/BikS2013/untype-s/releases/latest) and drag `untype.app` to Applications. First-launch steps (keys, permissions) are in the release notes and inside the image as `INSTALL.txt`. The tap repository [BikS2013/homebrew-untype](https://github.com/BikS2013/homebrew-untype) is maintained from this repository's `homebrew/` folder (a git subtree); see `docs/design/release-runbook.md` step 7c.
+Or download the notarized disk image from the [latest GitHub release](https://github.com/BikS2013/untype-s/releases/latest) and drag `untype.app` to Applications. First-launch steps (keys, permissions) are in the release notes and inside the image as `INSTALL.txt`. The tap repository [BikS2013/homebrew-untype](https://github.com/BikS2013/homebrew-untype) is maintained from this repository's `homebrew-tap/` folder (a git subtree); see `docs/design/release-runbook.md` step 7c.
 
 ## Usage
 

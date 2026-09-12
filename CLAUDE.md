@@ -63,3 +63,10 @@
 | Category | Archive branch | Pointer note | Contents |
 |---|---|---|---|
 | Presentation deck | `deck` (orphan **working** branch, not an archive: edit it in a linked worktree at `../untype-deck`, commit there, never merge with `main`) | `deck/README.md` | `deck/` (HTML, PDF, rebuild script, sources, generated images, assets, build scripts) and `test_scripts/screenshots/`. The HTML deck is published at https://biks2013.github.io/untype-s/ by the branch's `.github/workflows/deploy-deck.yml` on every push to `deck`. |
+
+## Homebrew Tap Convention
+
+- The Homebrew tap that `brew tap BikS2013/untype && brew install --cask untype` clones is the repository https://github.com/BikS2013/homebrew-untype. It is **maintained from this repository only**, as a git subtree at `homebrew-tap/` (git remote `homebrew-tap`; on a fresh clone add it with `git remote add homebrew-tap https://github.com/BikS2013/homebrew-untype.git`). Never commit in the tap repository directly: `git subtree push` regenerates its history from `homebrew-tap/` and would overwrite direct commits.
+- The cask (`homebrew-tap/Casks/untype.rb`) is generated, never hand-edited: after every published GitHub release run `scripts/update-homebrew-cask.sh --version <v> --build <N> --sha256 <dmg sha256> --push` (commits the cask on the current branch and runs `git subtree push --prefix=homebrew-tap homebrew-tap main`), then `git push origin main`. Verify with `brew style biks2013/untype/untype`, `brew audit --cask --online --strict biks2013/untype/untype`, `brew livecheck --cask biks2013/untype/untype` after pulling Homebrew's tap clone (`git -C "$(brew --repo biks2013/untype)" pull`).
+- Never test `brew install --cask untype` on the development Mac while untype is running (the cask's `uninstall quit:` quits it and the install collides with `/Applications/untype.app`); use `--appdir="$(mktemp -d)"` and relaunch afterwards.
+- Full procedure: `docs/design/release-runbook.md`, step 7c.

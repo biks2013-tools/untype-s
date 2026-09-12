@@ -2,7 +2,7 @@
 # Writes Casks/untype.rb for a published GitHub release into the Homebrew tap.
 #
 # The tap (github.com/BikS2013/homebrew-untype) lives in this repository as a
-# git subtree at homebrew/ (the default --tap-dir). In that mode --commit
+# git subtree at homebrew-tap/ (the default --tap-dir). In that mode --commit
 # commits the cask on the current branch of this repository and --push
 # pushes the subtree back to the tap repository (remote "homebrew-tap"),
 # which is what `brew tap BikS2013/untype` clones. A standalone clone of the
@@ -15,7 +15,7 @@ PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VERSION=""
 BUILD=""
 SHA256=""
-TAP_DIR="$PROJECT_ROOT/homebrew"
+TAP_DIR="$PROJECT_ROOT/homebrew-tap"
 TAP_REMOTE="homebrew-tap"
 TAP_BRANCH="main"
 DO_COMMIT=0
@@ -27,15 +27,15 @@ Usage:
   scripts/update-homebrew-cask.sh \
     --version 0.1.0 --build 10 \
     --sha256 <sha256 of untype-<version>.dmg> \
-    [--tap-dir homebrew] [--tap-remote homebrew-tap] [--tap-branch main] \
+    [--tap-dir homebrew-tap] [--tap-remote homebrew-tap] [--tap-branch main] \
     [--commit] [--push]
 
 Rewrites <tap-dir>/Casks/untype.rb so that it points at the GitHub release
 tag v<version>-b<build> and its untype-<version>.dmg asset.
 
-Subtree mode (default, --tap-dir is the homebrew/ subtree of this repo):
-  --commit  commits homebrew/Casks/untype.rb on the current branch here
-  --push    also runs `git subtree push --prefix=homebrew <remote> <branch>`
+Subtree mode (default, --tap-dir is the homebrew-tap/ subtree of this repo):
+  --commit  commits homebrew-tap/Casks/untype.rb on the current branch here
+  --push    also runs `git subtree push --prefix=homebrew-tap <remote> <branch>`
             so the tap repository (what `brew tap BikS2013/untype` clones)
             receives the change. Push this repository's branch separately.
 
