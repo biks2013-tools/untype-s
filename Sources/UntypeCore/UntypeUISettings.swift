@@ -25,6 +25,10 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var microphoneStatus: String
     public var accessibilityStatus: String
     public var hotkeyEnabled: Bool
+    /// `true`: push-to-talk (hold the hotkey to record, release to submit).
+    /// `false`: push-to-listen (press once to start recording, press again to
+    /// stop and submit). Requires `hotkeyEnabled` either way.
+    public var hotkeyHoldToTalk: Bool
     public var hotkey: String
     public var windowWidth: Double
     public var windowHeight: Double
@@ -60,6 +64,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         microphoneStatus: "unknown",
         accessibilityStatus: "unknown",
         hotkeyEnabled: false,
+        hotkeyHoldToTalk: true,
         hotkey: "Control+`",
         windowWidth: 1180,
         windowHeight: 760,
@@ -166,6 +171,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let hotkeyEnabled = patch.hotkeyEnabled {
             next.hotkeyEnabled = hotkeyEnabled
+        }
+        if let hotkeyHoldToTalk = patch.hotkeyHoldToTalk {
+            next.hotkeyHoldToTalk = hotkeyHoldToTalk
         }
         if let hotkey = patch.hotkey {
             next.hotkey = hotkey
@@ -274,6 +282,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var llmModel: String?
     public var llmStreaming: Bool?
     public var hotkeyEnabled: Bool?
+    public var hotkeyHoldToTalk: Bool?
     public var hotkey: String?
     public var windowWidth: Double?
     public var windowHeight: Double?
@@ -302,6 +311,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         llmModel: String? = nil,
         llmStreaming: Bool? = nil,
         hotkeyEnabled: Bool? = nil,
+        hotkeyHoldToTalk: Bool? = nil,
         hotkey: String? = nil,
         windowWidth: Double? = nil,
         windowHeight: Double? = nil,
@@ -329,6 +339,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.llmModel = llmModel
         self.llmStreaming = llmStreaming
         self.hotkeyEnabled = hotkeyEnabled
+        self.hotkeyHoldToTalk = hotkeyHoldToTalk
         self.hotkey = hotkey
         self.windowWidth = windowWidth
         self.windowHeight = windowHeight
@@ -568,6 +579,7 @@ public enum UntypeUISettingsStore {
             microphoneStatus: current.microphoneStatus,
             accessibilityStatus: current.accessibilityStatus,
             hotkeyEnabled: current.hotkeyEnabled,
+            hotkeyHoldToTalk: current.hotkeyHoldToTalk,
             hotkey: current.hotkey,
             windowWidth: current.windowWidth,
             windowHeight: current.windowHeight,
@@ -624,6 +636,7 @@ private struct PersistedUISettings: Codable {
     let llmModel: String
     let llmStreaming: Bool?
     let hotkeyEnabled: Bool
+    let hotkeyHoldToTalk: Bool?
     let hotkey: String
     let windowWidth: Double?
     let windowHeight: Double?
@@ -652,6 +665,7 @@ private struct PersistedUISettings: Codable {
         case llmModel
         case llmStreaming
         case hotkeyEnabled
+        case hotkeyHoldToTalk
         case hotkey
         case windowWidth
         case windowHeight
@@ -681,6 +695,7 @@ private struct PersistedUISettings: Codable {
         self.llmModel = settings.llmModel
         self.llmStreaming = settings.llmStreaming
         self.hotkeyEnabled = settings.hotkeyEnabled
+        self.hotkeyHoldToTalk = settings.hotkeyHoldToTalk
         self.hotkey = settings.hotkey
         self.windowWidth = settings.windowWidth
         self.windowHeight = settings.windowHeight
@@ -713,6 +728,7 @@ private struct PersistedUISettings: Codable {
                 llmModel: llmModel,
                 llmStreaming: llmStreaming ?? defaults.llmStreaming,
                 hotkeyEnabled: hotkeyEnabled,
+                hotkeyHoldToTalk: hotkeyHoldToTalk ?? defaults.hotkeyHoldToTalk,
                 hotkey: hotkey,
                 windowWidth: windowWidth ?? defaults.windowWidth,
                 windowHeight: windowHeight ?? defaults.windowHeight,

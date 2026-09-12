@@ -436,9 +436,32 @@ private final class UntypeUIModel: ObservableObject {
         return "Stop Listening"
     }
 
+    /// Hotkey pressed. Push-to-talk (hold) mode starts recording; the release
+    /// event stops it. Push-to-listen (toggle) mode starts recording on the
+    /// first press and stops it on the next press; releases are ignored.
+    func handleHotkeyPress(source: String = "hotkey") {
+        if !settings.hotkeyHoldToTalk, hotkeyPressed {
+            stopHotkeySession(source: source)
+            return
+        }
+        startHotkeySession(source: source)
+    }
+
+    /// Hotkey released. Only push-to-talk (hold) mode reacts.
+    func handleHotkeyRelease(source: String = "hotkey") {
+        guard settings.hotkeyHoldToTalk else {
+            return
+        }
+        stopHotkeySession(source: source)
+    }
+
+    var hotkeyModeLabel: String {
+        settings.hotkeyHoldToTalk ? "push-to-talk" : "push-to-listen"
+    }
+
     func startHotkeySession(source: String = "hotkey") {
         guard settings.hotkeyEnabled else {
-            appendEvent("diagnostic.warning: [untype] push-to-talk ignored because it is disabled")
+            appendEvent("diagnostic.warning: [untype] \(hotkeyModeLabel) ignored because the hotkey is disabled")
             return
         }
         guard sessionOwner != .manual else {
@@ -458,7 +481,7 @@ private final class UntypeUIModel: ObservableObject {
         if runtime == nil, sessionOwner == nil {
             startSession(owner: .hotkey, audioGate: control)
         }
-        appendEvent("diagnostic.info: [untype] push-to-talk pressed (\(source))")
+        appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) started (\(source))")
     }
 
     func stopHotkeySession(source: String = "hotkey") {
@@ -469,7 +492,7 @@ private final class UntypeUIModel: ObservableObject {
         hotkeyPressed = false
         captureState = "finalizing"
         hotkeySessionControl?.close()
-        appendEvent("diagnostic.info: [untype] push-to-talk released (\(source))")
+        appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) stopped (\(source))")
         restartWarmSessionAfterStop = settings.hotkeyEnabled
         stopSession(reason: "ui-hotkey-release", submitPending: true, releaseMarker: releaseMarker)
         overlay?.show(phase: "finalizing", text: latestTranscript)
@@ -1161,22 +1184,22 @@ private struct UntypeRootView: View {
             .keyboardShortcut("r", modifiers: [.command])
 
             HStack(spacing: 6) {
-                Image(systemName: model.settings.hotkeyEnabled ? "mic.fill" : "mic.slash")
+                Image(systemName: model.settings.hotkeyHoldToTalk ? "hand.tap.fill" : "mic.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(model.settings.hotkeyEnabled ? UntypeDesignTokens.accentAmber : Color.secondary)
-                Text("Push-to-talk")
+                    .foregroundStyle(UntypeDesignTokens.accentAmber)
+                Text(model.settings.hotkeyHoldToTalk ? "Push-to-talk" : "Push-to-listen")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(model.settings.hotkeyEnabled ? Color.primary : Color.secondary)
+                    .foregroundStyle(Color.primary)
                 Toggle("Push-to-talk", isOn: pushToTalkBinding)
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .tint(UntypeDesignTokens.accentAmber)
             }
             .padding(.leading, 2)
-            .help(model.settings.hotkeyEnabled
-                  ? "Push-to-talk is on: hold \(model.settings.hotkey) to record, release to submit. Switch off to stop listening for the hotkey."
-                  : "Push-to-talk is off. Switch on to listen for \(model.settings.hotkey) and keep a warm session ready.")
-            .accessibilityLabel("Push-to-talk")
+            .help(model.settings.hotkeyHoldToTalk
+                  ? "Push-to-talk: hold \(model.settings.hotkey) to record, release to submit. Switch off for push-to-listen: press once to start, press again to stop and submit."
+                  : "Push-to-listen: press \(model.settings.hotkey) once to start recording, press it again to stop and submit. Switch on for push-to-talk (hold to record).")
+            .accessibilityLabel("Push-to-talk mode")
 
             Divider().frame(height: 16)
 
@@ -1240,14 +1263,14 @@ private struct UntypeRootView: View {
         )
     }
 
-    /// Top-bar push-to-talk switch. Goes through `model.update`, which
-    /// reconfigures the hotkey monitor and starts or stops the warm hotkey
-    /// session, so it works while a warm session is active (unlike the
-    /// inspector toggle, which is locked during sessions).
+    /// Top-bar hotkey mode switch: on = push-to-talk (hold to record, release
+    /// to submit), off = push-to-listen (press to start, press again to stop
+    /// and submit). Changing the mode does not reconfigure the hotkey monitor
+    /// or restart the warm session, so it is safe at any time.
     private var pushToTalkBinding: Binding<Bool> {
         Binding(
-            get: { model.settings.hotkeyEnabled },
-            set: { model.update(UntypeUISettingsPatch(hotkeyEnabled: $0)) }
+            get: { model.settings.hotkeyHoldToTalk },
+            set: { model.update(UntypeUISettingsPatch(hotkeyHoldToTalk: $0)) }
         )
     }
 
@@ -2114,6 +2137,13 @@ private struct UntypeRootView: View {
                             }
                         }
                         .disabled(sessionShapingDisabled)
+                        inspectorToggleRow("Hold to talk", isOn: binding(\.hotkeyHoldToTalk))
+                        Text(model.settings.hotkeyHoldToTalk
+                             ? "Push-to-talk: hold the hotkey to record, release to submit."
+                             : "Push-to-listen: press the hotkey to start, press again to stop and submit.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         inspectorToggleRow("Quick Close", isOn: binding(\.quickClose))
                             .disabled(sessionShapingDisabled)
                         inspectorFieldRow("Action") {
@@ -2385,6 +2415,8 @@ private struct UntypeRootView: View {
             return UntypeUISettingsPatch(llmModel: value as? String)
         case \UntypeUISettings.hotkeyEnabled:
             return UntypeUISettingsPatch(hotkeyEnabled: value as? Bool)
+        case \UntypeUISettings.hotkeyHoldToTalk:
+            return UntypeUISettingsPatch(hotkeyHoldToTalk: value as? Bool)
         case \UntypeUISettings.hotkey:
             return UntypeUISettingsPatch(hotkey: value as? String)
         default:
@@ -2937,7 +2969,9 @@ private struct UntypeOnboardingView: View {
                         }
                         .buttonStyle(.borderless)
                     }
-                    Text("Hold to record, release to submit. Auto-warms a new provider session after each turn.")
+                    Text(model.settings.hotkeyHoldToTalk
+                         ? "Hold to record, release to submit. Auto-warms a new provider session after each turn."
+                         : "Press to start recording, press again to stop and submit. Auto-warms a new provider session after each turn.")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3449,9 +3483,9 @@ private final class UntypeHotkeyMonitor {
             }
             switch event {
             case .press(let source):
-                model.startHotkeySession(source: source)
+                model.handleHotkeyPress(source: source)
             case .release(let source):
-                model.stopHotkeySession(source: source)
+                model.handleHotkeyRelease(source: source)
             case .toggleOperator(let key, let source):
                 model.appendEvent("diagnostic.info: [untype] protocol operator hotkey \(key.rawValue) (\(source))")
                 model.toggleOperator(key)

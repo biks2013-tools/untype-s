@@ -44,9 +44,11 @@ untype - installation notes
    are reported as errors, nothing is silently defaulted.
 
 5. Use
-   Hold the configured push-to-talk hotkey, speak, release. The processed
-   text is inserted into the focused input control and, if enabled, copied
-   to the clipboard.
+   Push-to-talk (top-bar switch on): hold the hotkey, speak, release.
+   Push-to-listen (switch off): press the hotkey once to start, speak, press
+   it again to stop. Either way the processed text is refined/translated as
+   configured, inserted into the focused input control and, if enabled,
+   copied to the clipboard.
 
 Homebrew alternative: brew tap BikS2013/untype && brew install --cask untype
 (upgrades with brew upgrade --cask untype).

@@ -52,6 +52,38 @@ import Testing
     #expect(!nonStreamingArgs.contains("--llm-streaming"))
 }
 
+@Test func uiSettingsDefaultHotkeyModeIsPushToTalk() {
+    #expect(UntypeUISettings.default.hotkeyHoldToTalk)
+}
+
+@Test func uiSettingsMergeAppliesHotkeyModePatch() throws {
+    let toggleMode = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyHoldToTalk: false))
+    #expect(toggleMode.hotkeyHoldToTalk == false)
+
+    let unchanged = try toggleMode.merged(UntypeUISettingsPatch(refine: true))
+    #expect(unchanged.hotkeyHoldToTalk == false)
+
+    let back = try toggleMode.merged(UntypeUISettingsPatch(hotkeyHoldToTalk: true))
+    #expect(back.hotkeyHoldToTalk)
+}
+
+@Test func uiSettingsStoreRoundTripsHotkeyMode() throws {
+    let temp = UITemporaryDirectory()
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyEnabled: true, hotkeyHoldToTalk: false))
+
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    #expect(loaded.hotkeyEnabled)
+    #expect(loaded.hotkeyHoldToTalk == false)
+}
+
+@Test func hotkeyModeChangeDoesNotReconfigureHotkeyMonitor() throws {
+    let base = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyEnabled: true))
+    let toggleMode = try base.merged(UntypeUISettingsPatch(hotkeyHoldToTalk: false))
+    #expect(!UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: toggleMode))
+}
+
 @Test func uiSettingsStoreRoundTripsLlmStreaming() throws {
     let temp = UITemporaryDirectory()
     let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(llmStreaming: true))

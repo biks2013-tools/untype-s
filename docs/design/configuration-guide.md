@@ -39,6 +39,18 @@ The native UI can write provider credentials into `~/.tool-agents/untype/.env` s
 - The editor shows and edits the user-level file only; values coming from `<cwd>/.env` or the shell environment are not displayed, although the status line still reports them as the effective source when they win the precedence chain.
 - Secret values never reach the event log or diagnostics; the saved event names only the affected keys.
 
+## Hotkey Modes (native UI)
+
+`ui-state.json` (`~/.tool-agents/untype/ui-state.json`) stores `hotkeyHoldToTalk` next to `hotkeyEnabled` and `hotkey`:
+
+| Setting | Values | Default | Meaning |
+|---|---|---|---|
+| `hotkeyEnabled` | `true` / `false` | `false` | Whether the global hotkey is monitored at all (inspector → Push to talk → Enabled). |
+| `hotkeyHoldToTalk` | `true` / `false` | `true` | `true`: push-to-talk, hold the hotkey to record and release to submit. `false`: push-to-listen, press once to start recording and press again to stop and submit. Top-bar switch and inspector "Hold to talk" row. |
+| `hotkey` | key chord, e.g. `Control+\`` | `Control+\`` | The hotkey itself. |
+
+Both modes run the same pipeline after the recording ends: refinement, translation, clipboard, and focused-input delivery according to the operator toggles. Missing `hotkeyHoldToTalk` in an older state file loads the default (push-to-talk).
+
 ## Prompt Configuration
 
 ### Purpose
