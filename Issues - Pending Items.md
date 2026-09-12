@@ -58,6 +58,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - First public GitHub Release: v0.1.0-b8
+Public download links were needed. The repository is public and `gh` is authenticated, so build 8 was published as a GitHub Release instead of an artifacts branch (binaries in git would grow the clone by ~7 MB per build; releases keep them out of history and give login-free URLs). Tag `v0.1.0-b8` (annotated, on `09f456a`, whose `Sources/`, `prompts/`, `scripts/` and `packaging/` are exactly what build 8 was compiled from) was pushed together with `main`; the release carries `untype-0.1.0.dmg`, `untype-0.1.0-notarized.zip`, and `SHA256SUMS`. Verified: `curl` download without authentication returns the image with SHA-256 `10c89ce5fc3ab2dbc0ba0305302748fd375445a5c62ffafca6f98d24c618245a`. Release page: https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b8 — direct link: https://github.com/BikS2013/untype-s/releases/download/v0.1.0-b8/untype-0.1.0.dmg. Procedure added to `docs/design/release-runbook.md` as step 7b.
+
 ### 2026-09-12 - Build 8 released (prompt-hardening edits shipped; flaky test confirmed as flake)
 **Request:** run and package a new build.
 

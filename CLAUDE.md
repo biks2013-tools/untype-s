@@ -62,4 +62,4 @@
 
 | Category | Archive branch | Pointer note | Contents |
 |---|---|---|---|
-| Presentation deck | `deck-history` | `deck/README.md` | `deck/` (HTML, PDF, rebuild script, sources, generated images, assets, build scripts) and `test_scripts/screenshots/` |
+| Presentation deck | `deck` (orphan **working** branch, not an archive: edit it in a linked worktree at `../untype-deck`, commit there, never merge with `main`) | `deck/README.md` | `deck/` (HTML, PDF, rebuild script, sources, generated images, assets, build scripts) and `test_scripts/screenshots/`. The HTML deck is published at https://biks2013.github.io/untype-s/ by the branch's `.github/workflows/deploy-deck.yml` on every push to `deck`. |

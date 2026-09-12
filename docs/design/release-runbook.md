@@ -234,6 +234,50 @@ Check: the recipient can open the image, install, and get past the onboarding ch
 
 ---
 
+## 7b. Publish a public download link (GitHub Release)
+
+The repository `BikS2013/untype-s` is public, so a GitHub Release gives a permanent, login-free download URL. Requires `gh auth status` to show the BikS2013 account. Do this only after steps 4–6 passed.
+
+1. Make sure the source the build came from is committed and pushed (`git status --short` clean for `Sources/`, `prompts/`, `scripts/`, `packaging/`).
+2. Write the checksums file and release notes (download list, SHA-256, macOS 14 requirement, the three install steps, what changed):
+
+   ```sh
+   cd .build/deploy && shasum -a 256 untype-<version>.dmg untype-<version>-notarized.zip > SHA256SUMS && cd ../..
+   ```
+
+3. Tag the commit with version **and** build number, push, and create the release with the three assets:
+
+   ```sh
+   git tag -a v<version>-b<N> -m "untype <version> build <N> (notarized Developer ID release)" HEAD
+   git push origin main
+   git push origin v<version>-b<N>
+   gh release create v<version>-b<N> --repo BikS2013/untype-s \
+     --title "untype <version> (build <N>)" \
+     --notes-file <notes.md> \
+     ".build/deploy/untype-<version>.dmg#untype-<version>.dmg (disk image, recommended)" \
+     ".build/deploy/untype-<version>-notarized.zip#untype-<version>-notarized.zip" \
+     ".build/deploy/SHA256SUMS#SHA256SUMS"
+   ```
+
+4. Verify the link works without a login and serves the same bytes:
+
+   ```sh
+   curl -sL -o /tmp/dl.dmg https://github.com/BikS2013/untype-s/releases/download/v<version>-b<N>/untype-<version>.dmg
+   shasum -a 256 /tmp/dl.dmg      # must equal the SHA-256 from step 4
+   ```
+
+Links to hand out:
+
+- Release page: `https://github.com/BikS2013/untype-s/releases/tag/v<version>-b<N>`
+- Direct download: `https://github.com/BikS2013/untype-s/releases/download/v<version>-b<N>/untype-<version>.dmg`
+- Always-newest: `https://github.com/BikS2013/untype-s/releases/latest/download/untype-<version>.dmg` (works while the file name stays the same across releases)
+
+First release created this way: `v0.1.0-b8` on 2026-09-12.
+
+Check: `gh release view v<version>-b<N> --repo BikS2013/untype-s` lists the three assets, `isDraft=false`, and the curl-downloaded checksum matches.
+
+---
+
 ## 8. Record the release
 
 The project keeps a ledger. Add, in `Issues - Pending Items.md` under *Completed Items*, one entry with: date, version + build, the command used, test count, `status: Accepted` for app and image, the SHA-256, and anything unusual (skipped tests, permission re-grant, rejected submission and its fix). Update `docs/design/deployment-guide.md` if the procedure itself changed. Do not run git commands unless asked.
