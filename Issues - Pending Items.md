@@ -58,6 +58,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-09-12 - Build 9 released and published (v0.1.0-b9): commented `.env` template ships
+Build 9 (`CFBundleVersion 9`, version 0.1.0) packaged from commit `08375ba` with `scripts/package-macos-app.sh --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" --notary-profile untype-notary --dmg`; full suite ran inside the pipeline (219/219, no flake this time). App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. Installed over build 8 (kept at `.build/deploy/untype.app.build8-backup`), same identity, no permission reset. Published as GitHub Release https://github.com/BikS2013/untype-s/releases/tag/v0.1.0-b9 with `untype-0.1.0.dmg` (SHA-256 `4830850c80f9e1418602c5ed348129f295cd89d176da98ce45a0ad1016b616a6`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical, and the `releases/latest` link now resolves to this build. Ships the first-start `.env` template feature (see the entry above). Release notes carry a "Learn more" link to the technical deck site https://biks2013.github.io/untype-s/ (GitHub Pages, `deck` branch); the runbook's step 7b now lists that link as a standard part of release notes.
+
 ### 2026-09-12 - App creates a commented `.env` template on first start
 **Request:** create a default `.env` under `~/.tool-agents/untype/` when it is missing, with every variable commented out and empty.
 
