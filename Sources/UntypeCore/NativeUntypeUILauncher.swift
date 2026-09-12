@@ -1160,6 +1160,26 @@ private struct UntypeRootView: View {
             }
             .keyboardShortcut("r", modifiers: [.command])
 
+            HStack(spacing: 6) {
+                Image(systemName: model.settings.hotkeyEnabled ? "mic.fill" : "mic.slash")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(model.settings.hotkeyEnabled ? UntypeDesignTokens.accentAmber : Color.secondary)
+                Text("Push-to-talk")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(model.settings.hotkeyEnabled ? Color.primary : Color.secondary)
+                Toggle("Push-to-talk", isOn: pushToTalkBinding)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .tint(UntypeDesignTokens.accentAmber)
+            }
+            .padding(.leading, 2)
+            .help(model.settings.hotkeyEnabled
+                  ? "Push-to-talk is on: hold \(model.settings.hotkey) to record, release to submit. Switch off to stop listening for the hotkey."
+                  : "Push-to-talk is off. Switch on to listen for \(model.settings.hotkey) and keep a warm session ready.")
+            .accessibilityLabel("Push-to-talk")
+
+            Divider().frame(height: 16)
+
             Button {
                 model.refreshCredentials()
             } label: {
@@ -1217,6 +1237,17 @@ private struct UntypeRootView: View {
         Binding(
             get: { model.settings.appearance },
             set: { model.updateLayout(appearance: $0) }
+        )
+    }
+
+    /// Top-bar push-to-talk switch. Goes through `model.update`, which
+    /// reconfigures the hotkey monitor and starts or stops the warm hotkey
+    /// session, so it works while a warm session is active (unlike the
+    /// inspector toggle, which is locked during sessions).
+    private var pushToTalkBinding: Binding<Bool> {
+        Binding(
+            get: { model.settings.hotkeyEnabled },
+            set: { model.update(UntypeUISettingsPatch(hotkeyEnabled: $0)) }
         )
     }
 
@@ -2811,9 +2842,38 @@ private struct UntypeOnboardingView: View {
     @ObservedObject var model: UntypeUIModel
     var onDismiss: () -> Void
     @State private var showCredentials = false
+    @State private var showPermissionGuide = false
+
+    private static let microphoneSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+    private static let accessibilitySettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    private static let inputMonitoringSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 22) {
+                    onboardingContent
+                }
+                .padding(.bottom, 8)
+            }
+            footer
+        }
+        .padding(32)
+        .frame(width: 760, height: 640)
+        .background(.regularMaterial)
+        .sheet(isPresented: $showCredentials) {
+            UntypeCredentialsEditorView(model: model) {
+                showCredentials = false
+            }
+        }
+        .onAppear {
+            showPermissionGuide = needsMic || needsAccessibility
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var onboardingContent: some View {
             HStack(alignment: .top, spacing: 14) {
                 UntypeBrandMark(size: 52)
                 VStack(alignment: .leading, spacing: 6) {
@@ -2845,7 +2905,7 @@ private struct UntypeOnboardingView: View {
                 onboardingStep(
                     number: 2,
                     title: "Accessibility trust",
-                    body: "Lets untype install a Quartz event-tap for the push-to-talk hotkey.",
+                    body: "Lets untype listen for the push-to-talk hotkey and insert text into the focused field.",
                     tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
                     actionLabel: needsAccessibility ? "Grant" : nil,
                     deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -2860,6 +2920,8 @@ private struct UntypeOnboardingView: View {
                     action: { showCredentials = true }
                 )
             }
+
+            permissionGuide
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -2905,7 +2967,9 @@ private struct UntypeOnboardingView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.06))
             )
+    }
 
+    private var footer: some View {
             HStack(spacing: 10) {
                 Text(footerSummary)
                     .font(.system(size: 12))
@@ -2927,16 +2991,138 @@ private struct UntypeOnboardingView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(UntypeDesignTokens.accentAmber)
             }
-        }
-        .padding(32)
-        .frame(width: 760, height: 560)
-        .background(.regularMaterial)
-        .sheet(isPresented: $showCredentials) {
-            UntypeCredentialsEditorView(model: model) {
-                showCredentials = false
+            .padding(.top, 14)
+    }
+
+    // MARK: Permission guide
+
+    private var permissionGuide: some View {
+        DisclosureGroup(isExpanded: $showPermissionGuide) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("macOS grants these per app. After changing any of them, quit untype and open it again. Each pane lists untype only after it has been added there once.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                permissionGuideBlock(
+                    title: "Microphone",
+                    status: model.settings.microphoneStatus,
+                    tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus),
+                    steps: [
+                        "Click Start Listening (or hold the hotkey) once. macOS asks \"untype would like to access the microphone\": click Allow.",
+                        "If there was no prompt, or you clicked Don't Allow earlier: System Settings › Privacy & Security › Microphone, switch untype on. untype appears in that list only after it has asked once, so do the first step first."
+                    ],
+                    settingsURL: Self.microphoneSettingsURL,
+                    settingsLabel: "Open Microphone settings"
+                )
+
+                permissionGuideBlock(
+                    title: "Accessibility (push-to-talk hotkey and text insertion)",
+                    status: model.settings.accessibilityStatus,
+                    tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
+                    steps: [
+                        "System Settings › Privacy & Security › Accessibility.",
+                        "Click the + button below the list, pick Applications › untype, click Open, then make sure the switch next to untype is on. macOS may ask for your password or Touch ID.",
+                        "Quit untype and open it again.",
+                        "If the switch is already on but untype still reports \"not trusted\" (typical after an update changed the app's signature): select untype in the list, click −, add it again with +, then quit and reopen untype."
+                    ],
+                    settingsURL: Self.accessibilitySettingsURL,
+                    settingsLabel: "Open Accessibility settings"
+                )
+
+                permissionGuideBlock(
+                    title: "Input Monitoring (only if the hotkey does not fire while another app is in front)",
+                    status: nil,
+                    tone: nil,
+                    steps: [
+                        "System Settings › Privacy & Security › Input Monitoring.",
+                        "Click +, pick Applications › untype, click Open, switch it on. If an older untype entry is already there, remove it with − first.",
+                        "Quit untype and open it again."
+                    ],
+                    settingsURL: Self.inputMonitoringSettingsURL,
+                    settingsLabel: "Open Input Monitoring settings"
+                )
+
+                HStack(spacing: 8) {
+                    Button {
+                        model.refreshCredentials()
+                    } label: {
+                        Label("Re-check status", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    Text("Status is read live from macOS; if it still disagrees with what untype reports during dictation, use the remove-and-add-again step above.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "lock.shield")
+                    .foregroundStyle(UntypeDesignTokens.accentAmber)
+                Text("How to enable Microphone, Accessibility and Input Monitoring")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                if needsMic || needsAccessibility {
+                    Text("action needed")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(UntypeStatusTone.warn.color)
+                        .textCase(.uppercase)
+                        .tracking(0.4)
+                }
             }
         }
-        .accessibilityElement(children: .contain)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06))
+        )
+    }
+
+    private func permissionGuideBlock(
+        title: String,
+        status: String?,
+        tone: UntypeStatusTone?,
+        steps: [String],
+        settingsURL: String,
+        settingsLabel: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                if let status, let tone {
+                    UntypeStatusDot(tone: tone, size: 6)
+                    Text(status)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(tone.color)
+                }
+                Spacer()
+                Button(settingsLabel) {
+                    if let url = URL(string: settingsURL) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .top, spacing: 8) {
+                    Text("\(index + 1).")
+                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, alignment: .trailing)
+                    Text(step)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     private var hotkeyTokens: [String] {
