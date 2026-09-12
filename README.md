@@ -95,7 +95,7 @@ test_scripts/    Manual smoke-test procedures
 - Open issues and backlog: [`Issues - Pending Items.md`](Issues%20-%20Pending%20Items.md)
 - Release runbook (rebuild, sign, notarize, package, distribute): [`docs/design/release-runbook.md`](docs/design/release-runbook.md)
 - Deployment guide (background and manual steps): [`docs/design/deployment-guide.md`](docs/design/deployment-guide.md)
-- Technical presentation (50 slides, published from the `deck` branch): https://biks2013.github.io/untype-s/ — sources and build notes in [`deck/README.md`](deck/README.md)
+- Technical presentation (53 slides, published from the `deck` branch): https://biks2013.github.io/untype-s/ — sources and build notes in [`deck/README.md`](deck/README.md)
 
 ## License
 

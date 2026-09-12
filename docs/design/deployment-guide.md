@@ -298,11 +298,11 @@ Use `test_scripts/ui-mode-smoke.md` as the manual smoke-test checklist and exten
 
 ## Recommended Repository Changes Before First Release
 
-1. Decide the final bundle identifier and app name.
+1. Decide the final bundle identifier and app name (still `com.local.untype`; changing it resets every user's TCC grants, so do it in one deliberate release).
 2. Review whether the default `packaging/macos/AppIcon.icns` is the final public-release brand icon; if not, pass the replacement to `scripts/package-macos-app.sh --icon`.
-3. Add a CI release job that runs build, tests, app bundle creation, signing, notarization, stapling, and final verification.
-4. Decide whether to distribute `.zip`, `.dmg`, or both.
-5. Document end-user installation and permission setup in `README.md`.
+3. Add a CI release job that runs build, tests, app bundle creation, signing, notarization, stapling, and final verification (today the runbook is executed by hand).
+4. ~~Decide whether to distribute `.zip`, `.dmg`, or both.~~ Done 2026-09-12: the notarized `.dmg` is the primary artifact (GitHub Releases + Homebrew cask), the notarized `.zip` is attached to each release as an alternative.
+5. ~~Document end-user installation and permission setup in `README.md`.~~ Done 2026-09-12: README "Install (end users)", `packaging/macos/INSTALL.txt` inside the image, release notes, and the in-app welcome guide.
 
 ## Deployment Summary
 

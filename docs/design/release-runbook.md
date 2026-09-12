@@ -2,7 +2,7 @@
 
 Step-by-step procedure for producing a new `untype.app` release on this Mac, installing it locally, and handing a notarized disk image to other people. Follow the steps in order; each step ends with a check that must pass before the next one.
 
-Last verified: 2026-09-12 (build 7, `untype-0.1.0.dmg`). Environment at that time: macOS 26 (Darwin 25.6), Xcode 26.6, Swift 6.3.3.
+Last verified: 2026-09-12 (build 13, `untype-0.1.0.dmg`, release `v0.1.0-b13`, Homebrew cask `0.1.0,13`). Environment at that time: macOS 26 (Darwin 25.6), Xcode 26.6, Swift 6.3.3.
 
 ---
 
@@ -95,7 +95,7 @@ The output must contain, in this order:
 
 ```
 ==> Running test suite
-✔ Test run with 216 tests in 0 suites passed
+✔ Test run with 229 tests in 0 suites passed
 ==> Verifying code signature
 .../untype.app: valid on disk
 .../untype.app: satisfies its Designated Requirement
@@ -219,13 +219,13 @@ Check: both features work and the newest log record shows `ok: true`.
 
 ## 7. Distribute
 
-Share **only** `.build/deploy/untype-0.1.0.dmg` (rename it with the build number if several builds of the same version circulate, e.g. `untype-0.1.0-b7.dmg`; renaming does not affect the signature). Publish the SHA-256 from step 4 next to the download.
+Share **only** `.build/deploy/untype-0.1.0.dmg` (rename it with the build number if several builds of the same version circulate, e.g. `untype-0.1.0-b13.dmg`; renaming does not affect the signature). Publish the SHA-256 from step 4 next to the download.
 
 Give recipients these instructions (they are also inside the image as `INSTALL.txt`):
 
 1. Open the `.dmg`, drag **untype** onto **Applications**. No Gatekeeper warning appears because the app is notarized. macOS 14 or newer.
-2. Launch untype from Applications. Grant **Microphone** when asked; add untype under **Accessibility** and, if the hotkey does not fire, under **Input Monitoring**; quit and relaunch after changing permissions.
-3. Create `~/.tool-agents/untype/.env` with at least one speech-to-text key (`SONIOX_API_KEY=` or `ELEVENLABS_API_KEY=`) and, only for LLM refinement, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION` (or `GOOGLE_API_KEY`). Missing required values are reported, never defaulted.
+2. Launch untype from Applications and follow the welcome screen's **How to enable Microphone, Accessibility and Input Monitoring** guide: start listening once and allow the Microphone, add untype under **Accessibility**, and under **Input Monitoring** only if the hotkey does not fire while another app is in front; quit and relaunch after changing permissions.
+3. On the welcome screen click **Set keys…** and enter at least one speech-to-text key (Soniox or ElevenLabs), plus the Azure OpenAI or Google entries only for LLM refinement; the app stores them in `~/.tool-agents/untype/.env`, readable only by the user. The file can also be edited by hand: the first session start creates it as a fully commented template. Missing required values are reported, never defaulted.
 4. Upgrading later: replace the app in Applications; permissions and settings are kept.
 
 Do **not** share the `.zip` files or a bare `untype.app` copied from `/Applications`; they lack the install notes, and a bare copy can lose the stapled ticket if it travels through tools that strip extended attributes.
