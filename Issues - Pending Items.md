@@ -58,6 +58,12 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-10-03 - Push-to-talk overlay invisible while the HyprMac window manager is active (fixed, build 14)
+- **Symptom:** with HyprMac (`com.zachgray.HyprMac`, a tiling window manager) running, the recording/finalizing overlay no longer appeared on push-to-talk. Recording and delivery still worked: release records showed `delivered_to_focused_input` / `no_text`.
+- **Diagnosis:** a simulated Control+` press reproduced it. The overlay `NSPanel` (window 3388, CG layer 25) never came on screen. `CGSCopySpacesForWindows` showed the hidden panel pinned to a single Space (`[3]`, desktop 1 of the Mi 27) while the active Space was 8. A healthy `.canJoinAllSpaces` panel belongs to every Space on the display (10), and other apps' hidden panels report none. The panel was created once and reused for the app's lifetime, so after the window server pinned it to one Space, `orderFrontRegardless` showed it only there. HyprMac never tracks the panel: its admission filter only accepts CG layers 0/3. A HyprMac-style desktop switch (`CGSManagedDisplaySetCurrentSpace`) did not reproduce the pinning on a test panel, so which call wrote the stale membership is still unknown.
+- **Fix:** `UntypeOverlayController.show` (`Sources/UntypeCore/NativeUntypeUILauncher.swift`) now closes the old panel and creates a new one each time the overlay appears from hidden. A fresh panel always joins every Space. Push-to-talk wiring (hotkey monitor, audio gate, release delivery) is untouched.
+- **Deployed and verified:** build 14 was packaged with the production procedure (signed with the login-keychain Developer ID certificate `2C7D6068…`, the one that signed build 13, and notarized). The user confirmed that push-to-talk shows the overlay on a non-first desktop with HyprMac active and that delivery still works. Note: two certificates named `Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)` exist (login and System keychains), so `--sign-identity` by name is ambiguous; pass the SHA-1 `2C7D6068C232BA74073D56085DDBB04E5F14DF30` or delete the System-keychain duplicate.
+
 ### 2026-09-12 - Flaky `sessionRuntimeSuppressesLatePartialsAfterFallbackSubmission()` fixed
 **Symptom:** the test failed under full-suite ordering (4 of the last 7 pipeline runs) but never in isolation (0/20).
 

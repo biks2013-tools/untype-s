@@ -2461,7 +2461,14 @@ private final class UntypeOverlayController: ObservableObject {
         self.phase = phase
         self.text = text
         let wasVisible = panel?.isVisible == true
-        if panel == nil {
+        if !wasVisible {
+            // A fresh panel on every appearance: a long-lived hidden panel can
+            // be left pinned to a single Space by the window server (seen with
+            // the HyprMac window manager), and `orderFrontRegardless` then
+            // shows it only on that Space despite `.canJoinAllSpaces`. A newly
+            // created panel always joins every Space.
+            panel?.close()
+            panel = nil
             createPanel()
         }
         applyPanelFrameIfNeeded()
