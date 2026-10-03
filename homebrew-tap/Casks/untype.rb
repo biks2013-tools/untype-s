@@ -1,6 +1,6 @@
 cask "untype" do
-  version "0.1.0,13"
-  sha256 "c76f01a0ef57de221201e2228fda57c597d6a7296ab78a344f47964a290be0d3"
+  version "0.1.0,15"
+  sha256 "12b7e87f1d924af9d4446860afe7734d176f77eb63bdf1c25ef46ca826cab975"
 
   url "https://github.com/BikS2013/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
   name "untype"
