@@ -479,11 +479,16 @@ private let runtimeMarkers = MarkerConfig(
     #expect(!sessionEvents.contains(.diagnostic(message: "stale late partial", warning: false)))
 }
 
+/// A provider partial that arrives after the timeout fallback has already
+/// submitted the latest partial must be dropped, and so must a late final.
+/// The late events are emitted only after `stop` returns (the fallback
+/// submission completes inside `stop`), so the test does not depend on the
+/// relative timing of the mock's delayed emission and the runtime's
+/// final-wait timeout, which is what made the earlier version flaky under
+/// full-suite load.
 @Test func sessionRuntimeSuppressesLatePartialsAfterFallbackSubmission() async throws {
     let audio = MockAudioSource()
     let transcriber = MockTranscriber()
-    transcriber.partialAfterCommit = "stale late partial"
-    transcriber.partialAfterCommitDelayNanoseconds = 5_000_000
     let rendered = MemoryOutput()
     let controller = VoiceAgentProtocolController(
         mode: .dictation,
@@ -506,10 +511,49 @@ private let runtimeMarkers = MarkerConfig(
     try await runtime.start()
     transcriber.emitPartial("latest visible words")
     await runtime.stop(reason: "ui-hotkey-release", submitPending: true)
-    try await Task.sleep(nanoseconds: 10_000_000)
+
+    // Late provider traffic, after the fallback submission completed.
+    transcriber.emitPartial("stale late partial")
+    await transcriber.emitFinal("stale late final")
 
     #expect(rendered.text.contains("latest visible words\n\n"))
     #expect(!rendered.text.contains("stale late partial"))
+    #expect(!rendered.text.contains("stale late final"))
+}
+
+/// The counterpart of the test above: a partial that the provider sends
+/// after `commit()` but while the runtime is still waiting for the final is
+/// newer text and becomes the fallback submission. The final-wait window is
+/// far longer than the mock's emission latency, so this holds under load.
+@Test func sessionRuntimeFallbackUsesPartialReceivedDuringFinalWait() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    transcriber.partialAfterCommit = "latest visible words and more"
+    let rendered = MemoryOutput()
+    let controller = VoiceAgentProtocolController(
+        mode: .dictation,
+        renderer: TranscriptRenderer(output: rendered, mode: .append, isTTY: false),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false),
+        translationPolicy: .opposite
+    )
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(
+            sttProviderLabel: "soniox",
+            finalTranscriptWaitNanoseconds: 300_000_000,
+            submissionDiagnosticsEnabled: true
+        )
+    )
+
+    try await runtime.start()
+    transcriber.emitPartial("latest visible words")
+    await runtime.stop(reason: "ui-hotkey-release", submitPending: true)
+
+    #expect(rendered.text.contains("latest visible words and more\n\n"))
+    #expect(!rendered.text.contains("latest visible words\n\n"))
 }
 
 @Test func sessionRuntimeCommitsProviderWhenPartialContainsVoiceCommand() async throws {
