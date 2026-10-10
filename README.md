@@ -1,11 +1,11 @@
 # homebrew-untype
 
-Homebrew tap for [untype](https://github.com/BikS2013/untype-s), push-to-talk voice dictation for macOS with optional LLM refinement and translation. The cask installs the notarized `untype.app` from the project's GitHub Releases.
+Homebrew tap for [untype](https://github.com/biks2013-tools/untype-s), push-to-talk voice dictation for macOS with optional LLM refinement and translation. The cask installs the notarized `untype.app` from the project's GitHub Releases.
 
 ## Install
 
 ```bash
-brew tap BikS2013/untype
+brew tap biks2013-tools/untype
 brew install --cask untype
 ```
 
@@ -22,7 +22,7 @@ brew upgrade --cask untype
 2. Click **Start Listening** once and allow the **Microphone** when macOS asks.
 3. **System Settings → Privacy & Security → Accessibility**: enable untype. Add it under **Input Monitoring** too if the hotkey does not fire while another app is in front. Quit and relaunch after changing permissions.
 
-Technical deck: https://biks2013.github.io/untype-s/
+Technical deck: https://biks2013-tools.github.io/untype-s/
 
 ## Uninstall
 
@@ -33,7 +33,7 @@ brew uninstall --zap --cask untype  # also removes prompts, UI state and the lat
 
 ## Maintainers
 
-This repository is the Homebrew tap that `brew tap BikS2013/untype` clones. It is maintained as a git subtree (`homebrew-tap/`) of the application repository [BikS2013/untype-s](https://github.com/BikS2013/untype-s): edit the cask there and push the subtree back here, never commit here directly. After each release:
+This repository is the Homebrew tap that `brew tap biks2013-tools/untype` clones. It is maintained as a git subtree (`homebrew-tap/`) of the application repository [BikS2013/untype-s](https://github.com/biks2013-tools/untype-s): edit the cask there and push the subtree back here, never commit here directly. After each release:
 
 ```bash
 # in untype-s
