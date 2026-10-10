@@ -46,11 +46,11 @@ Unit tests live under `Tests/UntypeCoreTests/`. Manual smoke tests for live micr
 Homebrew:
 
 ```sh
-brew tap BikS2013/untype
+brew tap biks2013-tools/untype
 brew install --cask untype
 ```
 
-Or download the notarized disk image from the [latest GitHub release](https://github.com/BikS2013/untype-s/releases/latest) and drag `untype.app` to Applications. First-launch steps (keys, permissions) are in the release notes and inside the image as `INSTALL.txt`. The tap repository [BikS2013/homebrew-untype](https://github.com/BikS2013/homebrew-untype) is maintained from this repository's `homebrew-tap/` folder (a git subtree); see `docs/design/release-runbook.md` step 7c.
+Or download the notarized disk image from the [latest GitHub release](https://github.com/biks2013-tools/untype-s/releases/latest) and drag `untype.app` to Applications. First-launch steps (keys, permissions) are in the release notes and inside the image as `INSTALL.txt`. The tap repository [biks2013-tools/homebrew-untype](https://github.com/biks2013-tools/homebrew-untype) is maintained from this repository's `homebrew-tap/` folder (a git subtree); see `docs/design/release-runbook.md` step 7c.
 
 ## Usage
 
@@ -95,7 +95,7 @@ test_scripts/    Manual smoke-test procedures
 - Open issues and backlog: [`Issues - Pending Items.md`](Issues%20-%20Pending%20Items.md)
 - Release runbook (rebuild, sign, notarize, package, distribute): [`docs/design/release-runbook.md`](docs/design/release-runbook.md)
 - Deployment guide (background and manual steps): [`docs/design/deployment-guide.md`](docs/design/deployment-guide.md)
-- Technical presentation (53 slides, published from the `deck` branch): https://biks2013.github.io/untype-s/ — sources and build notes in [`deck/README.md`](deck/README.md)
+- Technical presentation (53 slides, published from the `deck` branch): https://biks2013-tools.github.io/untype-s/ — sources and build notes in [`deck/README.md`](deck/README.md)
 
 ## License
 

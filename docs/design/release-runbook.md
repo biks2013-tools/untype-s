@@ -239,7 +239,7 @@ Check: the recipient can open the image, install, and get past the onboarding ch
 The repository `BikS2013/untype-s` is public, so a GitHub Release gives a permanent, login-free download URL. Requires `gh auth status` to show the BikS2013 account. Do this only after steps 4–6 passed.
 
 1. Make sure the source the build came from is committed and pushed (`git status --short` clean for `Sources/`, `prompts/`, `scripts/`, `packaging/`).
-2. Write the checksums file and release notes: download list, SHA-256, macOS 14 requirement, a "Learn more" pointer to the technical deck at https://biks2013.github.io/untype-s/ (published from the `deck` branch by GitHub Pages), the three install steps, what changed:
+2. Write the checksums file and release notes: download list, SHA-256, macOS 14 requirement, a "Learn more" pointer to the technical deck at https://biks2013-tools.github.io/untype-s/ (published from the `deck` branch by GitHub Pages), the three install steps, what changed:
 
    ```sh
    cd .build/deploy && shasum -a 256 untype-<version>.dmg untype-<version>-notarized.zip > SHA256SUMS && cd ../..
@@ -262,15 +262,15 @@ The repository `BikS2013/untype-s` is public, so a GitHub Release gives a perman
 4. Verify the link works without a login and serves the same bytes:
 
    ```sh
-   curl -sL -o /tmp/dl.dmg https://github.com/BikS2013/untype-s/releases/download/v<version>-b<N>/untype-<version>.dmg
+   curl -sL -o /tmp/dl.dmg https://github.com/biks2013-tools/untype-s/releases/download/v<version>-b<N>/untype-<version>.dmg
    shasum -a 256 /tmp/dl.dmg      # must equal the SHA-256 from step 4
    ```
 
 Links to hand out:
 
-- Release page: `https://github.com/BikS2013/untype-s/releases/tag/v<version>-b<N>`
-- Direct download: `https://github.com/BikS2013/untype-s/releases/download/v<version>-b<N>/untype-<version>.dmg`
-- Always-newest: `https://github.com/BikS2013/untype-s/releases/latest/download/untype-<version>.dmg` (works while the file name stays the same across releases)
+- Release page: `https://github.com/biks2013-tools/untype-s/releases/tag/v<version>-b<N>`
+- Direct download: `https://github.com/biks2013-tools/untype-s/releases/download/v<version>-b<N>/untype-<version>.dmg`
+- Always-newest: `https://github.com/biks2013-tools/untype-s/releases/latest/download/untype-<version>.dmg` (works while the file name stays the same across releases)
 
 First release created this way: `v0.1.0-b8` on 2026-09-12.
 
@@ -280,7 +280,7 @@ Check: `gh release view v<version>-b<N> --repo BikS2013/untype-s` lists the thre
 
 ## 7c. Update the Homebrew tap
 
-Homebrew users install with `brew tap BikS2013/untype && brew install --cask untype` from the tap repository `BikS2013/homebrew-untype`. That repository is maintained as a **git subtree** of this one at `homebrew-tap/` (remote `homebrew-tap`); the cask is edited here and pushed back to the tap, never committed in the tap directly. The cask points at one GitHub release asset, so it must be regenerated after every published release:
+Homebrew users install with `brew tap biks2013-tools/untype && brew install --cask untype` from the tap repository `biks2013-tools/homebrew-untype`. That repository is maintained as a **git subtree** of this one at `homebrew-tap/` (remote `homebrew-tap`); the cask is edited here and pushed back to the tap, never committed in the tap directly. The cask points at one GitHub release asset, so it must be regenerated after every published release:
 
 ```sh
 scripts/update-homebrew-cask.sh \
@@ -290,18 +290,18 @@ scripts/update-homebrew-cask.sh \
 git push origin main
 ```
 
-The script rewrites `homebrew-tap/Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits it on the current branch, and runs `git subtree push --prefix=homebrew-tap homebrew-tap main`, which is what updates the tap that Homebrew clones. The final `git push origin main` publishes the same commit in this repository. On a fresh clone add the remote once: `git remote add homebrew-tap https://github.com/BikS2013/homebrew-untype.git`. Then verify with Homebrew itself:
+The script rewrites `homebrew-tap/Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits it on the current branch, and runs `git subtree push --prefix=homebrew-tap homebrew-tap main`, which is what updates the tap that Homebrew clones. The final `git push origin main` publishes the same commit in this repository. On a fresh clone add the remote once: `git remote add homebrew-tap https://github.com/biks2013-tools/homebrew-untype.git`. Then verify with Homebrew itself:
 
 ```sh
-git -C "$(brew --repo biks2013/untype)" pull -q origin main   # Homebrew keeps its own clone of the tap
-brew style biks2013/untype/untype                              # "no offenses detected"
-brew audit --cask --online --strict biks2013/untype/untype     # no output = pass
-brew livecheck --cask biks2013/untype/untype                   # "<version>,<N> ==> <version>,<N>"
+git -C "$(brew --repo biks2013-tools/untype)" pull -q origin main   # Homebrew keeps its own clone of the tap
+brew style biks2013-tools/untype/untype                              # "no offenses detected"
+brew audit --cask --online --strict biks2013-tools/untype/untype     # no output = pass
+brew livecheck --cask biks2013-tools/untype/untype                   # "<version>,<N> ==> <version>,<N>"
 ```
 
-Do not run `brew install --cask untype` on the development Mac while untype is running: the cask's `uninstall quit:` stanza quits the app by bundle id, and the install would collide with `/Applications/untype.app`. To test an install here use a scratch folder: `brew install --cask --appdir="$(mktemp -d)" biks2013/untype/untype`, then `brew uninstall --cask untype` and relaunch the app.
+Do not run `brew install --cask untype` on the development Mac while untype is running: the cask's `uninstall quit:` stanza quits the app by bundle id, and the install would collide with `/Applications/untype.app`. To test an install here use a scratch folder: `brew install --cask --appdir="$(mktemp -d)" biks2013-tools/untype/untype`, then `brew uninstall --cask untype` and relaunch the app.
 
-Check: `brew info --cask biks2013/untype/untype` shows the new `<version>,<N>` and no deprecation warning.
+Check: `brew info --cask biks2013-tools/untype/untype` shows the new `<version>,<N>` and no deprecation warning.
 
 ---
 

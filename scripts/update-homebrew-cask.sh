@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Writes Casks/untype.rb for a published GitHub release into the Homebrew tap.
 #
-# The tap (github.com/BikS2013/homebrew-untype) lives in this repository as a
+# The tap (github.com/biks2013-tools/homebrew-untype) lives in this repository as a
 # git subtree at homebrew-tap/ (the default --tap-dir). In that mode --commit
 # commits the cask on the current branch of this repository and --push
 # pushes the subtree back to the tap repository (remote "homebrew-tap"),
-# which is what `brew tap BikS2013/untype` clones. A standalone clone of the
+# which is what `brew tap biks2013-tools/untype` clones. A standalone clone of the
 # tap can still be targeted with --tap-dir <clone>.
 set -euo pipefail
 
@@ -36,7 +36,7 @@ tag v<version>-b<build> and its untype-<version>.dmg asset.
 Subtree mode (default, --tap-dir is the homebrew-tap/ subtree of this repo):
   --commit  commits homebrew-tap/Casks/untype.rb on the current branch here
   --push    also runs `git subtree push --prefix=homebrew-tap <remote> <branch>`
-            so the tap repository (what `brew tap BikS2013/untype` clones)
+            so the tap repository (what `brew tap biks2013-tools/untype` clones)
             receives the change. Push this repository's branch separately.
 
 Standalone mode (--tap-dir points at a clone of the tap, i.e. has .git):
@@ -74,7 +74,7 @@ else
   TAP_DIR="$(cd -- "$TAP_DIR" && pwd)"
   [[ "$TAP_DIR" == "$PROJECT_ROOT/"* ]] || fail "subtree mode expects --tap-dir inside this repository: $TAP_DIR"
   git -C "$PROJECT_ROOT" remote get-url "$TAP_REMOTE" >/dev/null 2>&1 \
-    || fail "git remote '$TAP_REMOTE' is missing; add it with: git remote add $TAP_REMOTE https://github.com/BikS2013/homebrew-untype.git"
+    || fail "git remote '$TAP_REMOTE' is missing; add it with: git remote add $TAP_REMOTE https://github.com/biks2013-tools/homebrew-untype.git"
 fi
 SUBTREE_PREFIX="${TAP_DIR#"$PROJECT_ROOT"/}"
 
@@ -86,10 +86,10 @@ cask "untype" do
   version "${VERSION},${BUILD}"
   sha256 "${SHA256}"
 
-  url "https://github.com/BikS2013/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
+  url "https://github.com/biks2013-tools/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
   name "untype"
   desc "Push-to-talk voice dictation with optional LLM refinement and translation"
-  homepage "https://github.com/BikS2013/untype-s"
+  homepage "https://github.com/biks2013-tools/untype-s"
 
   livecheck do
     url :url
@@ -126,7 +126,7 @@ cask "untype" do
          does not fire while another app is in front. Quit and relaunch after
          changing permissions.
 
-    Technical deck: https://biks2013.github.io/untype-s/
+    Technical deck: https://biks2013-tools.github.io/untype-s/
     ~/.tool-agents/untype/.env is kept on uninstall and on zap.
   EOS
 end
@@ -169,5 +169,5 @@ cat <<NEXT
 
 Next:
   brew update && brew upgrade --cask untype          # existing users
-  brew tap BikS2013/untype && brew install --cask untype   # new users
+  brew tap biks2013-tools/untype && brew install --cask untype   # new users
 NEXT

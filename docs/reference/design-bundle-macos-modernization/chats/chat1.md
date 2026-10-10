@@ -6,7 +6,7 @@ _Started 2026-05-25 21:30 UTC_
 
 ## User
 
-i want you to study the project in https://github.com/BikS2013/untype-s repository and propose a modern UI design, inspired by the current MacOS design principles
+i want you to study the project in https://github.com/biks2013-tools/untype-s repository and propose a modern UI design, inspired by the current MacOS design principles
 
 ## Assistant
 

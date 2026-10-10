@@ -2,10 +2,10 @@ cask "untype" do
   version "0.1.0,15"
   sha256 "12b7e87f1d924af9d4446860afe7734d176f77eb63bdf1c25ef46ca826cab975"
 
-  url "https://github.com/BikS2013/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
+  url "https://github.com/biks2013-tools/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
   name "untype"
   desc "Push-to-talk voice dictation with optional LLM refinement and translation"
-  homepage "https://github.com/BikS2013/untype-s"
+  homepage "https://github.com/biks2013-tools/untype-s"
 
   livecheck do
     url :url
@@ -42,7 +42,7 @@ cask "untype" do
          does not fire while another app is in front. Quit and relaunch after
          changing permissions.
 
-    Technical deck: https://biks2013.github.io/untype-s/
+    Technical deck: https://biks2013-tools.github.io/untype-s/
     ~/.tool-agents/untype/.env is kept on uninstall and on zap.
   EOS
 end
