@@ -98,6 +98,8 @@ spctl --assess --type execute --verbose=4 /Applications/untype.app   # expect "a
 open -a /Applications/untype.app
 ```
 
+If `codesign` reports the name as **ambiguous** (since 2026-10-24 the same Developer ID certificate name exists in both the login and the System keychain), pass the SHA-1 of the leaf used since build 13 instead of the name: `--sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30` (check with `security find-identity -v -p codesigning`). Keeping that leaf keeps the TCC grants.
+
 Identity facts (login keychain, verified 2026-09-12):
 
 - `Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)` — expires 2027-02-01. Renew it in Xcode → Settings → Accounts → Manage Certificates (or on developer.apple.com → Certificates) before then, and export a `.p12` backup of the certificate + private key from Keychain Access: Apple cannot re-issue the private key. A renewed certificate changes the signing leaf and therefore requires one more re-grant of Accessibility/Input Monitoring.

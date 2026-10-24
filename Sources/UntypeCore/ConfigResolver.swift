@@ -8,7 +8,7 @@ public struct ConfigResolver: Sendable {
     private let requireProtocolOutputForHybrid: Bool
     private let validateLLMProviderConfig: Bool
 
-    private static let defaultSonioxModel = "stt-rt-v4"
+    private static let defaultSonioxModel = "stt-rt-v5"
     private static let defaultSonioxEndpoint = "wss://stt-rt.soniox.com/transcribe-websocket"
     private static let defaultSonioxLanguages = "el,en"
     private static let defaultElevenLabsModel = "scribe_v2_realtime"
@@ -24,6 +24,7 @@ public struct ConfigResolver: Sendable {
     private static let defaultLLMModel = "gpt-5.4"
     private static let defaultLLMRequestTimeoutMs = 15_000
     private static let defaultAzureAPIVersion = "2024-10-21"
+    private static let anthropicAPIBaseURL = "https://api.anthropic.com"
 
     public init(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -925,7 +926,43 @@ public struct ConfigResolver: Sendable {
                 )
             }
             return .google(apiKey: apiKey)
-        case .openAI, .anthropic, .azureAIInference, .ollama, .litellm, .openAICompat:
+        case .anthropic:
+            guard enabled, validateRequiredSettings else {
+                return .anthropic(apiKey: "", baseURL: Self.anthropicAPIBaseURL)
+            }
+            guard let apiKey = chain.get("ANTHROPIC_API_KEY")?.value else {
+                throw UntypeError.invalidConfiguration(
+                    "Anthropic is enabled (--refine on, --llm-provider=anthropic) but ANTHROPIC_API_KEY is not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env. Set it or run with --no-refine to disable LLM refinement."
+                )
+            }
+            return .anthropic(apiKey: apiKey, baseURL: Self.anthropicAPIBaseURL)
+        case .azureAnthropic:
+            guard enabled, validateRequiredSettings else {
+                return .anthropic(apiKey: "", baseURL: "")
+            }
+            let apiKey = chain.get("ANTHROPIC_FOUNDRY_API_KEY")?.value
+            let baseURL = chain.get("ANTHROPIC_FOUNDRY_BASE_URL")?.value
+            let resource = chain.get("ANTHROPIC_FOUNDRY_RESOURCE")?.value
+            var missing: [String] = []
+            if apiKey == nil {
+                missing.append("ANTHROPIC_FOUNDRY_API_KEY")
+            }
+            if baseURL == nil, resource == nil {
+                missing.append("ANTHROPIC_FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_BASE_URL)")
+            }
+            if !missing.isEmpty {
+                throw UntypeError.invalidConfiguration(
+                    "Claude on Azure Foundry is enabled (--refine on, --llm-provider=azure-anthropic) but the following env vars are not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env - \(missing.joined(separator: ", ")). Set them or run with --no-refine to disable LLM refinement."
+                )
+            }
+            if baseURL != nil, resource != nil {
+                throw UntypeError.invalidConfiguration(
+                    "Set only one of ANTHROPIC_FOUNDRY_RESOURCE and ANTHROPIC_FOUNDRY_BASE_URL."
+                )
+            }
+            let root = baseURL ?? "https://\(resource!).services.ai.azure.com/anthropic"
+            return .anthropic(apiKey: apiKey!, baseURL: root)
+        case .openAI, .azureAIInference, .ollama, .litellm, .openAICompat:
             return .unimplemented(provider: provider)
         }
     }

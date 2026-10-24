@@ -310,7 +310,8 @@ import Testing
         "UNTYPE_ENABLE_ENDPOINT_DETECTION", "UNTYPE_QUICK_CLOSE",
         "UNTYPE_REFINE", "UNTYPE_LLM_PROVIDER", "UNTYPE_LLM_MODEL",
         "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_API_VERSION",
-        "GOOGLE_API_KEY", "UNTYPE_LLM_MAX_OUTPUT_TOKENS", "UNTYPE_LLM_REASONING_EFFORT", "UNTYPE_LLM_STREAMING",
+        "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL",
+        "UNTYPE_LLM_MAX_OUTPUT_TOKENS", "UNTYPE_LLM_REASONING_EFFORT", "UNTYPE_LLM_STREAMING",
         "UNTYPE_INTERACTION_MODE", "UNTYPE_OUTPUT_MODE", "UNTYPE_GUARD_PHRASE", "UNTYPE_COMMAND_PHRASE",
         "UNTYPE_SECTION_END_PHRASE", "UNTYPE_SECTION_CANCEL_PHRASE", "UNTYPE_LITERAL_NEXT_PHRASE",
         "UNTYPE_REFINE_DEFAULT", "UNTYPE_TRANSLATE_DEFAULT", "UNTYPE_CLIPBOARD_DEFAULT", "UNTYPE_INPUT_DEFAULT",
@@ -563,7 +564,7 @@ import Testing
     let config = try resolver.resolve(argv: ["--api-key", "flag-key", "--no-refine"])
 
     #expect(config.sttProvider == .soniox)
-    #expect(config.model == "stt-rt-v4")
+    #expect(config.model == "stt-rt-v5")
     #expect(config.endpoint == "wss://stt-rt.soniox.com/transcribe-websocket")
     #expect(config.languages == ["el", "en"])
     #expect(config.sampleRate == 16_000)
@@ -985,4 +986,44 @@ private final class FakeCommandRuntime: UntypeRuntimeSession, @unchecked Sendabl
     #expect(throws: UntypeError.self) {
         _ = try resolver.resolve(argv: ["--api-key", "k", "--no-refine", "--llm-reasoning-effort", "extreme"])
     }
+}
+
+@Test func azureAnthropicResolvesFoundryBaseURLFromResourceOrBaseURL() throws {
+    let temp = TemporaryDirectory()
+    let base = ["SONIOX_API_KEY": "stt", "UNTYPE_LLM_PROVIDER": "azure-anthropic", "UNTYPE_LLM_MODEL": "claude-opus-5-5"]
+
+    var shell = base
+    shell["ANTHROPIC_FOUNDRY_API_KEY"] = "foundry-key"
+    shell["ANTHROPIC_FOUNDRY_RESOURCE"] = "my-resource"
+    let fromResource = try ConfigResolver(cwd: temp.url, home: temp.url, shell: shell).resolve(argv: [])
+    #expect(fromResource.llm.provider == .azureAnthropic)
+    #expect(fromResource.llm.model == "claude-opus-5-5")
+    #expect(fromResource.llm.providerConfig == .anthropic(apiKey: "foundry-key", baseURL: "https://my-resource.services.ai.azure.com/anthropic"))
+
+    shell["ANTHROPIC_FOUNDRY_RESOURCE"] = nil
+    shell["ANTHROPIC_FOUNDRY_BASE_URL"] = "https://custom.example/anthropic"
+    let fromBaseURL = try ConfigResolver(cwd: temp.url, home: temp.url, shell: shell).resolve(argv: [])
+    #expect(fromBaseURL.llm.providerConfig == .anthropic(apiKey: "foundry-key", baseURL: "https://custom.example/anthropic"))
+}
+
+@Test func azureAnthropicRequiresKeyAndExactlyOneEndpointSetting() throws {
+    let temp = TemporaryDirectory()
+    let base = ["SONIOX_API_KEY": "stt", "UNTYPE_LLM_PROVIDER": "azure-anthropic", "UNTYPE_LLM_MODEL": "claude-opus-5-5"]
+
+    #expect(throws: UntypeError.self) {
+        try ConfigResolver(cwd: temp.url, home: temp.url, shell: base).resolve(argv: [])
+    }
+    var noEndpoint = base
+    noEndpoint["ANTHROPIC_FOUNDRY_API_KEY"] = "foundry-key"
+    #expect(throws: UntypeError.self) {
+        try ConfigResolver(cwd: temp.url, home: temp.url, shell: noEndpoint).resolve(argv: [])
+    }
+    var both = noEndpoint
+    both["ANTHROPIC_FOUNDRY_RESOURCE"] = "my-resource"
+    both["ANTHROPIC_FOUNDRY_BASE_URL"] = "https://my-resource.services.ai.azure.com/anthropic"
+    #expect(throws: UntypeError.self) {
+        try ConfigResolver(cwd: temp.url, home: temp.url, shell: both).resolve(argv: [])
+    }
+    // Refinement off: no Foundry settings needed.
+    _ = try ConfigResolver(cwd: temp.url, home: temp.url, shell: base).resolve(argv: ["--no-refine"])
 }

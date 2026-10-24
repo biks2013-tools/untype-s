@@ -7,6 +7,16 @@
 - Workaround used for builds 18 and 23: publish the subtree's tree as a fast-forward commit on top of the tap head, which keeps the tap identical to `homebrew-tap/`: `T=$(git rev-parse HEAD:homebrew-tap); C=$(git commit-tree "$T" -p homebrew-tap/main -m "homebrew: untype <v> build <N>"); git push homebrew-tap "${C}:refs/heads/main"` (after `git fetch homebrew-tap`). In zsh write `${C}`: `$C:r…` is a filename modifier.
 - To do: fix the subtree history (e.g. re-establish the subtree with a fresh `git subtree add`/`--rejoin` split) or switch the script to the commit-tree method; also update `docs/design/release-runbook.md`.
 
+### P2 - Plan-035: remaining manual checks (2026-10-24)
+- Verified on a debug build (2026-10-24): the menu-bar dropdown opens from the icon and renders as designed; Settings… (app menu) opens the Settings window; General and Prompts tabs; editing a prompt marks it unsaved, ⌘S saves it (`0600`), the Events log shows `prompts.reloaded` + warm restart; an external edit hot-reloads too; Window → Transcript / History open the main window at that tab; the main window reopens at launch when it was open at quit.
+- Still to do by hand (synthetic clicks do not reach controls inside the `NSPopover`): flip a switch in the dropdown and confirm it persists; the dropdown's Transcript / History / Settings rows and ⌘1/⌘2/⌘,; focus returns to the previous app after the dropdown closes; one push-to-talk release into a focused text field with `focused_input.ok=true` in `~/.tool-agents/untype/release-latency.jsonl` (after the next signed build).
+
+### P3 - `settingsExpanded` UI setting is now unused (2026-10-24)
+- Plan-035 replaced the main window's inspector pane with the Settings window, so `UntypeUISettings.settingsExpanded` is still persisted in `ui-state.json` but no longer read. It was kept so existing state files and tests stay valid; remove it together with its patch field when the settings schema is next revised.
+
+### P3 - Plans folder discrepancy (2026-10-24)
+- `CLAUDE.md` puts plans in `docs/plans/`, but plans 001–034 live in `docs/design/`. Plan 035 follows `CLAUDE.md` (`docs/plans/plan-035-…`). Decide whether to move the older plans or amend the convention.
+
 ### P2 - Live focused-input typing: known limitations (2026-10-24)
 - Moving the caret or typing by hand while push-to-talk is held desynchronizes the live text; the release-time edit then deletes/types relative to the wrong position.
 - A voice command that cancels a section leaves the live text in the field (only a delivered result replaces it).
@@ -68,6 +78,25 @@ The source project has unit tests but no live provider or UI automation harness.
 - 2026-05-30: No new runtime dependencies added for focused-input target restoration. Implementation reuses existing AppKit workspace activation tracking and the existing focused-input delivery path.
 
 ## Completed Items
+
+### 2026-10-24 - Build 24 installed locally (not published)
+- Packaged with `--build 24 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary` (the identity *name* is ambiguous: it matches certificates in both the login and System keychains, so the leaf hash used for builds 13–23 is passed; same leaf ⇒ no permission re-grant). Suite 251/251 inside the pipeline; notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. Installed over build 23 (kept at `.build/deploy/untype.app.previous`). After launch: Accessibility `trusted`, warm session listening, settings loaded (`stt-rt-v5`, `azure-anthropic` / `claude-opus-5-5`).
+- Contains plan-035 (menu-bar dropdown, Settings window, prompt editor/hot reload), the theme control, the recycle-timer fix, and the Claude provider. Not released on GitHub/Homebrew.
+- Pending: the user's push-to-talk check (`focused_input.ok=true`) and the dropdown switch checks (P2 item above).
+
+### 2026-10-24 - Claude on Microsoft (Azure) Foundry added as LLM provider
+- Was: `LLMProvider.anthropic` resolved to `unimplemented`; only `azure-openai` and `google` worked.
+- Now: `azure-anthropic` (Foundry) and `anthropic` (direct) via `AnthropicMessagesRefiner`. Finding: on resource `biksaiservice-east-us-2` the Foundry Anthropic endpoint accepts the resource key only in `x-api-key` (the documented `api-key` header returns 401). User config switched to `azure-anthropic` / `claude-opus-5-5` (`ANTHROPIC_FOUNDRY_API_KEY` = the resource key, `ANTHROPIC_FOUNDRY_RESOURCE=biksaiservice-east-us-2`; `.env` backed up first). Live test: refine ≈2.0 s, translate ≈1.3 s, refine+translate ≈1.4 s.
+- Dependency vetting log: no new dependencies (Foundation `URLSession` only).
+
+### 2026-10-24 - Cancelled warm-session recycle timer fired immediately (orphaned warm session)
+- Symptom (found while testing prompt hot reload): after a warm-session restart the UI showed "Start Listening" while a new warm session was running; the log showed "recycling warm push-to-talk session" next to the intended restart and the old session's `stopped` arriving after the new session started.
+- Cause: `scheduleWarmSessionRecycle` slept with `try? await Task.sleep(...)`; cancelling the timer (`clearWarmSessionRecycleTimer`, called by every stop and every hotkey press) made the sleep throw, `try?` swallowed it, and `recycleWarmSession` ran at once. It stopped the same runtime a second time; the second stop's completion later cleared `runtime`/`isRunning` of the freshly started warm session. After a push-to-talk release it could also send a second `stop(submitPending: false)` to the finalizing runtime.
+- Fix (`NativeUntypeUILauncher.swift`): the timer returns when the sleep is cancelled, and `recycleWarmSession` additionally requires `captureState == "warm"`. Verified on a debug build: prompt change → stopping → stopped → warmed → listening, button "Stop Warm Session".
+
+### 2026-10-24 - Launch warning "UntypeError error 1" from a restored window frame
+- Restoring the autosaved main-window frame (658 pt tall) produced a content size below the 860×620 minimum, and `windowDidResize` tried to persist it; the settings validator threw and the event log showed the unreadable "The operation couldn't be completed (UntypeCore.UntypeError error 1.)".
+- Fix: sizes below the minimum are not persisted, the window uses `contentMinSize`, and `UntypeError` conforms to `LocalizedError` so warnings show `code: message`. Also fixed: the titlebar appearance menu stretched across the control strip (`.fixedSize()`).
 
 ### 2026-10-24 - Build 23 released, published, and on Homebrew (v0.1.0-b23)
 Build 23 (`CFBundleVersion 23`, version 0.1.0, `LSUIElement`) packaged from commit `cf5f9a7` with `--dmg`; suite 240/240 inside the pipeline. App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. The image was rebuilt once with `--dmg-only` after updating `packaging/macos/INSTALL.txt` for the menu-bar app (commit `c53782c`); it contains build 23, `Applications`, the new `INSTALL.txt`. Signed with `--sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30` (same leaf as builds 13–22; no permission re-grant). Installed on this Mac over build 22 (builds 19–22 were unpublished local test builds). GitHub Release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b23 (latest) with `untype-0.1.0.dmg` (SHA-256 `b4e8dff17a42c02403ff4aa21745dd29bc2994bfa46f2c1398ec15767f7f5b0d`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap updated to `0.1.0,23` with the commit-tree workaround (the script's subtree push still fails, see the P1 item); `brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,23`. Ships the menu-bar app (attach/pop-out/dock), the oscilloscope overlay with R/T/C/I chips, and everything from build 18.

@@ -705,6 +705,238 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
     }
 }
 
+/// Claude through the Anthropic Messages API: `anthropic` (api.anthropic.com)
+/// or `azure-anthropic` (Microsoft Foundry,
+/// `https://{resource}.services.ai.azure.com/anthropic`). Foundry accepts the
+/// resource key in `x-api-key` (verified 2026-10-24; `api-key` returned 401 on
+/// that endpoint), so the key always travels in `x-api-key`.
+///
+/// Current Claude models reject `temperature` and cannot disable thinking, so
+/// latency is controlled with `output_config.effort`: dictation cleanup is
+/// short, so the default is `low`; `UNTYPE_LLM_REASONING_EFFORT` maps
+/// `none`/`minimal` to `low` and passes `low`/`medium`/`high` through.
+public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining {
+    static let defaultMaxTokens = 4096
+    static let defaultEffort = "low"
+    private static let apiVersion = "2023-06-01"
+
+    private let apiKey: String
+    private let baseURL: String
+    private let model: String
+    private let providerName: String
+    private let systemPrompt: String
+    private let requestTimeoutMs: Int
+    private let maxTokens: Int
+    private let effort: String
+    private let verbose: Bool
+    private let streamingEnabled: Bool
+    private let httpClient: LLMHTTPClient
+    private var disposed = false
+
+    public init(config: LLMConfig, httpClient: LLMHTTPClient = URLSessionLLMHTTPClient()) throws {
+        guard case let .anthropic(apiKey, baseURL) = config.providerConfig else {
+            throw UntypeError.invalidConfiguration("AnthropicMessagesRefiner requires anthropic provider configuration.")
+        }
+        self.apiKey = apiKey
+        self.baseURL = baseURL.trimmingTrailingSlashes()
+        self.model = config.model
+        self.providerName = config.provider.rawValue
+        self.systemPrompt = config.systemPrompt
+        self.requestTimeoutMs = config.requestTimeoutMs
+        self.maxTokens = config.maxOutputTokens ?? Self.defaultMaxTokens
+        self.effort = Self.claudeEffort(config.reasoningEffort)
+        self.verbose = config.verbose
+        self.streamingEnabled = config.streamingEnabled
+        self.httpClient = httpClient
+    }
+
+    static func claudeEffort(_ reasoningEffort: String?) -> String {
+        switch reasoningEffort {
+        case nil, "none", "minimal":
+            return defaultEffort
+        case let value?:
+            return value
+        }
+    }
+
+    public func refine(_ text: String) async throws -> String {
+        guard !disposed else {
+            throw LLMRefinementError("Anthropic refiner has been disposed", kind: .network)
+        }
+        let request = try makeRequest(text: text)
+        if verbose {
+            FileHandle.standardError.writeData(
+                "[untype] llm: refining \(text.count) chars via \(providerName)/\(model)\n"
+            )
+        }
+        let response: LLMHTTPResponse
+        do {
+            response = try await httpClient.perform(request, timeoutMs: requestTimeoutMs)
+        } catch let error as LLMRefinementError {
+            throw error
+        } catch {
+            throw mapTransportError(error)
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            let kind: LLMRefinementFailureKind = [401, 403].contains(response.statusCode) ? .auth : .server
+            throw LLMRefinementError(
+                "LLM HTTP \(response.statusCode): \(truncate(response.body.utf8Text, max: 200))",
+                kind: kind
+            )
+        }
+        return try parseContent(response.body)
+    }
+
+    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+        // Streaming is silently inert unless explicitly enabled — delegate to the
+        // one-shot path and NEVER invoke onProgress when disabled.
+        guard streamingEnabled else {
+            return try await refine(text)
+        }
+        guard !disposed else {
+            throw LLMRefinementError("Anthropic refiner has been disposed", kind: .network)
+        }
+        let request = try makeRequest(text: text, stream: true)
+        if verbose {
+            FileHandle.standardError.writeData(
+                "[untype] llm: streaming \(text.count) chars via \(providerName)/\(model)\n"
+            )
+        }
+        let decoder = JSONDecoder()
+        var accumulated = ""
+        var stopReason: String?
+        do {
+            for try await payload in httpClient.stream(request, timeoutMs: requestTimeoutMs) {
+                guard let event = try? decoder.decode(StreamEvent.self, from: Data(payload.utf8)) else {
+                    continue
+                }
+                switch event.type {
+                case "content_block_delta":
+                    if event.delta?.type == "text_delta", let delta = event.delta?.text, !delta.isEmpty {
+                        accumulated += delta
+                        onProgress?(accumulated)
+                    }
+                case "message_delta":
+                    if let reason = event.delta?.stopReason {
+                        stopReason = reason
+                    }
+                case "error":
+                    throw LLMRefinementError(
+                        "LLM stream error: \(event.error?.type ?? "unknown"): \(event.error?.message ?? "")",
+                        kind: .server
+                    )
+                default:
+                    continue // message_start, content_block_start/stop, ping, message_stop
+                }
+            }
+        } catch let error as LLMRefinementError {
+            throw error
+        } catch {
+            throw mapTransportError(error)
+        }
+        try Self.checkStopReason(stopReason)
+        let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw LLMRefinementError("LLM response did not contain a non-empty text block", kind: .shape)
+        }
+        return trimmed
+    }
+
+    private struct StreamEvent: Decodable {
+        struct Delta: Decodable {
+            let type: String?
+            let text: String?
+            let stopReason: String?
+            enum CodingKeys: String, CodingKey {
+                case type
+                case text
+                case stopReason = "stop_reason"
+            }
+        }
+        struct StreamError: Decodable {
+            let type: String?
+            let message: String?
+        }
+        let type: String
+        let delta: Delta?
+        let error: StreamError?
+    }
+
+    public func dispose() {
+        guard !disposed else {
+            return
+        }
+        disposed = true
+        httpClient.cancelAll()
+    }
+
+    private func makeRequest(text: String, stream: Bool = false) throws -> URLRequest {
+        let rawUrl = "\(baseURL)/v1/messages"
+        guard let url = URL(string: rawUrl) else {
+            throw LLMRefinementError("Anthropic Messages URL is invalid: \(rawUrl)", kind: .network)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "model": model,
+            "max_tokens": maxTokens,
+            "system": systemPrompt,
+            "messages": [
+                ["role": "user", "content": text]
+            ],
+            "output_config": ["effort": effort]
+        ]
+        if stream {
+            body["stream"] = true
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// `refusal` (safety decline) and `max_tokens` (cut off) are not usable
+    /// cleanups; delivering them would replace the user's words with a
+    /// fragment.
+    private static func checkStopReason(_ stopReason: String?) throws {
+        switch stopReason {
+        case "refusal":
+            throw LLMRefinementError("LLM declined the request (stop_reason refusal)", kind: .server)
+        case "max_tokens":
+            throw LLMRefinementError("LLM output was truncated (stop_reason max_tokens)", kind: .server)
+        default:
+            return
+        }
+    }
+
+    private func parseContent(_ data: Data) throws -> String {
+        let json: Any
+        do {
+            json = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw LLMRefinementError(
+                "LLM response was not valid JSON: \(error.localizedDescription)",
+                kind: .shape
+            )
+        }
+        guard let object = json as? [String: Any], let content = object["content"] as? [[String: Any]] else {
+            throw LLMRefinementError("LLM response did not contain a content array", kind: .shape)
+        }
+        try Self.checkStopReason(object["stop_reason"] as? String)
+        // Thinking blocks (empty by default) precede the answer; keep text only.
+        let joined = content
+            .filter { ($0["type"] as? String) == "text" }
+            .compactMap { $0["text"] as? String }
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !joined.isEmpty else {
+            throw LLMRefinementError("LLM response did not contain a non-empty text block", kind: .shape)
+        }
+        return joined
+    }
+}
+
 public final class LLMCompositeRefineTranslator: CompositeRefineTranslating {
     private let refiner: TextRefining
     private let refinementPromptTemplate: String
@@ -896,6 +1128,8 @@ public enum LLMRefinerFactory {
             return try AzureOpenAIRefiner(config: config)
         case .google:
             return try GoogleRefiner(config: config)
+        case .anthropic:
+            return try AnthropicMessagesRefiner(config: config)
         case .unimplemented(let provider):
             throw UntypeError.invalidConfiguration(notImplementedHint(provider))
         }
@@ -905,8 +1139,6 @@ public enum LLMRefinerFactory {
         switch provider {
         case .openAI:
             return "Provider 'openai' is not implemented in v1. To enable, set OPENAI_API_KEY and add the OpenAI refiner. Use --llm-provider azure-openai for now."
-        case .anthropic:
-            return "Provider 'anthropic' is not implemented in v1. To enable, set ANTHROPIC_API_KEY and add the Anthropic refiner."
         case .azureAIInference:
             return "Provider 'azure-ai-inference' is not implemented in v1. To enable, set AZURE_AI_INFERENCE_ENDPOINT and AZURE_AI_INFERENCE_API_KEY and add the refiner."
         case .ollama:
@@ -915,7 +1147,7 @@ public enum LLMRefinerFactory {
             return "Provider 'litellm' is not implemented in v1. To enable, set LITELLM_BASE_URL and LITELLM_API_KEY and add the refiner."
         case .openAICompat:
             return "Provider 'openai-compat' is not implemented in v1. To enable, set OPENAI_COMPAT_BASE_URL and OPENAI_COMPAT_API_KEY and add the refiner."
-        case .azureOpenAI, .google:
+        case .azureOpenAI, .google, .anthropic, .azureAnthropic:
             return "Provider '\(provider.rawValue)' is implemented but was resolved as an unimplemented provider."
         }
     }

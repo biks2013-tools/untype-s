@@ -761,3 +761,138 @@ private func expectLLMError(kind: LLMRefinementFailureKind, operation: () async 
     // Dangling backslash at the tail is deferred.
     #expect(partialStringValue(forKey: "k", in: #"{"k":"AB\"#) == "AB")
 }
+
+// MARK: - Anthropic Messages (anthropic / azure-anthropic)
+
+private func foundryClaudeConfig(
+    reasoningEffort: String? = nil,
+    maxOutputTokens: Int? = nil,
+    streamingEnabled: Bool = false
+) -> LLMConfig {
+    LLMConfig(
+        enabled: true,
+        provider: .azureAnthropic,
+        model: "claude-opus-5-5",
+        systemPrompt: "Clean this transcript.",
+        requestTimeoutMs: 1_000,
+        providerConfig: .anthropic(apiKey: "foundry-key", baseURL: "https://example.services.ai.azure.com/anthropic/"),
+        verbose: false,
+        maxOutputTokens: maxOutputTokens,
+        reasoningEffort: reasoningEffort,
+        streamingEnabled: streamingEnabled
+    )
+}
+
+@Test func anthropicRefinerPostsMessagesWithXApiKeyAndLowEffort() async throws {
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "stop_reason": "end_turn",
+            "content": [
+                ["type": "thinking", "thinking": ""],
+                ["type": "text", "text": "  Clean text.  "]
+            ]
+        ]))
+    ])
+    let fromFactory = try #require(try LLMRefinerFactory.makeRefiner(config: foundryClaudeConfig()))
+    #expect(fromFactory is AnthropicMessagesRefiner)
+    let direct = try AnthropicMessagesRefiner(config: foundryClaudeConfig(), httpClient: http)
+    let output = try await direct.refine("raw words")
+
+    #expect(output == "Clean text.")
+    let request = try #require(http.requests.first)
+    #expect(request.url?.absoluteString == "https://example.services.ai.azure.com/anthropic/v1/messages")
+    #expect(request.value(forHTTPHeaderField: "x-api-key") == "foundry-key")
+    #expect(request.value(forHTTPHeaderField: "api-key") == nil)
+    #expect(request.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01")
+    let body = try requestJSONObject(request)
+    #expect(body["model"] as? String == "claude-opus-5-5")
+    #expect(body["max_tokens"] as? Int == 4096)
+    #expect(body["system"] as? String == "Clean this transcript.")
+    #expect(body["temperature"] == nil)
+    #expect((body["output_config"] as? [String: Any])?["effort"] as? String == "low")
+    let messages = try #require(body["messages"] as? [[String: Any]])
+    #expect(messages.count == 1)
+    #expect(messages[0]["content"] as? String == "raw words")
+}
+
+@Test func anthropicRefinerMapsEffortAndMaxTokens() async throws {
+    #expect(AnthropicMessagesRefiner.claudeEffort(nil) == "low")
+    #expect(AnthropicMessagesRefiner.claudeEffort("minimal") == "low")
+    #expect(AnthropicMessagesRefiner.claudeEffort("none") == "low")
+    #expect(AnthropicMessagesRefiner.claudeEffort("high") == "high")
+
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData(["stop_reason": "end_turn", "content": [["type": "text", "text": "ok"]]]))
+    ])
+    let refiner = try AnthropicMessagesRefiner(
+        config: foundryClaudeConfig(reasoningEffort: "medium", maxOutputTokens: 800),
+        httpClient: http
+    )
+    _ = try await refiner.refine("raw")
+    let body = try requestJSONObject(try #require(http.requests.first))
+    #expect(body["max_tokens"] as? Int == 800)
+    #expect((body["output_config"] as? [String: Any])?["effort"] as? String == "medium")
+}
+
+@Test func anthropicRefinerRejectsRefusalTruncationAndHTTPErrors() async throws {
+    let refusal = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData(["stop_reason": "refusal", "content": []]))
+    ])
+    await expectLLMError(kind: .server) {
+        _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(), httpClient: refusal).refine("raw")
+    }
+    let truncated = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData(["stop_reason": "max_tokens", "content": [["type": "text", "text": "half"]]]))
+    ])
+    await expectLLMError(kind: .server) {
+        _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(), httpClient: truncated).refine("raw")
+    }
+    let unauthorized = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 401, body: Data(#"{"error":{"code":"401"}}"#.utf8))
+    ])
+    await expectLLMError(kind: .auth) {
+        _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(), httpClient: unauthorized).refine("raw")
+    }
+    let empty = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData(["stop_reason": "end_turn", "content": [["type": "thinking", "thinking": ""]]]))
+    ])
+    await expectLLMError(kind: .shape) {
+        _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(), httpClient: empty).refine("raw")
+    }
+}
+
+@Test func anthropicStreamingAccumulatesTextDeltasAndHonoursStopReason() async throws {
+    let http = MockLLMHTTPClient(streamPayloads: [
+        #"{"type":"message_start","message":{"id":"m","content":[]}}"#,
+        #"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        #"{"type":"ping"}"#,
+        #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}"#,
+        #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo"}}"#,
+        #"{"type":"content_block_stop","index":0}"#,
+        #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}"#,
+        #"{"type":"message_stop"}"#
+    ])
+    let refiner = try AnthropicMessagesRefiner(config: foundryClaudeConfig(streamingEnabled: true), httpClient: http)
+    var progress: [String] = []
+    let output = try await refiner.refine("raw") { progress.append($0) }
+    #expect(output == "Hello")
+    #expect(progress == ["Hel", "Hello"])
+    let body = try requestJSONObject(try #require(http.streamRequests.first))
+    #expect(body["stream"] as? Bool == true)
+
+    let refused = MockLLMHTTPClient(streamPayloads: [
+        #"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I can"}}"#,
+        #"{"type":"message_delta","delta":{"stop_reason":"refusal"}}"#
+    ])
+    await expectLLMError(kind: .server) {
+        _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(streamingEnabled: true), httpClient: refused)
+            .refine("raw") { _ in }
+    }
+    let errored = MockLLMHTTPClient(streamPayloads: [
+        #"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#
+    ])
+    await expectLLMError(kind: .server) {
+        _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(streamingEnabled: true), httpClient: errored)
+            .refine("raw") { _ in }
+    }
+}
