@@ -109,13 +109,13 @@ public protocol RuntimeTranscriber: AnyObject {
 
 public protocol RuntimeAudioGate: AnyObject, Sendable {
     func isOpen() -> Bool
-    /// Peak amplitude (0...1) of every captured chunk, before gating. Called on
-    /// the audio path for each chunk, so implementations must be cheap.
-    func observeAudioLevel(_ peak: Double)
+    /// Every captured PCM16 mono chunk, before gating. Called on the audio
+    /// path for each chunk, so implementations must be cheap.
+    func observeAudioSamples(_ pcm: Data)
 }
 
 public extension RuntimeAudioGate {
-    func observeAudioLevel(_ peak: Double) {}
+    func observeAudioSamples(_ pcm: Data) {}
 }
 
 public enum UITranscriptEvent: Sendable, Equatable {
@@ -753,7 +753,7 @@ public final class TranscriptionSessionRuntime {
 
     private func emitAudioActivity(raw: Data, mutedByGate: Bool) {
         let peak = Self.peakAmplitude(raw)
-        options.audioGate?.observeAudioLevel(peak)
+        options.audioGate?.observeAudioSamples(raw)
         let category = Self.audioActivityCategory(peak: peak, mutedByGate: mutedByGate)
         let now = options.audioActivityNow()
         guard shouldEmitAudioActivity(category: category, now: now) else {

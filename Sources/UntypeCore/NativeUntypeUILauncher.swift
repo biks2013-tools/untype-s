@@ -34,8 +34,8 @@ private enum NativeUntypeUIApplication {
         let app = NSApplication.shared
         let delegate = UntypeAppDelegate()
         app.delegate = delegate
-        app.setActivationPolicy(.regular)
-        app.activate(ignoringOtherApps: true)
+        // Menu-bar app: no Dock icon; the window is opened from the menu-bar icon.
+        app.setActivationPolicy(.accessory)
         app.run()
         return delegate.exitCode
     }
@@ -57,6 +57,8 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var overlay: UntypeOverlayController?
     private var hotkeyMonitor: UntypeHotkeyMonitor?
     private var compactCancellable: AnyCancellable?
+    private var recordingCancellable: AnyCancellable?
+    private var menuBar: UntypeMenuBarController?
     private var wasCompactWindow: Bool = false
 
     private static let miniSize = NSSize(width: 440, height: 260)
@@ -96,9 +98,25 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         window.styleMask.insert(.fullSizeContentView)
         window.contentView = NSHostingView(rootView: content)
         window.delegate = self
+        window.isReleasedWhenClosed = false
         window.center()
-        window.makeKeyAndOrderFront(nil)
         self.window = window
+
+        let menuBar = UntypeMenuBarController(window: window) { [weak model] detached in
+            model?.windowDetached = detached
+        }
+        self.menuBar = menuBar
+        model.toggleWindowDetached = { [weak menuBar] in
+            menuBar?.toggleDetached()
+        }
+        recordingCancellable = model.$captureState
+            .map { $0 == "recording" }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak menuBar] recording in
+                menuBar?.setRecording(recording)
+            }
+        menuBar.presentAtLaunch(needsSetup: Self.needsSetup(model.settings))
 
         // React to compact-window toggles from the toolbar.
         compactCancellable = model.$settings
@@ -108,6 +126,18 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             .sink { [weak self] compact in
                 self?.applyCompactWindow(compact)
             }
+    }
+
+    /// Same rule as the welcome sheet: show the window at launch while
+    /// microphone, Accessibility or credentials still need attention.
+    private static func needsSetup(_ settings: UntypeUISettings) -> Bool {
+        if settings.compactWindow || UntypeOnboardingView.recentlySkipped() {
+            return false
+        }
+        let micOK = UntypeStatusToneMap.microphone(settings.microphoneStatus) == .ok
+        let axOK = UntypeStatusToneMap.accessibility(settings.accessibilityStatus) == .ok
+        let credOK = UntypeStatusToneMap.credential(settings.apiKeyStatus) == .ok
+        return !(micOK && axOK && credOK)
     }
 
     private func applyCompactWindow(_ compact: Bool) {
@@ -128,6 +158,12 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
             window.setFrame(frame, display: true, animate: true)
         }
+        menuBar?.windowDidChangeSize()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        menuBar?.handleCloseRequest()
+        return false
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -149,7 +185,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
     }
 
     private func configureApplicationMenu() {
@@ -197,7 +233,8 @@ private enum UntypeUISessionOwner {
 private final class HotkeySessionControl: RuntimeAudioGate, @unchecked Sendable {
     private let lock = NSLock()
     private var gateOpen = false
-    private var level = 0.0
+    /// Recent microphone samples while the gate is open, for the overlay trace.
+    let waveform = UntypeWaveformBuffer()
 
     func isOpen() -> Bool {
         lock.lock()
@@ -206,6 +243,7 @@ private final class HotkeySessionControl: RuntimeAudioGate, @unchecked Sendable 
     }
 
     func open() {
+        waveform.clear()
         lock.lock()
         gateOpen = true
         lock.unlock()
@@ -214,21 +252,14 @@ private final class HotkeySessionControl: RuntimeAudioGate, @unchecked Sendable 
     func close() {
         lock.lock()
         gateOpen = false
-        level = 0
         lock.unlock()
     }
 
-    func observeAudioLevel(_ peak: Double) {
-        lock.lock()
-        level = gateOpen ? peak : 0
-        lock.unlock()
-    }
-
-    /// Latest microphone peak (0...1) while the gate is open; 0 otherwise.
-    func currentLevel() -> Double {
-        lock.lock()
-        defer { lock.unlock() }
-        return level
+    func observeAudioSamples(_ pcm: Data) {
+        guard isOpen() else {
+            return
+        }
+        waveform.append(pcm: pcm, at: ProcessInfo.processInfo.systemUptime)
     }
 }
 
@@ -244,6 +275,9 @@ private final class UntypeUIModel: ObservableObject {
     @Published var hotkeyPressed = false
     @Published var hotkeyMonitorStatus = "disabled"
     @Published var audioStatus = "idle"
+    /// The window is popped out of the menu bar (see `UntypeMenuBarController`).
+    @Published var windowDetached = false
+    var toggleWindowDetached: (() -> Void)?
 
     var overlay: UntypeOverlayController?
     var hotkeyMonitor: UntypeHotkeyMonitor?
@@ -253,9 +287,9 @@ private final class UntypeUIModel: ObservableObject {
     private var sessionOwner: UntypeUISessionOwner?
     private var hotkeySessionControl: HotkeySessionControl?
 
-    /// Microphone peak of the current push-to-talk turn, for the overlay wave.
-    var microphoneLevel: Double {
-        hotkeySessionControl?.currentLevel() ?? 0
+    /// Microphone samples of the current push-to-talk turn, for the overlay trace.
+    var microphoneWaveform: UntypeWaveformBuffer? {
+        hotkeySessionControl?.waveform
     }
     private var warmSessionRecycleTask: Task<Void, Never>?
     private var restartWarmSessionAfterStop = false
@@ -521,6 +555,7 @@ private final class UntypeUIModel: ObservableObject {
         startLiveTyping()
         clearWarmSessionRecycleTimer()
         let control = hotkeySessionControl ?? HotkeySessionControl()
+        control.waveform.configure(sampleRate: settings.sampleRate)
         control.open()
         hotkeySessionControl = control
         overlay?.show(phase: "recording")
@@ -1166,8 +1201,23 @@ private struct UntypeRootView: View {
         showOnboarding = true
     }
 
+    /// Pop the window out of the menu bar, or dock it back.
+    private var detachButton: some View {
+        Button {
+            model.toggleWindowDetached?()
+        } label: {
+            Image(systemName: model.windowDetached ? "menubar.arrow.up.rectangle" : "macwindow.on.rectangle")
+        }
+        .help(model.windowDetached
+              ? "Dock back to the menu bar"
+              : "Pop out into a window — keeps untype open; click the menu-bar icon or close the window to dock it back")
+    }
+
     @ToolbarContentBuilder
     private var compactToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            detachButton
+        }
         ToolbarItem(placement: .primaryAction) {
             Button {
                 model.updateLayout(compactWindow: false)
@@ -1280,6 +1330,8 @@ private struct UntypeRootView: View {
             }
             .help(model.settings.settingsExpanded ? "Hide Inspector" : "Show Inspector")
             .keyboardShortcut("\\", modifiers: [.command])
+
+            detachButton
 
             Button {
                 model.updateLayout(compactWindow: true)
@@ -2492,8 +2544,8 @@ private final class UntypeOverlayController: ObservableObject {
     private let layout = UntypeOverlayLayout()
     @Published private var phase = "idle"
     @Published private var operatorVersion = 0
-    private var displayedAmplitude = 0.0
-    private var lastAmplitudeUpdate: Date?
+    private var displayedGain: Float = 1
+    private var lastTraceUpdate: TimeInterval?
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -2514,8 +2566,8 @@ private final class UntypeOverlayController: ObservableObject {
         // created panel always joins every Space.
         panel?.close()
         panel = nil
-        displayedAmplitude = 0
-        lastAmplitudeUpdate = nil
+        displayedGain = 1
+        lastTraceUpdate = nil
         createPanel()
         if let panel, let screen = overlayScreen() {
             panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
@@ -2567,7 +2619,7 @@ private final class UntypeOverlayController: ObservableObject {
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.animationBehavior = .utilityWindow
         let hostingView = NSHostingView(rootView: UntypeOverlayView(controller: self))
         hostingView.frame = NSRect(x: 0, y: 0, width: layout.width, height: layout.height)
@@ -2591,39 +2643,41 @@ private final class UntypeOverlayController: ObservableObject {
         CGSize(width: layout.width, height: layout.height)
     }
 
-    /// Wave amplitude (0...1) for one animation frame: the microphone level
-    /// while recording, a slow breathing motion while the text is processed.
-    fileprivate func waveformAmplitude(at date: Date) -> Double {
-        let target: Double
-        if phase == "recording" {
-            target = UntypeWaveform.amplitude(forPeak: model?.microphoneLevel ?? 0)
-        } else {
-            target = 0.16 + 0.08 * sin(date.timeIntervalSinceReferenceDate * 3)
+    /// One frame of the trace, `count` points in -1...1. Recording draws the
+    /// real microphone signal with automatic gain, so quiet speech still swings
+    /// to full height; processing draws a small travelling ripple.
+    fileprivate func oscilloscopeTrace(count: Int, at time: TimeInterval) -> [Float] {
+        let elapsed = lastTraceUpdate.map { time - $0 } ?? 0
+        lastTraceUpdate = time
+        guard phase == "recording", let buffer = model?.microphoneWaveform else {
+            return (0..<count).map { index in
+                let x = Float(index) / Float(max(1, count - 1))
+                let envelope = sin(x * .pi)
+                return 0.10 * envelope * sin(x * 2 * .pi * 9 - Float(time) * 7)
+            }
         }
-        let elapsed = lastAmplitudeUpdate.map { date.timeIntervalSince($0) } ?? 0
-        lastAmplitudeUpdate = date
-        displayedAmplitude = UntypeWaveform.smoothed(previous: displayedAmplitude, target: target, elapsed: elapsed)
-        return displayedAmplitude
+        let samples = buffer.window(count: count, at: time)
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        displayedGain = UntypeWaveform.smoothed(
+            previous: displayedGain,
+            target: UntypeWaveform.gain(forPeak: peak),
+            elapsed: elapsed
+        )
+        return samples.map { min(1, max(-1, $0 * displayedGain)) }
     }
 
-    fileprivate var operatorSnapshot: [(label: String, enabled: Bool)] {
+    /// The operators the user can toggle while holding push-to-talk (R/T/C/I
+    /// keys), shown under the trace as a reminder.
+    fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
         guard let settings = model?.settings else {
             return []
         }
         return [
-            ("R", settings.refine),
-            ("T", settings.translate),
-            ("C", settings.clipboard),
-            ("I", settings.focusedInput)
+            ("R", "Refine", settings.refine),
+            ("T", "Translate", settings.translate),
+            ("C", "Clipboard", settings.clipboard),
+            ("I", "Focused input", settings.focusedInput)
         ]
-    }
-
-    fileprivate var preferredColorScheme: ColorScheme? {
-        switch model?.settings.appearance {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
     }
 }
 
@@ -2631,85 +2685,82 @@ private final class UntypeOverlayController: ObservableObject {
 private struct UntypeOverlayView: View {
     @ObservedObject var controller: UntypeOverlayController
 
+    /// Seconds of signal across the width: dense enough to look like a
+    /// recorded voice waveform, short enough to react instantly.
+    private static let visibleSeconds = 0.35
+    private static let traceColor = Color(.sRGB, red: 0.23, green: 0.44, blue: 0.90, opacity: 1)
+
     private var isRecording: Bool {
         controller.overlayPhase.lowercased() == "recording"
     }
 
-    private var waveColor: Color {
-        isRecording ? UntypeDesignTokens.recordingRed : UntypeDesignTokens.accentAmber
-    }
-
     var body: some View {
-        HStack(spacing: 10) {
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
-                let amplitude = controller.waveformAmplitude(at: context.date)
-                let time = context.date.timeIntervalSinceReferenceDate
+        VStack(spacing: 6) {
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
+                let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
+                let trace = controller.oscilloscopeTrace(count: count, at: ProcessInfo.processInfo.systemUptime)
                 Canvas { canvas, size in
-                    drawWave(in: &canvas, size: size, amplitude: amplitude, time: time)
+                    drawTrace(trace, in: &canvas, size: size)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityHidden(true)
 
-            HStack(spacing: 3) {
+            HStack(spacing: 6) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in
-                    Text(item.label)
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(item.enabled ? UntypeDesignTokens.accentAmber : Color.secondary.opacity(0.6))
-                        .frame(width: 15, height: 15)
-                        .background(
-                            Circle().fill(item.enabled ? UntypeDesignTokens.accentAmber.opacity(0.16) : Color.primary.opacity(0.04))
-                        )
-                        .accessibilityLabel("Operator \(item.label), \(item.enabled ? "on" : "off")")
+                    operatorChip(item.label, name: item.name, enabled: item.enabled)
                 }
             }
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
         .frame(width: controller.overlaySize.width, height: controller.overlaySize.height)
-        .background(.regularMaterial, in: Capsule(style: .continuous))
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(waveColor.opacity(isRecording ? 0.55 : 0.30), lineWidth: 1)
-        )
-        .clipShape(Capsule(style: .continuous))
-        .preferredColorScheme(controller.preferredColorScheme)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isRecording ? "Push to talk, listening" : "Push to talk, processing")
     }
 
-    /// Three layered sine waves under an envelope that pins both ends to the
-    /// centre line; their height follows the microphone level.
-    private func drawWave(in canvas: inout GraphicsContext, size: CGSize, amplitude: Double, time: Double) {
-        let layers: [(cycles: Double, speed: Double, scale: Double, opacity: Double, width: CGFloat)] = [
-            (1.7, 3.4, 1.0, 0.95, 2.0),
-            (2.4, -2.7, 0.65, 0.55, 1.5),
-            (3.3, 4.6, 0.4, 0.35, 1.2)
-        ]
-        let midY = size.height / 2
-        let maxDeflection = Double(size.height / 2 - 2)
-        let steps = max(24, Int(size.width / 2))
-        for layer in layers {
-            var path = Path()
-            for step in 0...steps {
-                let progress = Double(step) / Double(steps)
-                let envelope = pow(sin(progress * .pi), 2)
-                let phase = progress * layer.cycles * 2 * .pi + time * layer.speed
-                let y = Double(midY) + maxDeflection * amplitude * layer.scale * envelope * sin(phase)
-                let point = CGPoint(x: CGFloat(progress) * size.width, y: CGFloat(y))
-                if step == 0 {
-                    path.move(to: point)
-                } else {
-                    path.addLine(to: point)
-                }
-            }
-            canvas.stroke(
-                path,
-                with: .color(waveColor.opacity(layer.opacity)),
-                style: StrokeStyle(lineWidth: layer.width, lineCap: .round, lineJoin: .round)
+    /// On: solid amber with a dark letter. Off: a dim outline. Both carry a
+    /// shadow so they stay readable over any window behind the panel.
+    private func operatorChip(_ letter: String, name: String, enabled: Bool) -> some View {
+        Text(letter)
+            .font(.system(size: 10, weight: .heavy, design: .rounded))
+            .foregroundStyle(enabled ? Color.black.opacity(0.85) : Color.white.opacity(0.75))
+            .frame(width: 20, height: 16)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(enabled ? UntypeDesignTokens.accentAmber : Color.black.opacity(0.35))
             )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(enabled ? Color.clear : Color.white.opacity(0.45), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+            .accessibilityLabel("\(name) \(enabled ? "on" : "off")")
+    }
+
+    /// A thin line through every point; a faint shadow keeps it readable on
+    /// both light and dark windows behind the transparent panel.
+    private func drawTrace(_ trace: [Float], in canvas: inout GraphicsContext, size: CGSize) {
+        guard trace.count > 1 else {
+            return
         }
+        let midY = size.height / 2
+        let halfHeight = size.height / 2 - 2
+        let step = size.width / CGFloat(trace.count - 1)
+        var path = Path()
+        for (index, value) in trace.enumerated() {
+            let point = CGPoint(x: CGFloat(index) * step, y: midY - CGFloat(value) * halfHeight)
+            if index == 0 {
+                path.move(to: point)
+            } else {
+                path.addLine(to: point)
+            }
+        }
+        canvas.addFilter(.shadow(color: .black.opacity(0.35), radius: 1.5))
+        canvas.stroke(
+            path,
+            with: .color(Self.traceColor.opacity(isRecording ? 1 : 0.7)),
+            style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        )
     }
 }
 
