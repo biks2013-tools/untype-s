@@ -280,7 +280,7 @@ Check: `gh release view v<version>-b<N> --repo biks2013-tools/untype-s` lists th
 
 ## 7c. Update the Homebrew tap
 
-Homebrew users install with `brew tap biks2013-tools/untype && brew install --cask untype` from the tap repository `biks2013-tools/homebrew-untype`. That repository is maintained as a **git subtree** of this one at `homebrew-tap/` (remote `homebrew-tap`); the cask is edited here and pushed back to the tap, never committed in the tap directly. The cask points at one GitHub release asset, so it must be regenerated after every published release:
+Homebrew users install with `brew tap biks2013-tools/untype && brew install --cask untype` from the tap repository `biks2013-tools/homebrew-untype`. That repository is maintained from this one, in the folder `homebrew-tap/` (originally a git subtree; remote `homebrew-tap`); the cask is generated here and published to the tap, never committed in the tap directly. The cask points at one GitHub release asset, so it must be regenerated after every published release:
 
 ```sh
 scripts/update-homebrew-cask.sh \
@@ -290,7 +290,7 @@ scripts/update-homebrew-cask.sh \
 git push origin main
 ```
 
-The script rewrites `homebrew-tap/Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits it on the current branch, and runs `git subtree push --prefix=homebrew-tap homebrew-tap main`, which is what updates the tap that Homebrew clones. The final `git push origin main` publishes the same commit in this repository. On a fresh clone add the remote once: `git remote add homebrew-tap https://github.com/biks2013-tools/homebrew-untype.git`. Then verify with Homebrew itself:
+The script rewrites `homebrew-tap/Casks/untype.rb` (version `"<version>,<N>"`, URL of `v<version>-b<N>/untype-<version>.dmg`, checksum, livecheck on the release tag), commits it on the current branch, and publishes the committed `homebrew-tap/` tree to the tap as one fast-forward commit on top of the tap's head (`git commit-tree` + `git push`), which is what updates the tap that Homebrew clones; it then re-fetches and checks the tap equals `homebrew-tap/`. It refuses — naming the files — if the tap holds content `homebrew-tap/` never had (a direct commit there): bring it over with `git fetch homebrew-tap main && git archive FETCH_HEAD | tar -x -C homebrew-tap`, review, commit, and run `scripts/update-homebrew-cask.sh --push-only`. `git subtree push` is not used: two subtree trailers in this repository name the same mainline commit (`a6d3c5e`, from the 2026 folder rename) and `git subtree split` aborts on them ("cache for … already exists"). The final `git push origin main` publishes the same commit in this repository. On a fresh clone add the remote once: `git remote add homebrew-tap https://github.com/biks2013-tools/homebrew-untype.git`. Then verify with Homebrew itself:
 
 ```sh
 git -C "$(brew --repo biks2013-tools/untype)" pull -q origin main   # Homebrew keeps its own clone of the tap

@@ -2,11 +2,6 @@
 
 ## Pending Items
 
-### P1 - `git subtree push` for the Homebrew tap fails ("cache for a6d3c5e… already exists") (2026-10-24)
-- `scripts/update-homebrew-cask.sh --push` could not publish build 18: first because the tap repository received a direct commit (`3c8fb07`, organization-move links), then because `git subtree split` hits a duplicate entry for the earlier re-link commit `a6d3c5e` and aborts. The main repository was synced with the tap commit (merge `699a31f`).
-- Workaround used for builds 18 and 23: publish the subtree's tree as a fast-forward commit on top of the tap head, which keeps the tap identical to `homebrew-tap/`: `T=$(git rev-parse HEAD:homebrew-tap); C=$(git commit-tree "$T" -p homebrew-tap/main -m "homebrew: untype <v> build <N>"); git push homebrew-tap "${C}:refs/heads/main"` (after `git fetch homebrew-tap`). In zsh write `${C}`: `$C:r…` is a filename modifier.
-- To do: fix the subtree history (e.g. re-establish the subtree with a fresh `git subtree add`/`--rejoin` split) or switch the script to the commit-tree method; also update `docs/design/release-runbook.md`.
-
 ### P3 - `settingsExpanded` UI setting is now unused (2026-10-24)
 - Plan-035 replaced the main window's inspector pane with the Settings window, so `UntypeUISettings.settingsExpanded` is still persisted in `ui-state.json` but no longer read. It was kept so existing state files and tests stay valid; remove it together with its patch field when the settings schema is next revised.
 
@@ -74,6 +69,11 @@ The source project has unit tests but no live provider or UI automation harness.
 - 2026-05-30: No new runtime dependencies added for focused-input target restoration. Implementation reuses existing AppKit workspace activation tracking and the existing focused-input delivery path.
 
 ## Completed Items
+
+### 2026-10-24 - Homebrew tap publishing fixed (`git subtree push` replaced)
+- Cause (reproduced): `git subtree split --prefix=homebrew-tap` aborts with "cache for a6d3c5e… already exists" because two commits carry identical subtree trailers (`git-subtree-mainline: a6d3c5e`, `git-subtree-split: dedcff1`): `d54d3ef` in this repository and `8f757c6` in the tap's history, left by the 2026 folder rename/re-link. git-subtree's `find_existing_splits` reads every trailer in history and `cache_set` dies on the duplicate, so every split/push fails; a new `--rejoin` would not help (old trailers are still read) and removing them means rewriting published history in both repositories.
+- Fix: `scripts/update-homebrew-cask.sh --push` now publishes the committed `homebrew-tap/` tree as one fast-forward commit on top of the tap head (`git commit-tree` + push, then re-fetch and tree check) — the manual workaround used for builds 18, 23 and 24, automated. Guards: refuses uncommitted changes under `homebrew-tap/`; refuses, naming the files, when the tap holds file content that `homebrew-tap/` never had (direct tap commit), with the recovery commands in the message. New `--push-only` publishes non-cask edits.
+- Verified in a sandbox (local clones of both repositories): up-to-date no-op, new cask published as fast-forward, direct tap commit refused (README.md named), recovery as instructed then publish keeps both changes, uncommitted change refused. Against the real tap: "already equals homebrew-tap/ at HEAD". Docs updated: `CLAUDE.md` Homebrew Tap Convention, `release-runbook.md` 7c, `homebrew-tap/README.md`.
 
 ### 2026-10-24 - Plan-035 manual checks closed
 - Debug build: dropdown rendering, Settings window (General/Prompts), prompt save with ⌘S and hot reload (editor and external edits), Window → Transcript/History, main window reopening at launch.
