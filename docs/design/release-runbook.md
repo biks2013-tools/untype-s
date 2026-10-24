@@ -236,7 +236,7 @@ Check: the recipient can open the image, install, and get past the onboarding ch
 
 ## 7b. Publish a public download link (GitHub Release)
 
-The repository `BikS2013/untype-s` is public, so a GitHub Release gives a permanent, login-free download URL. Requires `gh auth status` to show the BikS2013 account. Do this only after steps 4–6 passed.
+The repository `biks2013-tools/untype-s` is public, so a GitHub Release gives a permanent, login-free download URL. Requires `gh auth status` to show an account with write access to the biks2013-tools organization (BikS2013). Do this only after steps 4–6 passed.
 
 1. Make sure the source the build came from is committed and pushed (`git status --short` clean for `Sources/`, `prompts/`, `scripts/`, `packaging/`).
 2. Write the checksums file and release notes: download list, SHA-256, macOS 14 requirement, a "Learn more" pointer to the technical deck at https://biks2013-tools.github.io/untype-s/ (published from the `deck` branch by GitHub Pages), the three install steps, what changed:
