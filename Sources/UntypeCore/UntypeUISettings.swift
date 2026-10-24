@@ -41,7 +41,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
-        model: "stt-rt-v4",
+        model: "stt-rt-v5",
         languages: ["el", "en"],
         sampleRate: 16_000,
         endpointDetection: true,

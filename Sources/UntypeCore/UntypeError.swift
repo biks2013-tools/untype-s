@@ -1,3 +1,5 @@
+import Foundation
+
 public struct UntypeError: Error, Equatable, Sendable {
     public let code: String
     public let message: String
@@ -55,5 +57,13 @@ public struct UntypeError: Error, Equatable, Sendable {
 
     public static func microphoneCapture(_ message: String) -> UntypeError {
         UntypeError(code: "microphone_capture", message: message, exitCode: .microphone)
+    }
+}
+
+/// Readable `localizedDescription` (the UI event log shows it) instead of
+/// "The operation couldn't be completed (UntypeCore.UntypeError error 1.)".
+extension UntypeError: LocalizedError {
+    public var errorDescription: String? {
+        diagnosticLine
     }
 }

@@ -25,6 +25,9 @@ public enum LLMProvider: String, Sendable, Equatable, CaseIterable {
     case azureOpenAI = "azure-openai"
     case openAI = "openai"
     case anthropic
+    /// Claude on Microsoft (Azure) Foundry: the Anthropic Messages API at
+    /// `https://{resource}.services.ai.azure.com/anthropic`.
+    case azureAnthropic = "azure-anthropic"
     case google
     case azureAIInference = "azure-ai-inference"
     case ollama
@@ -35,6 +38,10 @@ public enum LLMProvider: String, Sendable, Equatable, CaseIterable {
 public enum ProviderConfig: Equatable, Sendable {
     case azureOpenAI(apiKey: String, endpoint: String, deployment: String, apiVersion: String)
     case google(apiKey: String)
+    /// Anthropic Messages API (`anthropic` direct or `azure-anthropic` Foundry):
+    /// `baseURL` is the API root without `/v1` (e.g.
+    /// `https://example.services.ai.azure.com/anthropic`).
+    case anthropic(apiKey: String, baseURL: String)
     case unimplemented(provider: LLMProvider)
 }
 

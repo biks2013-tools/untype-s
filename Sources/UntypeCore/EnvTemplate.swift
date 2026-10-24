@@ -40,7 +40,7 @@ public enum UntypeEnvTemplate {
     # Realtime transcription provider: soniox or elevenlabs. Default: soniox.
     # UNTYPE_STT_PROVIDER=
 
-    # STT realtime model. Default: stt-rt-v4 (Soniox) or scribe_v2_realtime (ElevenLabs).
+    # STT realtime model. Default: stt-rt-v5 (Soniox) or scribe_v2_realtime (ElevenLabs).
     # UNTYPE_MODEL=
 
     # STT WebSocket endpoint. Default: the selected provider's public endpoint.
@@ -67,9 +67,10 @@ public enum UntypeEnvTemplate {
     # selected LLM provider's credentials below are required.
     # UNTYPE_REFINE=
 
-    # LLM provider: azure-openai, openai, anthropic, google, azure-ai-inference,
-    # ollama, litellm, or openai-compat. Default: azure-openai.
-    # Implemented today: azure-openai and google.
+    # LLM provider: azure-openai, openai, anthropic, azure-anthropic, google,
+    # azure-ai-inference, ollama, litellm, or openai-compat. Default: azure-openai.
+    # Implemented today: azure-openai, anthropic, azure-anthropic (Claude on
+    # Microsoft Foundry) and google.
     # UNTYPE_LLM_PROVIDER=
 
     # LLM model or deployment name. Default: gpt-5.4.
@@ -84,6 +85,17 @@ public enum UntypeEnvTemplate {
 
     # Google Gemini (required when UNTYPE_LLM_PROVIDER is google and refinement is on).
     # GOOGLE_API_KEY=
+
+    # Anthropic Claude API (required when UNTYPE_LLM_PROVIDER is anthropic and refinement is on).
+    # ANTHROPIC_API_KEY=
+
+    # Claude on Microsoft Foundry (required when UNTYPE_LLM_PROVIDER is azure-anthropic
+    # and refinement is on). The key is the Foundry resource key; set the resource
+    # name OR the full base URL (https://<resource>.services.ai.azure.com/anthropic),
+    # not both. UNTYPE_LLM_MODEL is the Claude deployment name, e.g. claude-opus-5-5.
+    # ANTHROPIC_FOUNDRY_API_KEY=
+    # ANTHROPIC_FOUNDRY_RESOURCE=
+    # ANTHROPIC_FOUNDRY_BASE_URL=
 
     # Cap on LLM output tokens. Omitted from requests when unset.
     # UNTYPE_LLM_MAX_OUTPUT_TOKENS=

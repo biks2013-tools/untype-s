@@ -12,7 +12,7 @@ import Testing
     #expect(socket.sentTexts.count == 1)
     let config = try jsonObject(socket.sentTexts[0])
     #expect(config["api_key"] as? String == "test-key")
-    #expect(config["model"] as? String == "stt-rt-v4")
+    #expect(config["model"] as? String == "stt-rt-v5")
     #expect(config["audio_format"] as? String == "pcm_s16le")
     #expect(config["sample_rate"] as? Int == 16_000)
     #expect(config["num_channels"] as? Int == 1)
@@ -50,7 +50,7 @@ import Testing
     #expect(throws: UntypeError.self) {
         _ = try SonioxTranscriber(options: SonioxTranscriberOptions(
             apiKey: "test-key",
-            model: "stt-rt-v4",
+            model: "stt-rt-v5",
             endpoint: "https://example.com",
             languages: ["en"],
             sampleRate: 16_000,
@@ -287,7 +287,7 @@ private func makeSonioxTranscriber(
     SonioxTranscriber(
         options: SonioxTranscriberOptions(
             apiKey: "test-key",
-            model: "stt-rt-v4",
+            model: "stt-rt-v5",
             endpoint: "wss://stt-rt.soniox.com/transcribe-websocket",
             languages: languages,
             sampleRate: 16_000,

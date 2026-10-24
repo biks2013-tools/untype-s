@@ -15,7 +15,10 @@ public enum DotenvEditor {
         "AZURE_OPENAI_ENDPOINT",
         "AZURE_OPENAI_DEPLOYMENT",
         "AZURE_OPENAI_API_VERSION",
-        "GOOGLE_API_KEY"
+        "GOOGLE_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_FOUNDRY_API_KEY",
+        "ANTHROPIC_FOUNDRY_RESOURCE"
     ]
 
     public static func userEnvURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {

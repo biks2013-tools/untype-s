@@ -27,10 +27,10 @@ Point new users at this file instead of a separate example: after the first laun
 ## Credentials Editor (native UI)
 
 ### Purpose
-The native UI can write provider credentials into `~/.tool-agents/untype/.env` so a new user never has to edit the file by hand. The editor is reachable from the onboarding sheet (step 3 "Provider credentials" → **Set keys…**, and the footer button when credentials are the only missing item) and from the settings inspector (Credentials group → **Edit keys…**).
+The native UI can write provider credentials into `~/.tool-agents/untype/.env` so a new user never has to edit the file by hand. The editor is reachable from the onboarding sheet (step 3 "Provider credentials" → **Set keys…**, and the footer button when credentials are the only missing item) and from the Settings window (General tab → Session group → **Edit keys…**).
 
 ### Variables it manages
-`SONIOX_API_KEY`, `ELEVENLABS_API_KEY` (speech-to-text, at least one) and `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `GOOGLE_API_KEY` (LLM refinement/translation, optional). Secret fields are masked; a "Show" switch reveals them while editing. Every other variable stays file-only.
+`SONIOX_API_KEY`, `ELEVENLABS_API_KEY` (speech-to-text, at least one) and `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `GOOGLE_API_KEY`, `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_API_KEY` (LLM refinement/translation, optional). Secret fields are masked; a "Show" switch reveals them while editing. Every other variable stays file-only.
 
 ### Behavior
 - Saving writes only the fields that changed, through `DotenvEditor` (`Sources/UntypeCore/DotenvEditor.swift`): an active `KEY=value` line is replaced in place (later duplicates of the same key are removed so a stale last-wins entry cannot shadow the new value), a commented `# KEY=` template line is activated in place so its description stays above it, and an unknown key is appended. Comments, ordering, and unrelated variables are preserved. An emptied field unsets the key by turning its line back into `# KEY=`.
@@ -45,11 +45,30 @@ The native UI can write provider credentials into `~/.tool-agents/untype/.env` s
 
 | Setting | Values | Default | Meaning |
 |---|---|---|---|
-| `hotkeyEnabled` | `true` / `false` | `false` | Whether the global hotkey is monitored at all (inspector → Push to talk → Enabled). |
-| `hotkeyHoldToTalk` | `true` / `false` | `true` | `true`: push-to-talk, hold the hotkey to record and release to submit. `false`: push-to-listen, press once to start recording and press again to stop and submit. Top-bar switch and inspector "Hold to talk" row. |
+| `hotkeyEnabled` | `true` / `false` | `false` | Whether the global hotkey is monitored at all (menu-bar dropdown → Hotkey switch, or Settings → General → Push to talk → Enabled). |
+| `hotkeyHoldToTalk` | `true` / `false` | `true` | `true`: push-to-talk, hold the hotkey to record and release to submit. `false`: push-to-listen, press once to start recording and press again to stop and submit. Menu-bar dropdown segmented control, the main window's top-bar switch, and Settings → General → Push to talk → "Hold to talk". |
 | `hotkey` | key chord, e.g. `Control+\`` | `Control+\`` | The hotkey itself. |
 
 Both modes run the same pipeline after the recording ends: refinement, translation, clipboard, and focused-input delivery according to the operator toggles. Missing `hotkeyHoldToTalk` in an older state file loads the default (push-to-talk).
+
+## Claude as the LLM Provider (`anthropic`, `azure-anthropic`)
+
+### Purpose
+Refinement and translation can run on Claude through the Anthropic Messages API, either directly (`anthropic`, `api.anthropic.com`) or on Microsoft (Azure) Foundry (`azure-anthropic`, `https://<resource>.services.ai.azure.com/anthropic`). Select it with `--llm-provider` / `UNTYPE_LLM_PROVIDER` or the Settings window (General → Refinement (LLM) → Provider); `--llm-model` / `UNTYPE_LLM_MODEL` is the model ID (direct) or the Foundry **deployment name** (e.g. `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`).
+
+### Variables
+| Variable | Provider | Required | Meaning / how to obtain |
+|---|---|---|---|
+| `ANTHROPIC_FOUNDRY_API_KEY` | azure-anthropic | yes | The Foundry resource key (Foundry portal → Build → Models → deployment → Details → Key). On a resource that also hosts Azure OpenAI deployments it is the same key as `AZURE_OPENAI_API_KEY`; it is still set separately (no fallback between variables). Sent in the `x-api-key` header — verified 2026-10-24 that the Foundry Anthropic endpoint rejects `api-key` with 401 while accepting `x-api-key`. |
+| `ANTHROPIC_FOUNDRY_RESOURCE` | azure-anthropic | one of these two | Resource name; the base URL becomes `https://<resource>.services.ai.azure.com/anthropic`. |
+| `ANTHROPIC_FOUNDRY_BASE_URL` | azure-anthropic | one of these two | Full base URL instead of the resource name. Setting both is an error. |
+| `ANTHROPIC_API_KEY` | anthropic | yes | Claude API key from the Claude Console. |
+
+### Request behavior and defaults
+- Current Claude models reject `temperature` and cannot disable thinking; latency is set with `output_config.effort`. Default effort is `low` (dictation cleanup is short); `UNTYPE_LLM_REASONING_EFFORT` maps `none`/`minimal` → `low` and passes `low`/`medium`/`high` through.
+- `max_tokens` (required by the API) is `UNTYPE_LLM_MAX_OUTPUT_TOKENS` when set, else 4096.
+- A `refusal` or `max_tokens` stop reason is treated as a failed refinement (the raw transcript is delivered instead of a fragment).
+- Live check: `UNTYPE_LIVE_LLM_TEST=1 UNTYPE_LIVE_LLM_ARGS="--llm-provider azure-anthropic --llm-model claude-opus-5-5" swift test --filter liveLLM` (2026-10-24 on `claude-opus-5-5`: refine ≈2.0 s, translate ≈1.3 s, refine+translate ≈1.4 s).
 
 ## Prompt Configuration
 
@@ -78,6 +97,10 @@ When a prompt file is missing, `untype` creates it with the documented default c
 
 ### Recommended Storage and Editing
 Keep prompt files in `~/.tool-agents/untype/prompts/`. This folder is user-specific and outside the repository, so users can tune prompts without creating code changes. Do not store secrets in prompt files. Do not include private transcript examples unless you intentionally want them sent to the selected provider.
+
+The native UI edits these files in **Settings → Prompts** (⌘, from the menu-bar dropdown or the main window): one editor per file with Save (⌘S), Revert and Reset to Default (puts the built-in text in the editor; Save applies it). A save is validated with the same rules session start applies (required files non-empty, required placeholders present, provider length limits), so an invalid prompt cannot be written from the editor.
+
+Prompts are **hot-reloaded**: untype polls the nine files once a second. When one changes — saved from Settings or from any external editor — the Events log shows `prompts.reloaded: <files>` and an idle warm push-to-talk session is restarted at once, so the next turn uses the new prompt. A turn in progress is never interrupted (the warm session restarts after release and reads the files then); a running manual session uses the new prompts from its next start. The editor refreshes on external changes unless it holds unsaved edits.
 
 The repository also contains default prompt templates under `prompts/` for review and traceability. Runtime reads the user config folder, not the repository templates.
 

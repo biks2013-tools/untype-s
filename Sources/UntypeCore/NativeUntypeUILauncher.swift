@@ -59,6 +59,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var compactCancellable: AnyCancellable?
     private var recordingCancellable: AnyCancellable?
     private var menuBar: UntypeMenuBarController?
+    private var settingsWindow: UntypeSettingsWindowController?
     private var wasCompactWindow: Bool = false
 
     private static let miniSize = NSSize(width: 440, height: 260)
@@ -92,7 +93,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             defer: false
         )
         window.title = "untype"
-        window.minSize = initialCompact ? Self.miniSize : Self.mainMinSize
+        window.contentMinSize = initialCompact ? Self.miniSize : Self.mainMinSize
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.styleMask.insert(.fullSizeContentView)
@@ -102,12 +103,20 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         window.center()
         self.window = window
 
-        let menuBar = UntypeMenuBarController(window: window) { [weak model] detached in
-            model?.windowDetached = detached
-        }
+        let settingsWindow = UntypeSettingsWindowController(model: model)
+        self.settingsWindow = settingsWindow
+        let menuBar = UntypeMenuBarController(
+            window: window,
+            model: model,
+            openTab: { [weak self] tab in self?.showMainWindow(tab: tab) },
+            openSettings: { [weak settingsWindow] in settingsWindow?.show(tab: nil) }
+        )
         self.menuBar = menuBar
-        model.toggleWindowDetached = { [weak menuBar] in
-            menuBar?.toggleDetached()
+        model.showMainWindow = { [weak self] tab in
+            self?.showMainWindow(tab: tab)
+        }
+        model.showSettingsWindow = { [weak settingsWindow] tab in
+            settingsWindow?.show(tab: tab)
         }
         recordingCancellable = model.$captureState
             .map { $0 == "recording" }
@@ -128,6 +137,28 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             }
     }
 
+    /// Main window at a monitor tab; leaves compact mode, which has no tabs.
+    private func showMainWindow(tab: String) {
+        guard let model else { return }
+        if model.settings.compactWindow {
+            model.updateLayout(compactWindow: false)
+        }
+        model.updateLayout(selectedMonitorTab: tab)
+        menuBar?.showWindow()
+    }
+
+    @objc private func showTranscriptFromMenu() {
+        showMainWindow(tab: "transcript")
+    }
+
+    @objc private func showHistoryFromMenu() {
+        showMainWindow(tab: "history")
+    }
+
+    @objc private func showSettingsFromMenu() {
+        settingsWindow?.show(tab: nil)
+    }
+
     /// Same rule as the welcome sheet: show the window at launch while
     /// microphone, Accessibility or credentials still need attention.
     private static func needsSetup(_ settings: UntypeUISettings) -> Bool {
@@ -145,23 +176,25 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         if compact == wasCompactWindow { return }
         wasCompactWindow = compact
         if compact {
-            window.minSize = Self.miniSize
+            window.contentMinSize = Self.miniSize
             var frame = window.frame
             frame.origin.y += frame.size.height - Self.miniSize.height
             frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: Self.miniSize)).size
             window.setFrame(frame, display: true, animate: true)
         } else {
-            window.minSize = Self.mainMinSize
+            window.contentMinSize = Self.mainMinSize
             let target = NSSize(width: model.settings.windowWidth, height: model.settings.windowHeight)
             var frame = window.frame
             frame.origin.y -= target.height - frame.size.height
             frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
             window.setFrame(frame, display: true, animate: true)
         }
-        menuBar?.windowDidChangeSize()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender === window else {
+            return true
+        }
         menuBar?.handleCloseRequest()
         return false
     }
@@ -172,9 +205,13 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         }
         // Only persist resize while not in compact mode — compact-window size is fixed.
         guard let model, !model.settings.compactWindow else { return }
+        // A restored autosaved frame can be smaller than the persisted minimum
+        // (the content area excludes the toolbar); such a size is not saved.
+        let size = window.contentLayoutRect.size
+        guard size.width >= Self.mainMinSize.width, size.height >= Self.mainMinSize.height else { return }
         model.updateLayout(
-            windowWidth: Double(window.contentLayoutRect.width),
-            windowHeight: Double(window.contentLayoutRect.height)
+            windowWidth: Double(size.width),
+            windowHeight: Double(size.height)
         )
     }
 
@@ -196,6 +233,10 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "About untype", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
         appMenu.addItem(.separator())
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettingsFromMenu), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Hide untype", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         let hideOthers = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
@@ -214,11 +255,30 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         let editItem = NSMenuItem()
         mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redo)
+        editMenu.addItem(.separator())
         editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editItem.submenu = editMenu
+
+        let windowItem = NSMenuItem()
+        mainMenu.addItem(windowItem)
+        let windowMenu = NSMenu(title: "Window")
+        let transcriptItem = NSMenuItem(title: "Transcript", action: #selector(showTranscriptFromMenu), keyEquivalent: "1")
+        transcriptItem.target = self
+        windowMenu.addItem(transcriptItem)
+        let historyItem = NSMenuItem(title: "History", action: #selector(showHistoryFromMenu), keyEquivalent: "2")
+        historyItem.target = self
+        windowMenu.addItem(historyItem)
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowItem.submenu = windowMenu
+        NSApplication.shared.windowsMenu = windowMenu
 
         NSApplication.shared.mainMenu = mainMenu
     }
@@ -264,7 +324,7 @@ private final class HotkeySessionControl: RuntimeAudioGate, @unchecked Sendable 
 }
 
 @MainActor
-private final class UntypeUIModel: ObservableObject {
+final class UntypeUIModel: ObservableObject {
     @Published var settings: UntypeUISettings
     @Published var sessionState = "idle"
     @Published var captureState = "idle"
@@ -275,12 +335,19 @@ private final class UntypeUIModel: ObservableObject {
     @Published var hotkeyPressed = false
     @Published var hotkeyMonitorStatus = "disabled"
     @Published var audioStatus = "idle"
-    /// The window is popped out of the menu bar (see `UntypeMenuBarController`).
-    @Published var windowDetached = false
-    var toggleWindowDetached: (() -> Void)?
+    /// Bumped whenever a prompt file changes on disk, so open editors refresh.
+    @Published private(set) var promptRevision = 0
+    /// Opens the main window at a monitor tab ("transcript", "history", "events").
+    var showMainWindow: ((String) -> Void)?
+    /// Opens the Settings window, optionally at a tab ("general", "prompts").
+    var showSettingsWindow: ((String?) -> Void)?
+    /// Selected tab of the Settings window.
+    @Published var settingsTab = "general"
 
-    var overlay: UntypeOverlayController?
-    var hotkeyMonitor: UntypeHotkeyMonitor?
+    fileprivate var overlay: UntypeOverlayController?
+    fileprivate var hotkeyMonitor: UntypeHotkeyMonitor?
+    let promptStore = PromptFileStore(directory: PromptFileStore.userDirectory())
+    private var promptWatcher: PromptFileWatcher?
 
     private var runtime: UntypeRuntimeSession?
     private var sessionTask: Task<Void, Never>?
@@ -311,6 +378,38 @@ private final class UntypeUIModel: ObservableObject {
             appendEvent("diagnostic.warning: \(errorMessage)")
         }
         installFocusedInputApplicationTracker()
+        installPromptWatcher()
+    }
+
+    /// Session-shaping settings (provider, protocol mode, LLM, hotkey) can be
+    /// changed while idle or while the hotkey session is only warm; `update`
+    /// restarts the warm session. They stay locked during a push-to-talk turn
+    /// and during a manual session.
+    var canReshapeSession: Bool {
+        !isRunning || (sessionOwner == .hotkey && captureState == "warm" && !hotkeyPressed)
+    }
+
+    private func installPromptWatcher() {
+        let watcher = PromptFileWatcher(store: promptStore) { [weak self] names in
+            self?.promptFilesChanged(names)
+        }
+        watcher.start()
+        promptWatcher = watcher
+    }
+
+    /// Hot reload: sessions read the prompts when they start, so an idle warm
+    /// push-to-talk session is recycled at once and the next turn uses the new
+    /// prompts. A turn in progress is never interrupted — the warm session is
+    /// restarted after release anyway and re-reads the prompts then.
+    private func promptFilesChanged(_ names: [String]) {
+        promptRevision += 1
+        appendEvent("prompts.reloaded: \(names.joined(separator: ", "))")
+        if sessionOwner == .hotkey, runtime != nil, captureState == "warm", !hotkeyPressed {
+            appendEvent("diagnostic.info: [untype] restarting warm push-to-talk session to apply the prompts")
+            stopHotkeyWarmSession(restartAfterStop: true)
+        } else if sessionOwner == .manual {
+            appendEvent("diagnostic.info: [untype] the running session keeps its prompts; they apply from the next session")
+        }
     }
 
     func configureHotkeyServices() {
@@ -916,7 +1015,12 @@ private final class UntypeUIModel: ObservableObject {
         }
         let delay = warmSessionRecycleNanoseconds
         warmSessionRecycleTask = Task.detached { [weak self] in
-            try? await Task.sleep(nanoseconds: delay)
+            // A cancelled timer must not recycle: `try?` swallows the
+            // cancellation, which used to recycle at once and stop the same
+            // session a second time.
+            guard (try? await Task.sleep(nanoseconds: delay)) != nil, !Task.isCancelled else {
+                return
+            }
             dispatchToUI { [weak self] in
                 self?.recycleWarmSession()
             }
@@ -933,7 +1037,8 @@ private final class UntypeUIModel: ObservableObject {
               settings.hotkeyEnabled,
               sessionOwner == .hotkey,
               runtime != nil,
-              !hotkeyPressed
+              !hotkeyPressed,
+              captureState == "warm"
         else {
             return
         }
@@ -1117,7 +1222,6 @@ private final class WeakUntypeUIModelBox: @unchecked Sendable {
 private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showOnboarding: Bool = false
-    @State private var showCredentialsEditor: Bool = false
     private static let titlebarControlHeight: CGFloat = 54
     private static let transcriptOperatorLabelMinimumContentWidth: CGFloat = 760
 
@@ -1131,15 +1235,8 @@ private struct UntypeRootView: View {
                     sidebarPane
                         .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
                 } detail: {
-                    HStack(spacing: 0) {
-                        contentPane
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        if model.settings.settingsExpanded {
-                            Divider()
-                            settingsPane
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
-                        }
-                    }
+                    contentPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .navigationSplitViewStyle(.balanced)
                 .frame(minWidth: 860, minHeight: 620)
@@ -1147,12 +1244,11 @@ private struct UntypeRootView: View {
                 .overlay(alignment: .topTrailing) {
                     titlebarControls
                         .padding(.top, 8)
-                        .padding(.trailing, titlebarControlsTrailingPadding)
+                        .padding(.trailing, 18)
                         .ignoresSafeArea(.container, edges: .top)
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.16), value: model.settings.settingsExpanded)
         .animation(.easeInOut(duration: 0.16), value: model.settings.monitorSidebarExpanded)
         .animation(.easeInOut(duration: 0.18), value: model.settings.compactWindow)
         .preferredColorScheme(preferredColorScheme)
@@ -1163,11 +1259,6 @@ private struct UntypeRootView: View {
         .sheet(isPresented: $showOnboarding) {
             UntypeOnboardingView(model: model) {
                 showOnboarding = false
-            }
-        }
-        .sheet(isPresented: $showCredentialsEditor) {
-            UntypeCredentialsEditorView(model: model) {
-                showCredentialsEditor = false
             }
         }
     }
@@ -1201,22 +1292,20 @@ private struct UntypeRootView: View {
         showOnboarding = true
     }
 
-    /// Pop the window out of the menu bar, or dock it back.
-    private var detachButton: some View {
+    /// Opens the Settings window (settings and prompts).
+    private var settingsButton: some View {
         Button {
-            model.toggleWindowDetached?()
+            model.showSettingsWindow?(nil)
         } label: {
-            Image(systemName: model.windowDetached ? "menubar.arrow.up.rectangle" : "macwindow.on.rectangle")
+            Image(systemName: "gearshape")
         }
-        .help(model.windowDetached
-              ? "Dock back to the menu bar"
-              : "Pop out into a window — keeps untype open; click the menu-bar icon or close the window to dock it back")
+        .help("Settings and prompts (⌘,)")
     }
 
     @ToolbarContentBuilder
     private var compactToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            detachButton
+            settingsButton
         }
         ToolbarItem(placement: .primaryAction) {
             Button {
@@ -1259,10 +1348,6 @@ private struct UntypeRootView: View {
                 }
             }
         )
-    }
-
-    private var titlebarControlsTrailingPadding: CGFloat {
-        model.settings.settingsExpanded ? 338 : 18
     }
 
     private var titlebarControls: some View {
@@ -1321,17 +1406,12 @@ private struct UntypeRootView: View {
             } label: {
                 Image(systemName: appearanceIcon)
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .help("Appearance: \(model.settings.appearance.capitalized)")
 
-            Button {
-                model.updateLayout(settingsExpanded: !model.settings.settingsExpanded)
-            } label: {
-                Image(systemName: model.settings.settingsExpanded ? "sidebar.right" : "sidebar.squares.right")
-            }
-            .help(model.settings.settingsExpanded ? "Hide Inspector" : "Show Inspector")
-            .keyboardShortcut("\\", modifiers: [.command])
-
-            detachButton
+            settingsButton
 
             Button {
                 model.updateLayout(compactWindow: true)
@@ -2113,338 +2193,6 @@ private struct UntypeRootView: View {
         }
     }
 
-    private var settingsPane: some View {
-        let availability = UntypeUIControlAvailability(isSessionActive: model.isRunning)
-        let sessionShapingDisabled = !availability.sessionShapingControlsEnabled
-        let operatorControlsDisabled = !availability.protocolOperatorControlsEnabled
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                // Session — read-only summary
-                inspectorGroup("Session", accessory: {
-                    Button {
-                        showCredentialsEditor = true
-                    } label: {
-                        Label("Edit keys…", systemImage: "key")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Set provider API keys; stored in ~/.tool-agents/untype/.env")
-                }) {
-                    inspectorStatusRow("State", value: model.sessionState, tone: UntypeStatusToneMap.session(isRunning: model.isRunning, isHotkeyPressed: model.hotkeyPressed))
-                    inspectorMonoRow("Mode", value: model.settings.protocolMode)
-                    inspectorMonoRow("STT provider", value: model.settings.provider)
-                    inspectorMonoRow("Model", value: model.settings.model)
-                    inspectorMonoRow("Languages", value: model.settings.languages.joined(separator: " · "))
-                    inspectorMonoRow("Sample rate", value: "\(model.settings.sampleRate) Hz")
-                    inspectorMonoRow("Endpoint detection", value: model.settings.endpointDetection ? "on" : "off")
-                    inspectorMonoRow("Quick Close", value: model.settings.quickClose ? "on" : "off")
-                    inspectorMonoRow("Audio", value: model.audioStatus)
-                }
-
-                // Provider
-                inspectorGroup("Provider") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        inspectorFieldRow("STT") {
-                            Picker("", selection: binding(\.provider)) {
-                                Text("Soniox").tag("soniox")
-                                Text("ElevenLabs").tag("elevenlabs")
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        inspectorFieldRow("Model") {
-                            TextField("", text: binding(\.model))
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        inspectorFieldRow("Languages") {
-                            TextField("", text: languagesBinding)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        inspectorFieldRow("Sample") {
-                            Stepper("\(model.settings.sampleRate) Hz", value: sampleRateBinding, in: 8_000...48_000, step: 1_000)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        inspectorToggleRow("Endpoint detection", isOn: binding(\.endpointDetection))
-                    }
-                    .disabled(sessionShapingDisabled)
-                }
-
-                // Protocol
-                inspectorGroup("Protocol") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        inspectorFieldRow("Mode") {
-                            Picker("", selection: binding(\.protocolMode)) {
-                                Text("Dictation").tag("dictation")
-                                Text("Agent").tag("agent-protocol")
-                                Text("Hybrid").tag("hybrid")
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(sessionShapingDisabled)
-                        inspectorFieldRow("Translate") {
-                            Picker("", selection: binding(\.translationPolicy)) {
-                                Text("Opposite").tag("opposite")
-                                Text("To English").tag("to-en")
-                                Text("To Greek").tag("to-el")
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(sessionShapingDisabled)
-                    }
-                }
-
-                // Operators — always editable
-                inspectorGroup("Operators") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        inspectorToggleRow("Refine", isOn: binding(\.refine))
-                        inspectorToggleRow("Translate", isOn: binding(\.translate))
-                        inspectorToggleRow("Clipboard", isOn: binding(\.clipboard))
-                        inspectorToggleRow("Focused input", isOn: binding(\.focusedInput))
-                    }
-                    .disabled(operatorControlsDisabled)
-                }
-
-                // LLM
-                inspectorGroup("Refinement (LLM)") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        inspectorToggleRow("Enabled", isOn: binding(\.llmEnabled))
-                        inspectorFieldRow("Provider") {
-                            Picker("", selection: binding(\.llmProvider)) {
-                                ForEach(LLMProvider.allCases, id: \.rawValue) { provider in
-                                    Text(provider.rawValue).tag(provider.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        inspectorFieldRow("Model") {
-                            TextField("", text: binding(\.llmModel))
-                                .textFieldStyle(.roundedBorder)
-                        }
-                    }
-                    .disabled(sessionShapingDisabled)
-                }
-
-                // Push to talk
-                inspectorGroup("Push to talk") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        inspectorToggleRow("Enabled", isOn: binding(\.hotkeyEnabled))
-                            .disabled(sessionShapingDisabled)
-                        inspectorFieldRow("Hotkey") {
-                            HStack(spacing: 6) {
-                                TextField("", text: binding(\.hotkey))
-                                    .textFieldStyle(.roundedBorder)
-                                UntypeKbd(model.settings.hotkey)
-                            }
-                        }
-                        .disabled(sessionShapingDisabled)
-                        inspectorToggleRow("Hold to talk", isOn: binding(\.hotkeyHoldToTalk))
-                        Text(model.settings.hotkeyHoldToTalk
-                             ? "Push-to-talk: hold the hotkey to record, release to submit."
-                             : "Push-to-listen: press the hotkey to start, press again to stop and submit.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        inspectorToggleRow("Quick Close", isOn: binding(\.quickClose))
-                            .disabled(sessionShapingDisabled)
-                        inspectorFieldRow("Action") {
-                            Button(model.hotkeyPressed ? "Release Hotkey" : "Press Hotkey") {
-                                model.hotkeyPressed
-                                    ? model.stopHotkeySession(source: "ui-button")
-                                    : model.startHotkeySession(source: "ui-button")
-                            }
-                            .disabled(!model.settings.hotkeyEnabled)
-                        }
-                        Text(hotkeyStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-
-                // Permissions — deep links into System Settings when not OK
-                inspectorGroup("Permissions") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        inspectorPermissionRow(
-                            label: "Microphone",
-                            value: model.settings.microphoneStatus,
-                            tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus),
-                            deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-                        )
-                        inspectorPermissionRow(
-                            label: "Accessibility",
-                            value: model.settings.accessibilityStatus,
-                            tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
-                            deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                        )
-                        inspectorPermissionRow(
-                            label: "Input monitoring",
-                            value: model.settings.inputStatus,
-                            tone: model.settings.focusedInput ? .accent : .off,
-                            deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
-                        )
-                        Button {
-                            presentPermissionSetup()
-                        } label: {
-                            Label("Open Permission Setup", systemImage: "lock.shield")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Open permission setup")
-                    }
-                }
-
-                // Credentials
-                inspectorGroup("Credentials") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        inspectorStatusRow(model.settings.apiKeyName, value: model.settings.apiKeyStatus, tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus))
-                        inspectorMonoRow("Source", value: model.settings.storageStatus)
-                        inspectorMonoRow("Expiry", value: model.settings.expiryStatus)
-                        if model.settings.storageStatus.lowercased().contains(".env") || model.settings.storageStatus.lowercased().contains("user") {
-                            Text("~/.tool-agents/untype/.env")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .padding(8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        }
-                    }
-                }
-            }
-            .padding(14)
-        }
-        .frame(width: 320)
-        .background(.thinMaterial)
-        .overlay(alignment: .leading) {
-            Divider()
-        }
-    }
-
-    private func inspectorGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        inspectorGroup(title, accessory: { EmptyView() }, content: content)
-    }
-
-    /// Inspector group whose header row carries a trailing accessory (e.g. a
-    /// small action button aligned to the right of the title).
-    private func inspectorGroup<Accessory: View, Content: View>(
-        _ title: String,
-        @ViewBuilder accessory: () -> Accessory,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
-                UntypeSectionHeader(title)
-                Spacer(minLength: 8)
-                accessory()
-            }
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06))
-        )
-    }
-
-    private func inspectorToggleRow(_ label: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 10) {
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 6)
-            Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .controlSize(.small)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func inspectorFieldRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .leading)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func inspectorStatusRow(_ label: String, value: String, tone: UntypeStatusTone) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            HStack(spacing: 6) {
-                UntypeStatusDot(tone: tone, size: 7)
-                Text(value)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func inspectorMonoRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .leading)
-            Text(value)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func inspectorPermissionRow(label: String, value: String, tone: UntypeStatusTone, deepLink: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .leading)
-            HStack(spacing: 6) {
-                UntypeStatusDot(tone: tone, size: 7)
-                Text(value)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 4)
-                if tone == .warn {
-                    Button {
-                        if let url = URL(string: deepLink) {
-                            NSWorkspace.shared.open(url)
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.right.square")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Open System Settings")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     private var audioLevelLabel: String {
         let lower = model.audioStatus.lowercased()
         if let percentRange = lower.range(of: #"\d+%"#, options: .regularExpression) {
@@ -2452,87 +2200,6 @@ private struct UntypeRootView: View {
         }
         if model.isRunning { return "live" }
         return "silent"
-    }
-
-    private var hotkeyStatus: String {
-        if !model.settings.hotkeyEnabled {
-            return "Disabled"
-        }
-        if model.hotkeyMonitorStatus != "disabled" {
-            return model.hotkeyMonitorStatus
-        }
-        return "Accessibility/Input Monitoring may be required for release detection"
-    }
-
-    private var languagesBinding: Binding<String> {
-        Binding(
-            get: { model.settings.languages.joined(separator: ", ") },
-            set: { value in
-                model.update(UntypeUISettingsPatch(languages: value.split(separator: ",").map { String($0) }))
-            }
-        )
-    }
-
-    private var sampleRateBinding: Binding<Int> {
-        Binding(
-            get: { model.settings.sampleRate },
-            set: { model.update(UntypeUISettingsPatch(sampleRate: $0)) }
-        )
-    }
-
-    private var monitorTabBinding: Binding<String> {
-        Binding(
-            get: { model.settings.selectedMonitorTab },
-            set: { model.updateLayout(selectedMonitorTab: $0) }
-        )
-    }
-
-    private func binding<T>(_ keyPath: WritableKeyPath<UntypeUISettings, T>) -> Binding<T> {
-        Binding(
-            get: { model.settings[keyPath: keyPath] },
-            set: { value in
-                model.update(patch(for: keyPath, value: value))
-            }
-        )
-    }
-
-    private func patch<T>(for keyPath: WritableKeyPath<UntypeUISettings, T>, value: T) -> UntypeUISettingsPatch {
-        switch keyPath {
-        case \UntypeUISettings.provider:
-            return UntypeUISettingsPatch(provider: value as? String)
-        case \UntypeUISettings.model:
-            return UntypeUISettingsPatch(model: value as? String)
-        case \UntypeUISettings.endpointDetection:
-            return UntypeUISettingsPatch(endpointDetection: value as? Bool)
-        case \UntypeUISettings.quickClose:
-            return UntypeUISettingsPatch(quickClose: value as? Bool)
-        case \UntypeUISettings.protocolMode:
-            return UntypeUISettingsPatch(protocolMode: value as? String)
-        case \UntypeUISettings.refine:
-            return UntypeUISettingsPatch(refine: value as? Bool)
-        case \UntypeUISettings.translate:
-            return UntypeUISettingsPatch(translate: value as? Bool)
-        case \UntypeUISettings.clipboard:
-            return UntypeUISettingsPatch(clipboard: value as? Bool)
-        case \UntypeUISettings.focusedInput:
-            return UntypeUISettingsPatch(focusedInput: value as? Bool)
-        case \UntypeUISettings.translationPolicy:
-            return UntypeUISettingsPatch(translationPolicy: value as? String)
-        case \UntypeUISettings.llmEnabled:
-            return UntypeUISettingsPatch(llmEnabled: value as? Bool)
-        case \UntypeUISettings.llmProvider:
-            return UntypeUISettingsPatch(llmProvider: value as? String)
-        case \UntypeUISettings.llmModel:
-            return UntypeUISettingsPatch(llmModel: value as? String)
-        case \UntypeUISettings.hotkeyEnabled:
-            return UntypeUISettingsPatch(hotkeyEnabled: value as? Bool)
-        case \UntypeUISettings.hotkeyHoldToTalk:
-            return UntypeUISettingsPatch(hotkeyHoldToTalk: value as? Bool)
-        case \UntypeUISettings.hotkey:
-            return UntypeUISettingsPatch(hotkey: value as? String)
-        default:
-            return UntypeUISettingsPatch()
-        }
     }
 }
 
@@ -2767,7 +2434,7 @@ private struct UntypeOverlayView: View {
 // MARK: - Onboarding sheet
 
 @MainActor
-private struct UntypeCredentialsEditorView: View {
+struct UntypeCredentialsEditorView: View {
     @ObservedObject var model: UntypeUIModel
     var onDismiss: () -> Void
     @State private var values: [String: String] = [:]
@@ -2792,7 +2459,10 @@ private struct UntypeCredentialsEditorView: View {
         Field(key: "AZURE_OPENAI_ENDPOINT", label: "Azure OpenAI endpoint", secret: false, hint: "https://<resource>.openai.azure.com"),
         Field(key: "AZURE_OPENAI_DEPLOYMENT", label: "Azure OpenAI deployment", secret: false, hint: "Deployment name, e.g. gpt-5.4"),
         Field(key: "AZURE_OPENAI_API_VERSION", label: "Azure OpenAI API version", secret: false, hint: "Leave empty to use the built-in default."),
-        Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required for refinement with the google provider.")
+        Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required for refinement with the google provider."),
+        Field(key: "ANTHROPIC_FOUNDRY_API_KEY", label: "Claude on Azure Foundry key", secret: true, hint: "Foundry resource key; required with the azure-anthropic provider."),
+        Field(key: "ANTHROPIC_FOUNDRY_RESOURCE", label: "Foundry resource name", secret: false, hint: "e.g. my-resource (https://my-resource.services.ai.azure.com)"),
+        Field(key: "ANTHROPIC_API_KEY", label: "Anthropic API key", secret: true, hint: "Required with the anthropic provider (api.anthropic.com).")
     ]
 
     var body: some View {
@@ -2932,7 +2602,7 @@ private struct UntypeCredentialsEditorView: View {
 }
 
 @MainActor
-private struct UntypeOnboardingView: View {
+struct UntypeOnboardingView: View {
     @ObservedObject var model: UntypeUIModel
     var onDismiss: () -> Void
     @State private var showCredentials = false
@@ -3027,7 +2697,7 @@ private struct UntypeOnboardingView: View {
                                 .padding(.trailing, 4)
                         }
                         Button("Change…") {
-                            // Defer to inspector; this is a hint, not a binding.
+                            model.showSettingsWindow?("general")
                         }
                         .buttonStyle(.borderless)
                     }

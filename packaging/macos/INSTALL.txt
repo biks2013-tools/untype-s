@@ -9,11 +9,12 @@ untype - installation notes
 2. First launch
    Open untype from Applications (or Spotlight). untype lives in the menu
    bar (waveform icon, top right) and has no Dock icon. On the first launch
-   its window opens under that icon with an onboarding checklist for the
-   items below. Click the icon to show or hide the window; the toolbar's
-   pop-out button (or right-click on the icon) turns it into a normal
-   window, and clicking the icon docks it back. Quit from the icon's
-   right-click menu.
+   its window opens with an onboarding checklist for the items below.
+   Click the icon for the dropdown: the hotkey switch, push-to-talk or
+   push-to-listen, the mode, the R/T/C/I operators and the hotkeys, plus
+   Transcript (Cmd+1), History (Cmd+2), Settings... (Cmd+,) and Quit.
+   Settings > Prompts shows the refinement and translation prompts; edit
+   one and press Save (Cmd+S) - the next push-to-talk turn already uses it.
 
 3. Permissions (System Settings > Privacy & Security)
    - Microphone: grant when macOS asks on the first recording.
@@ -43,6 +44,9 @@ untype - installation notes
      AZURE_OPENAI_DEPLOYMENT=<deployment-name>
      AZURE_OPENAI_API_VERSION=<api-version>
      GOOGLE_API_KEY=...          # if you switch the LLM provider to google
+     ANTHROPIC_FOUNDRY_API_KEY=...       # Claude on Azure Foundry (provider
+     ANTHROPIC_FOUNDRY_RESOURCE=<name>   #   azure-anthropic, model = deployment
+                                         #   name, e.g. claude-opus-5-5)
 
    The prompt files the app uses are created in the same folder on first run.
    Settings left commented out are simply unset: missing required settings
