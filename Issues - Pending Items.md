@@ -2,6 +2,12 @@
 
 ## Pending Items
 
+### P2 - Live focused-input typing: known limitations (2026-10-24)
+- Moving the caret or typing by hand while push-to-talk is held desynchronizes the live text; the release-time edit then deletes/types relative to the wrong position.
+- A voice command that cancels a section leaves the live text in the field (only a delivered result replaces it).
+- A second press before the previous turn's text is delivered replaces the live-typing state; the earlier turn's live text is then delivered with the regular method after it.
+- Live typing targets only the app frontmost at press; if focus moves away during the hold, typing pauses and the release falls back to the regular delivery.
+
 ### P2 - LLM streaming toggle (plan/design-034) — deferred verification & implementation notes (2026-06-20)
 Optional LLM response-token streaming for azure-openai/google was implemented via the team-workflow (off by default; `--llm-streaming`/`--no-llm-streaming`, env `UNTYPE_LLM_STREAMING`, UI toggle). All units built green; full `swift test` passes 203/0. Pending follow-ups:
 - **Manual on-device smoke check (Plan Step 15, REQUIRES USER):** with streaming ON, perform a push-to-talk release into a focused text field; confirm the overlay `finalizing` phase updates progressively then settles on the final text, AND the newest `~/.tool-agents/untype/release-latency.jsonl` record shows `focused_input.ok=true`. Repeat with streaming OFF to confirm unchanged behavior. Cannot be run headless (Accessibility/Input-Monitoring perms + overlay rendering).
@@ -57,6 +63,11 @@ The source project has unit tests but no live provider or UI automation harness.
 - 2026-05-30: No new runtime dependencies added for focused-input target restoration. Implementation reuses existing AppKit workspace activation tracking and the existing focused-input delivery path.
 
 ## Completed Items
+
+### 2026-10-24 - Final text inserted twice in a terminal after live typing (fixed in build 17)
+- **Symptom:** dictating into a terminal pane, the live raw text was removed correctly on release, but the refined text appeared twice. Release records showed `paste-keycode` deliveries after the live edit.
+- **Cause:** after deleting the differing live text, the remainder went through auto-delivery, which first tries an Accessibility `AXSelectedText` insert and, when the field's value length looks unchanged, assumes a no-op and pastes. A terminal that applies the AX insert asynchronously therefore received the text twice. Terminal.app, Ghostty, the zsh prompt and a Claude Code prompt all handled the live keystrokes themselves correctly (reproduced with the real `LiveKeyboardPoster`).
+- **Fix:** `LiveFocusedInputTyper.reconcile` now finishes a live turn with the same keystrokes that typed it (`LiveInputReconciliation.completed`, logged as `live-typed`); only a remainder containing a line break is pasted with a forced `paste-keycode` delivery. Turns without live text keep auto-delivery.
 
 ### 2026-10-04 - Build 15 released, published, and on Homebrew (v0.1.0-b15)
 Build 15 (`CFBundleVersion 15`, version 0.1.0) packaged from commit `ae9bcad` with `--dmg`; suite 230/230 inside the pipeline. App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; image contains build 15, `Applications`, `INSTALL.txt`. Signed with `--sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30` (the login-keychain Developer ID leaf that signed build 13) because the certificate name is ambiguous between the login and System keychains; same TCC identity, no permission re-grant. Installed over build 14 (kept at `.build/deploy/untype.app.build14-backup`; build 14 was a local test build of the same fix and was not published). GitHub Release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b15 with `untype-0.1.0.dmg` (SHA-256 `12b7e87f1d924af9d4446860afe7734d176f77eb63bdf1c25ef46ca826cab975`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap updated (`brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,15`). Ships the push-to-talk overlay fix for HyprMac (overlay panel recreated on every appearance).

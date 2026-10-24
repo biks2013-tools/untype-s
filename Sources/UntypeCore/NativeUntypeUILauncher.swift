@@ -197,6 +197,7 @@ private enum UntypeUISessionOwner {
 private final class HotkeySessionControl: RuntimeAudioGate, @unchecked Sendable {
     private let lock = NSLock()
     private var gateOpen = false
+    private var level = 0.0
 
     func isOpen() -> Bool {
         lock.lock()
@@ -213,7 +214,21 @@ private final class HotkeySessionControl: RuntimeAudioGate, @unchecked Sendable 
     func close() {
         lock.lock()
         gateOpen = false
+        level = 0
         lock.unlock()
+    }
+
+    func observeAudioLevel(_ peak: Double) {
+        lock.lock()
+        level = gateOpen ? peak : 0
+        lock.unlock()
+    }
+
+    /// Latest microphone peak (0...1) while the gate is open; 0 otherwise.
+    func currentLevel() -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return level
     }
 }
 
@@ -237,6 +252,11 @@ private final class UntypeUIModel: ObservableObject {
     private var sessionTask: Task<Void, Never>?
     private var sessionOwner: UntypeUISessionOwner?
     private var hotkeySessionControl: HotkeySessionControl?
+
+    /// Microphone peak of the current push-to-talk turn, for the overlay wave.
+    var microphoneLevel: Double {
+        hotkeySessionControl?.currentLevel() ?? 0
+    }
     private var warmSessionRecycleTask: Task<Void, Never>?
     private var restartWarmSessionAfterStop = false
     private var warmSessionRecycleInFlight = false
@@ -245,6 +265,8 @@ private final class UntypeUIModel: ObservableObject {
     private var workspaceActivationObserver: NSObjectProtocol?
     private var lastExternalFocusedInputApplication: NSRunningApplication?
     private var sessionFocusedInputApplication: NSRunningApplication?
+    /// Types the current push-to-talk turn into the focused control live.
+    private var liveTyper: LiveFocusedInputTyper?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
     private let audioEventInterval: TimeInterval = 2
 
@@ -298,6 +320,29 @@ private final class UntypeUIModel: ObservableObject {
         if let name = sessionFocusedInputApplication?.localizedName {
             appendEvent("diagnostic.info: [untype] focused-input target captured: \(name) (\(reason))")
         }
+    }
+
+    /// Live typing needs focused-input delivery on and an external app in
+    /// front at press time; that app is the only one ever typed into.
+    private func startLiveTyping() {
+        liveTyper = nil
+        guard settings.focusedInput else {
+            return
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        guard let frontmost, isExternalFocusedInputApplication(frontmost) else {
+            return
+        }
+        liveTyper = LiveFocusedInputTyper(targetPID: frontmost.processIdentifier)
+    }
+
+    /// Called by focused-input delivery with the final (processed) text:
+    /// edits the live text in place when this turn was typed live.
+    func reconcileLiveInput(_ text: String) async -> LiveInputReconciliation {
+        guard let liveTyper else {
+            return .notLive
+        }
+        return await liveTyper.reconcile(with: text)
     }
 
     func prepareFocusedInputDelivery() {
@@ -473,11 +518,12 @@ private final class UntypeUIModel: ObservableObject {
         latestTranscript = ""
         timeline.clearPartial()
         captureFocusedInputTarget(reason: "hotkey-press")
+        startLiveTyping()
         clearWarmSessionRecycleTimer()
-        overlay?.show(phase: "recording", text: latestTranscript)
         let control = hotkeySessionControl ?? HotkeySessionControl()
         control.open()
         hotkeySessionControl = control
+        overlay?.show(phase: "recording")
         if runtime == nil, sessionOwner == nil {
             startSession(owner: .hotkey, audioGate: control)
         }
@@ -495,7 +541,7 @@ private final class UntypeUIModel: ObservableObject {
         appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) stopped (\(source))")
         restartWarmSessionAfterStop = settings.hotkeyEnabled
         stopSession(reason: "ui-hotkey-release", submitPending: true, releaseMarker: releaseMarker)
-        overlay?.show(phase: "finalizing", text: latestTranscript)
+        overlay?.show(phase: "finalizing")
         overlay?.hideAfterDelay()
     }
 
@@ -676,14 +722,18 @@ private final class UntypeUIModel: ObservableObject {
                         }
                         try? await Task.sleep(nanoseconds: 150_000_000)
                     },
+                    focusedInputReconciliation: { @MainActor text in
+                        await modelBox.model?.reconcileLiveInput(text) ?? .notLive
+                    },
                     streamingProgress: { accumulated in
                         // DISPLAY ONLY: progressively update the already-existing
                         // `finalizing` overlay phase as streamed LLM tokens arrive.
                         // Hops to the main actor exactly like the transcript/eventSink
                         // sinks above. Does NOT touch focused-input delivery, which stays
                         // atomic on completion of the strictly-parsed final text.
+                        _ = accumulated
                         dispatchToUI { [modelBox] in
-                            modelBox.model?.overlay?.show(phase: "finalizing", text: accumulated)
+                            modelBox.model?.overlay?.show(phase: "finalizing")
                         }
                     }
                 )
@@ -888,16 +938,12 @@ private final class UntypeUIModel: ObservableObject {
             latestTranscript = text
             timeline.updatePartial(text)
             appendEvent("transcript.partial: \(text)")
-            if hotkeyPressed {
-                overlay?.show(phase: "recording", text: text)
-            }
+            liveTyper?.partial(text)
         case .final(let text):
             latestTranscript = text
             timeline.commitFinal(text)
             appendEvent("transcript.final: \(text)")
-            if hotkeyPressed {
-                overlay?.show(phase: "recording", text: text)
-            }
+            liveTyper?.final(text)
         case .turnBoundary:
             timeline.sealCurrentTurn()
             appendEvent("transcript.turn_boundary")
@@ -905,9 +951,6 @@ private final class UntypeUIModel: ObservableObject {
             latestTranscript = text
             timeline.commitProcessed(text, status: processedTranscriptStatus())
             appendEvent("transcript.processed: \(text)")
-            if hotkeyPressed {
-                overlay?.show(phase: "processed", text: text)
-            }
         }
     }
 
@@ -2447,39 +2490,41 @@ private final class UntypeOverlayController: ObservableObject {
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
     private let layout = UntypeOverlayLayout()
-    private var bottomLeftAnchor: CGPoint?
     @Published private var phase = "idle"
-    @Published private var text = ""
     @Published private var operatorVersion = 0
+    private var displayedAmplitude = 0.0
+    private var lastAmplitudeUpdate: Date?
 
     init(model: UntypeUIModel) {
         self.model = model
     }
 
-    func show(phase: String, text: String) {
+    /// Shows the push-to-talk pill. The text itself goes to the focused
+    /// control; the pill only shows the phase and the microphone waveform.
+    func show(phase: String) {
         hideTask?.cancel()
         self.phase = phase
-        self.text = text
-        let wasVisible = panel?.isVisible == true
-        if !wasVisible {
-            // A fresh panel on every appearance: a long-lived hidden panel can
-            // be left pinned to a single Space by the window server (seen with
-            // the HyprMac window manager), and `orderFrontRegardless` then
-            // shows it only on that Space despite `.canJoinAllSpaces`. A newly
-            // created panel always joins every Space.
-            panel?.close()
-            panel = nil
-            createPanel()
+        guard panel?.isVisible != true else {
+            return
         }
-        applyPanelFrameIfNeeded()
-        if !wasVisible {
-            panel?.orderFrontRegardless()
+        // A fresh panel on every appearance: a long-lived hidden panel can
+        // be left pinned to a single Space by the window server (seen with
+        // the HyprMac window manager), and `orderFrontRegardless` then
+        // shows it only on that Space despite `.canJoinAllSpaces`. A newly
+        // created panel always joins every Space.
+        panel?.close()
+        panel = nil
+        displayedAmplitude = 0
+        lastAmplitudeUpdate = nil
+        createPanel()
+        if let panel, let screen = overlayScreen() {
+            panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
         }
+        panel?.orderFrontRegardless()
     }
 
     func refreshOperators() {
         operatorVersion += 1
-        applyPanelFrameIfNeeded()
     }
 
     func refreshTheme() {
@@ -2498,9 +2543,7 @@ private final class UntypeOverlayController: ObservableObject {
 
     func hideNow() {
         hideTask?.cancel()
-        text = ""
         phase = "idle"
-        bottomLeftAnchor = nil
         panel?.orderOut(nil)
     }
 
@@ -2508,7 +2551,6 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         panel?.close()
         panel = nil
-        bottomLeftAnchor = nil
     }
 
     private func createPanel() {
@@ -2536,41 +2578,6 @@ private final class UntypeOverlayController: ObservableObject {
         self.panel = panel
     }
 
-    private func applyPanelFrameIfNeeded() {
-        guard let panel else {
-            return
-        }
-        let screen = overlayScreen()
-        guard let screen else {
-            return
-        }
-        if panel.isVisible {
-            let currentFrame = panel.frame
-            let anchor = bottomLeftAnchor ?? CGPoint(x: currentFrame.minX, y: currentFrame.minY)
-            bottomLeftAnchor = anchor
-            let targetFrame = layout.anchoredPanelFrame(
-                bottomLeft: anchor,
-                text: text,
-                in: screen.visibleFrame,
-                currentHeight: currentFrame.height
-            )
-            if !framesMatch(currentFrame, targetFrame) {
-                panel.setFrame(targetFrame, display: true)
-            }
-            return
-        }
-        let frame = layout.initialPanelFrame(in: screen.visibleFrame, text: text)
-        bottomLeftAnchor = CGPoint(x: frame.minX, y: frame.minY)
-        panel.setFrame(frame, display: true)
-    }
-
-    private func framesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
-        abs(lhs.minX - rhs.minX) < 0.5
-            && abs(lhs.minY - rhs.minY) < 0.5
-            && abs(lhs.width - rhs.width) < 0.5
-            && abs(lhs.height - rhs.height) < 0.5
-    }
-
     private func overlayScreen() -> NSScreen? {
         let mouseLocation = NSEvent.mouseLocation
         return NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
@@ -2580,12 +2587,23 @@ private final class UntypeOverlayController: ObservableObject {
         phase
     }
 
-    fileprivate var overlayText: String {
-        text
+    fileprivate var overlaySize: CGSize {
+        CGSize(width: layout.width, height: layout.height)
     }
 
-    fileprivate var overlaySize: CGSize {
-        panel?.frame.size ?? CGSize(width: layout.width, height: layout.height)
+    /// Wave amplitude (0...1) for one animation frame: the microphone level
+    /// while recording, a slow breathing motion while the text is processed.
+    fileprivate func waveformAmplitude(at date: Date) -> Double {
+        let target: Double
+        if phase == "recording" {
+            target = UntypeWaveform.amplitude(forPeak: model?.microphoneLevel ?? 0)
+        } else {
+            target = 0.16 + 0.08 * sin(date.timeIntervalSinceReferenceDate * 3)
+        }
+        let elapsed = lastAmplitudeUpdate.map { date.timeIntervalSince($0) } ?? 0
+        lastAmplitudeUpdate = date
+        displayedAmplitude = UntypeWaveform.smoothed(previous: displayedAmplitude, target: target, elapsed: elapsed)
+        return displayedAmplitude
     }
 
     fileprivate var operatorSnapshot: [(label: String, enabled: Bool)] {
@@ -2617,111 +2635,81 @@ private struct UntypeOverlayView: View {
         controller.overlayPhase.lowercased() == "recording"
     }
 
-    private var phaseTone: UntypeStatusTone {
-        switch controller.overlayPhase.lowercased() {
-        case "recording": return .recording
-        case "finalizing", "processed": return .accent
-        default: return .ok
-        }
-    }
-
-    private var overlayBorderColor: Color {
-        switch phaseTone {
-        case .recording:
-            return UntypeDesignTokens.recordingRed
-        case .accent:
-            return UntypeDesignTokens.accentAmber
-        case .ok:
-            return UntypeDesignTokens.successGreen
-        case .warn:
-            return UntypeDesignTokens.warnGold
-        case .off:
-            return Color.primary.opacity(0.08)
-        }
+    private var waveColor: Color {
+        isRecording ? UntypeDesignTokens.recordingRed : UntypeDesignTokens.accentAmber
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Live transcript line — top region, leaves room at the bottom for chips and phase.
-            Text(controller.overlayText.isEmpty ? " " : controller.overlayText)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 12)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 30)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .textSelection(.disabled)
-
-            // Bottom-left: operator chips
-            HStack(spacing: 5) {
-                ForEach(controller.operatorSnapshot, id: \.label) { item in
-                    overlayOperatorIndicator(letter: item.label, enabled: item.enabled)
+        HStack(spacing: 10) {
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                let amplitude = controller.waveformAmplitude(at: context.date)
+                let time = context.date.timeIntervalSinceReferenceDate
+                Canvas { canvas, size in
+                    drawWave(in: &canvas, size: size, amplitude: amplitude, time: time)
                 }
             }
-            .padding(.leading, 14)
-            .padding(.bottom, 6)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityHidden(true)
 
-            // Bottom-right: phase indicator
-            HStack(spacing: 6) {
-                UntypeStatusDot(tone: phaseTone, size: 7)
-                Text(controller.overlayPhase)
-                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .textCase(.uppercase)
-                    .foregroundStyle(phaseTone.color)
-                    .tracking(0.6)
+            HStack(spacing: 3) {
+                ForEach(controller.operatorSnapshot, id: \.label) { item in
+                    Text(item.label)
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(item.enabled ? UntypeDesignTokens.accentAmber : Color.secondary.opacity(0.6))
+                        .frame(width: 15, height: 15)
+                        .background(
+                            Circle().fill(item.enabled ? UntypeDesignTokens.accentAmber.opacity(0.16) : Color.primary.opacity(0.04))
+                        )
+                        .accessibilityLabel("Operator \(item.label), \(item.enabled ? "on" : "off")")
+                }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 20)
-            .background(.thinMaterial, in: Capsule(style: .continuous))
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(phaseTone.color.opacity(0.30), lineWidth: 1)
-            )
-            .padding(.trailing, 14)
-            .padding(.bottom, 6)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .accessibilityLabel("Phase \(controller.overlayPhase)")
         }
-        .frame(width: controller.overlaySize.width, height: controller.overlaySize.height, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .padding(.vertical, 6)
+        .frame(width: controller.overlaySize.width, height: controller.overlaySize.height)
+        .background(.regularMaterial, in: Capsule(style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(overlayBorderColor.opacity(isRecording ? 0.10 : 0.05))
-                .allowsHitTesting(false)
+            Capsule(style: .continuous)
+                .strokeBorder(waveColor.opacity(isRecording ? 0.55 : 0.30), lineWidth: 1)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(overlayBorderColor.opacity(isRecording ? 0.55 : 0.28), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: .black.opacity(0.35), radius: 22, x: 0, y: 10)
+        .clipShape(Capsule(style: .continuous))
         .preferredColorScheme(controller.preferredColorScheme)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Push to talk overlay")
+        .accessibilityLabel(isRecording ? "Push to talk, listening" : "Push to talk, processing")
     }
 
-    private func overlayOperatorIndicator(letter: String, enabled: Bool) -> some View {
-        HStack(spacing: 5) {
-            UntypeStatusDot(tone: !enabled ? .off : (isRecording ? .recording : .accent), size: 5)
-            Text(letter)
-                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(enabled ? UntypeDesignTokens.accentAmber : Color.secondary)
-                .lineLimit(1)
+    /// Three layered sine waves under an envelope that pins both ends to the
+    /// centre line; their height follows the microphone level.
+    private func drawWave(in canvas: inout GraphicsContext, size: CGSize, amplitude: Double, time: Double) {
+        let layers: [(cycles: Double, speed: Double, scale: Double, opacity: Double, width: CGFloat)] = [
+            (1.7, 3.4, 1.0, 0.95, 2.0),
+            (2.4, -2.7, 0.65, 0.55, 1.5),
+            (3.3, 4.6, 0.4, 0.35, 1.2)
+        ]
+        let midY = size.height / 2
+        let maxDeflection = Double(size.height / 2 - 2)
+        let steps = max(24, Int(size.width / 2))
+        for layer in layers {
+            var path = Path()
+            for step in 0...steps {
+                let progress = Double(step) / Double(steps)
+                let envelope = pow(sin(progress * .pi), 2)
+                let phase = progress * layer.cycles * 2 * .pi + time * layer.speed
+                let y = Double(midY) + maxDeflection * amplitude * layer.scale * envelope * sin(phase)
+                let point = CGPoint(x: CGFloat(progress) * size.width, y: CGFloat(y))
+                if step == 0 {
+                    path.move(to: point)
+                } else {
+                    path.addLine(to: point)
+                }
+            }
+            canvas.stroke(
+                path,
+                with: .color(waveColor.opacity(layer.opacity)),
+                style: StrokeStyle(lineWidth: layer.width, lineCap: .round, lineJoin: .round)
+            )
         }
-        .padding(.horizontal, 7)
-        .frame(height: 18)
-        .background(
-            Capsule(style: .continuous)
-                .fill(enabled ? UntypeDesignTokens.accentAmber.opacity(0.16) : Color.primary.opacity(0.04))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(enabled ? UntypeDesignTokens.accentAmber.opacity(0.45) : Color.primary.opacity(0.10))
-        )
-        .accessibilityLabel("Operator \(letter), \(enabled ? "on" : "off")")
     }
 }
 
@@ -3467,6 +3455,11 @@ private final class UntypeHotkeyMonitor {
         guard let descriptor else {
             return false
         }
+        // untype's own live-typing keystrokes: never a hotkey press, release
+        // or operator toggle.
+        if let cgEvent = event.cgEvent, isUntypeSyntheticKeyboardEvent(cgEvent) {
+            return false
+        }
         if event.type == .keyDown {
             if event.isARepeat, descriptor.matches(event) {
                 return true
@@ -3747,6 +3740,9 @@ private final class UntypeQuartzHotkeyEventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
             emit(.warning("Quartz hotkey event tap was disabled by macOS and was re-enabled. If this repeats, grant Input Monitoring permission to the launching app."))
+            return false
+        }
+        if isUntypeSyntheticKeyboardEvent(event) {
             return false
         }
         if type == .keyDown {

@@ -109,6 +109,7 @@ public enum UntypeRuntimeFactory {
         diagnosticsOutput: TextOutput,
         eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void,
         focusedInputPreparation: @escaping @Sendable () async -> Void = {},
+        focusedInputReconciliation: @escaping @Sendable (_ text: String) async -> LiveInputReconciliation = { _ in .notLive },
         streamingProgress: (@Sendable (String) -> Void)? = nil
     ) throws -> UntypeRuntimeSession {
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
@@ -135,6 +136,7 @@ public enum UntypeRuntimeFactory {
         )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery(forceInProcess: true)
+        let livePasteDelivery = FocusedInputDelivery(method: .pasteKeycode, forceInProcess: true)
         let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
         let controller = VoiceAgentProtocolController(
             mode: protocolConfig.interactionMode,
@@ -151,7 +153,16 @@ public enum UntypeRuntimeFactory {
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 await focusedInputPreparation()
-                return try await focusedInputDelivery.deliver(text)
+                // Text typed live during push-to-talk is edited in place with
+                // keystrokes; only turns without live text use regular delivery.
+                switch await focusedInputReconciliation(text) {
+                case .notLive:
+                    return try await focusedInputDelivery.deliver(text)
+                case .completed:
+                    return FocusedInputDeliveryResult.success(method: "live-typed")
+                case .paste(let rest):
+                    return try await livePasteDelivery.deliver(rest)
+                }
             },
             diagnostics: controllerDiagnostics,
             visibleOperatorDiagnostics: true,
