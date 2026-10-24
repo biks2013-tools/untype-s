@@ -7,10 +7,6 @@
 - Workaround used for builds 18 and 23: publish the subtree's tree as a fast-forward commit on top of the tap head, which keeps the tap identical to `homebrew-tap/`: `T=$(git rev-parse HEAD:homebrew-tap); C=$(git commit-tree "$T" -p homebrew-tap/main -m "homebrew: untype <v> build <N>"); git push homebrew-tap "${C}:refs/heads/main"` (after `git fetch homebrew-tap`). In zsh write `${C}`: `$C:r…` is a filename modifier.
 - To do: fix the subtree history (e.g. re-establish the subtree with a fresh `git subtree add`/`--rejoin` split) or switch the script to the commit-tree method; also update `docs/design/release-runbook.md`.
 
-### P2 - Plan-035: remaining manual checks (2026-10-24)
-- Verified on a debug build (2026-10-24): the menu-bar dropdown opens from the icon and renders as designed; Settings… (app menu) opens the Settings window; General and Prompts tabs; editing a prompt marks it unsaved, ⌘S saves it (`0600`), the Events log shows `prompts.reloaded` + warm restart; an external edit hot-reloads too; Window → Transcript / History open the main window at that tab; the main window reopens at launch when it was open at quit.
-- Build 24: push-to-talk release verified (`focused_input.ok=true`); the user is checking the dropdown switches by hand (synthetic clicks do not reach controls inside the `NSPopover`). Close this item once confirmed.
-
 ### P3 - `settingsExpanded` UI setting is now unused (2026-10-24)
 - Plan-035 replaced the main window's inspector pane with the Settings window, so `UntypeUISettings.settingsExpanded` is still persisted in `ui-state.json` but no longer read. It was kept so existing state files and tests stay valid; remove it together with its patch field when the settings schema is next revised.
 
@@ -78,6 +74,10 @@ The source project has unit tests but no live provider or UI automation harness.
 - 2026-05-30: No new runtime dependencies added for focused-input target restoration. Implementation reuses existing AppKit workspace activation tracking and the existing focused-input delivery path.
 
 ## Completed Items
+
+### 2026-10-24 - Plan-035 manual checks closed
+- Debug build: dropdown rendering, Settings window (General/Prompts), prompt save with ⌘S and hot reload (editor and external edits), Window → Transcript/History, main window reopening at launch.
+- Build 24: push-to-talk release `focused_input.ok=true` (live-typed); the user confirmed the dropdown switches and its Transcript / History / Settings entries work.
 
 ### 2026-10-24 - Build 24 released, published, and on Homebrew (v0.1.0-b24)
 - Packaged with `--build 24 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary` (the identity *name* is ambiguous: it matches certificates in both the login and System keychains, so the leaf hash used for builds 13–23 is passed; same leaf ⇒ no permission re-grant). Suite 251/251 inside the pipeline. App and disk image (`--dmg-only`): notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; image contains build 24, `Applications`, the updated `INSTALL.txt` (Claude/Foundry keys).
