@@ -251,7 +251,7 @@ The repository `BikS2013/untype-s` is public, so a GitHub Release gives a perman
    git tag -a v<version>-b<N> -m "untype <version> build <N> (notarized Developer ID release)" HEAD
    git push origin main
    git push origin v<version>-b<N>
-   gh release create v<version>-b<N> --repo BikS2013/untype-s \
+   gh release create v<version>-b<N> --repo biks2013-tools/untype-s \
      --title "untype <version> (build <N>)" \
      --notes-file <notes.md> \
      ".build/deploy/untype-<version>.dmg#untype-<version>.dmg (disk image, recommended)" \
@@ -274,7 +274,7 @@ Links to hand out:
 
 First release created this way: `v0.1.0-b8` on 2026-09-12.
 
-Check: `gh release view v<version>-b<N> --repo BikS2013/untype-s` lists the three assets, `isDraft=false`, and the curl-downloaded checksum matches.
+Check: `gh release view v<version>-b<N> --repo biks2013-tools/untype-s` lists the three assets, `isDraft=false`, and the curl-downloaded checksum matches.
 
 ---
 
