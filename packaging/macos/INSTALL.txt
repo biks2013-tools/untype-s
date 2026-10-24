@@ -7,8 +7,13 @@ untype - installation notes
    so macOS opens it without any Gatekeeper warning. Requires macOS 14 or later.
 
 2. First launch
-   Open untype from Applications (or Spotlight). The window shows an
-   onboarding checklist for the items below.
+   Open untype from Applications (or Spotlight). untype lives in the menu
+   bar (waveform icon, top right) and has no Dock icon. On the first launch
+   its window opens under that icon with an onboarding checklist for the
+   items below. Click the icon to show or hide the window; the toolbar's
+   pop-out button (or right-click on the icon) turns it into a normal
+   window, and clicking the icon docks it back. Quit from the icon's
+   right-click menu.
 
 3. Permissions (System Settings > Privacy & Security)
    - Microphone: grant when macOS asks on the first recording.
@@ -46,9 +51,12 @@ untype - installation notes
 5. Use
    Push-to-talk (top-bar switch on): hold the hotkey, speak, release.
    Push-to-listen (switch off): press the hotkey once to start, speak, press
-   it again to stop. Either way the processed text is refined/translated as
-   configured, inserted into the focused input control and, if enabled,
-   copied to the clipboard.
+   it again to stop. While you speak, the words are typed straight into the
+   focused input control and a small waveform shows at the bottom of the
+   screen, with R/T/C/I showing Refine, Translate, Clipboard and Input (press
+   the letter while holding the hotkey to switch one). On release the text is
+   replaced by the refined/translated version as configured and, if enabled,
+   copied to the clipboard. Don't move the cursor while holding the hotkey.
 
 Homebrew alternative: brew tap biks2013-tools/untype && brew install --cask untype
 (upgrades with brew upgrade --cask untype).
