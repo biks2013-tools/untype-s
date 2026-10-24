@@ -9,7 +9,7 @@
 
 ### P2 - Plan-035: remaining manual checks (2026-10-24)
 - Verified on a debug build (2026-10-24): the menu-bar dropdown opens from the icon and renders as designed; Settings… (app menu) opens the Settings window; General and Prompts tabs; editing a prompt marks it unsaved, ⌘S saves it (`0600`), the Events log shows `prompts.reloaded` + warm restart; an external edit hot-reloads too; Window → Transcript / History open the main window at that tab; the main window reopens at launch when it was open at quit.
-- Still to do by hand (synthetic clicks do not reach controls inside the `NSPopover`): flip a switch in the dropdown and confirm it persists; the dropdown's Transcript / History / Settings rows and ⌘1/⌘2/⌘,; focus returns to the previous app after the dropdown closes; one push-to-talk release into a focused text field with `focused_input.ok=true` in `~/.tool-agents/untype/release-latency.jsonl` (after the next signed build).
+- Build 24: push-to-talk release verified (`focused_input.ok=true`); the user is checking the dropdown switches by hand (synthetic clicks do not reach controls inside the `NSPopover`). Close this item once confirmed.
 
 ### P3 - `settingsExpanded` UI setting is now unused (2026-10-24)
 - Plan-035 replaced the main window's inspector pane with the Settings window, so `UntypeUISettings.settingsExpanded` is still persisted in `ui-state.json` but no longer read. It was kept so existing state files and tests stay valid; remove it together with its patch field when the settings schema is next revised.
@@ -79,10 +79,11 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
-### 2026-10-24 - Build 24 installed locally (not published)
-- Packaged with `--build 24 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary` (the identity *name* is ambiguous: it matches certificates in both the login and System keychains, so the leaf hash used for builds 13–23 is passed; same leaf ⇒ no permission re-grant). Suite 251/251 inside the pipeline; notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`. Installed over build 23 (kept at `.build/deploy/untype.app.previous`). After launch: Accessibility `trusted`, warm session listening, settings loaded (`stt-rt-v5`, `azure-anthropic` / `claude-opus-5-5`).
-- Contains plan-035 (menu-bar dropdown, Settings window, prompt editor/hot reload), the theme control, the recycle-timer fix, and the Claude provider. Not released on GitHub/Homebrew.
-- Pending: the user's push-to-talk check (`focused_input.ok=true`) and the dropdown switch checks (P2 item above).
+### 2026-10-24 - Build 24 released, published, and on Homebrew (v0.1.0-b24)
+- Packaged with `--build 24 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary` (the identity *name* is ambiguous: it matches certificates in both the login and System keychains, so the leaf hash used for builds 13–23 is passed; same leaf ⇒ no permission re-grant). Suite 251/251 inside the pipeline. App and disk image (`--dmg-only`): notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; image contains build 24, `Applications`, the updated `INSTALL.txt` (Claude/Foundry keys).
+- Installed on this Mac over build 23 (kept at `.build/deploy/untype.app.previous`); push-to-talk verified by the user: `focused_input.ok=true`, `live-typed`, refine with `claude-opus-5-5` 1.3–1.5 s.
+- Commit `1ee483d`, tag `v0.1.0-b24`. GitHub Release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b24 (latest) with `untype-0.1.0.dmg` (SHA-256 `4a7b2e6fa95033557cb49572fe88dfc6625ec86d2fb8cafa42ef33ce5e0a6bc5`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap `0.1.0,24` (cask commit `765db4e`, published with the commit-tree workaround — see the P1 item); `brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,24`.
+- Ships plan-035 (menu-bar dropdown, Settings window, prompt editor with hot reload), the theme control, Claude on Azure Foundry / Claude API, Soniox `stt-rt-v5`, the recycle-timer fix.
 
 ### 2026-10-24 - Claude on Microsoft (Azure) Foundry added as LLM provider
 - Was: `LLMProvider.anthropic` resolved to `unimplemented`; only `azure-openai` and `google` worked.
