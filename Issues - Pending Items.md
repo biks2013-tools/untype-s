@@ -2,6 +2,11 @@
 
 ## Pending Items
 
+### P1 - `git subtree push` for the Homebrew tap fails ("cache for a6d3c5e… already exists") (2026-10-24)
+- `scripts/update-homebrew-cask.sh --push` could not publish build 18: first because the tap repository received a direct commit (`3c8fb07`, organization-move links), then because `git subtree split` hits a duplicate entry for the earlier re-link commit `a6d3c5e` and aborts. The main repository was synced with the tap commit (merge `699a31f`).
+- Workaround used for build 18: publish the subtree's tree as a fast-forward commit on top of the tap head, which keeps the tap identical to `homebrew-tap/`: `T=$(git rev-parse HEAD:homebrew-tap); C=$(git commit-tree "$T" -p homebrew-tap/main -m "homebrew: untype <v> build <N>"); git push homebrew-tap "${C}:refs/heads/main"` (after `git fetch homebrew-tap`). In zsh write `${C}`: `$C:r…` is a filename modifier.
+- To do: fix the subtree history (e.g. re-establish the subtree with a fresh `git subtree add`/`--rejoin` split) or switch the script to the commit-tree method; also update `docs/design/release-runbook.md`.
+
 ### P2 - Live focused-input typing: known limitations (2026-10-24)
 - Moving the caret or typing by hand while push-to-talk is held desynchronizes the live text; the release-time edit then deletes/types relative to the wrong position.
 - A voice command that cancels a section leaves the live text in the field (only a delivered result replaces it).
@@ -63,6 +68,9 @@ The source project has unit tests but no live provider or UI automation harness.
 - 2026-05-30: No new runtime dependencies added for focused-input target restoration. Implementation reuses existing AppKit workspace activation tracking and the existing focused-input delivery path.
 
 ## Completed Items
+
+### 2026-10-24 - Build 18 released, published, and on Homebrew (v0.1.0-b18)
+Build 18 (`CFBundleVersion 18`, version 0.1.0) packaged from commit `be5263e` with `--dmg`; suite 238/238 inside the pipeline. App and disk image: notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; image contains build 18, `Applications`, `INSTALL.txt`. Signed with `--sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30` (same Developer ID leaf as builds 13–17; no permission re-grant). Installed on this Mac over build 17 (builds 16–17 were unpublished local test builds; build 15 kept at `.build/deploy/untype.app.build15-backup`). First release under the `biks2013-tools` organization: GitHub Release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b18 with `untype-0.1.0.dmg` (SHA-256 `79c54cae0a55edaeaa42a15db29ed36e228ce15fc2b731ef96e349b40a99b9fb`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap `biks2013-tools/homebrew-untype` updated to `0.1.0,18` (published with the commit-tree workaround above; `brew style` clean, strict online audit clean, `brew livecheck` = `0.1.0,18`); git remote `homebrew-tap` re-pointed to the new organization. Ships live dictation at the cursor, the waveform pill, and the terminal double-insert fix.
 
 ### 2026-10-24 - Final text inserted twice in a terminal after live typing (fixed in build 17)
 - **Symptom:** dictating into a terminal pane, the live raw text was removed correctly on release, but the refined text appeared twice. Release records showed `paste-keycode` deliveries after the live edit.
