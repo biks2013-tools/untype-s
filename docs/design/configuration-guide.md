@@ -70,6 +70,25 @@ Refinement and translation can run on Claude through the Anthropic Messages API,
 - A `refusal` or `max_tokens` stop reason is treated as a failed refinement (the raw transcript is delivered instead of a fragment).
 - Live check: `UNTYPE_LIVE_LLM_TEST=1 UNTYPE_LIVE_LLM_ARGS="--llm-provider azure-anthropic --llm-model claude-opus-5-5" swift test --filter liveLLM` (2026-10-24 on `claude-opus-5-5`: refine ≈2.0 s, translate ≈1.3 s, refine+translate ≈1.4 s).
 
+## Ask Operator (request to the model)
+
+### Purpose
+With **Ask** on, what you dictate is not text to clean up but a request to the LLM, for example "write a short reply thanking them and proposing Tuesday" or "explain what a mutex is in two sentences". The model's answer replaces the dictated text and goes to the usual outputs (focused input, clipboard, transcript).
+
+### How to switch it
+- Menu-bar dropdown → **Ask the model** (key **A**), the main window and overlay chips (**A**), Settings → General → Operators.
+- While holding the hotkey: hotkey + **A** toggles it for the current turn.
+- Spoken: `<command phrase> ask on` / `<command phrase> ask off` (agent/hybrid protocol).
+- Initial state: `--ask-default on|off` or `UNTYPE_ASK_DEFAULT` (default `off`). Like the other operators, the native UI persists the last state in `~/.tool-agents/untype/state.json`; a value set by flag or env wins over the persisted one.
+
+### Behavior
+- One LLM call per section: system prompt `010-ask-system.txt`, user message `011-ask-user-template.txt`.
+- Refine is skipped while Ask is on (the model reads the raw dictation; a cleanup call would only add latency).
+- Translate on as well: the same single call uses `012-ask-translated-user-template.txt`, so the reply is written in the target language chosen by the translation policy (`opposite`, `to-en`, `to-el`).
+- Requires the LLM to be enabled (`--refine` / Settings → LLM). Otherwise the warning "Ask operator is enabled, but no LLM is configured." appears and the dictated text is delivered unchanged. The same fail-open applies when the request fails (the warning reads "ask operator failed: …").
+- It uses the configured LLM provider, model, reasoning effort and max output tokens. Raise `UNTYPE_LLM_MAX_OUTPUT_TOKENS` if long answers are cut off (Claude defaults to 4096 tokens).
+- The latency log records the call as `durations_ms.ask_ms`.
+
 ## Prompt Configuration
 
 ### Purpose
@@ -94,13 +113,16 @@ When a prompt file is missing, `untype` creates it with the documented default c
 | `007-composite-refine-translate-system.txt` | Yes | Built-in composite JSON prompt | System prompt used when `refine` and `translate` are both enabled for one section. The response must contain `refined_text` and `translated_text`. |
 | `008-composite-refinement-template.txt` | Yes | Built-in composite refinement instruction | Refinement instruction inserted into the single composite LLM request. Must contain `{text}`. |
 | `009-composite-translation-template.txt` | Yes | Built-in composite translation instruction | Translation instruction inserted into the single composite LLM request. Must contain `{target_language}`. `{text}` is also supported and resolves to the original section text. |
+| `010-ask-system.txt` | Yes | Built-in "fulfil the dictated request" prompt | System prompt used when the **Ask** operator is on: the dictated text is a request to the model (an answer, explanation, summary, draft, list, code…) and the model's reply replaces it. The default tells the model to infer the request from a noisy transcript and to return only the requested text, with no preamble, closing remarks or questions back. |
+| `011-ask-user-template.txt` | Yes | `Dictated request:` plus `{text}` | The message sent with each Ask request when Translate is off. Must contain `{text}`. |
+| `012-ask-translated-user-template.txt` | Yes | `Dictated request:` plus `{text}` and "Write your reply in {target_language}…" | The message sent with each Ask request when Translate is also on: the reply is written in the translation target language (per the translation policy), in the same single call. Must contain `{target_language}` and `{text}`. |
 
 ### Recommended Storage and Editing
 Keep prompt files in `~/.tool-agents/untype/prompts/`. This folder is user-specific and outside the repository, so users can tune prompts without creating code changes. Do not store secrets in prompt files. Do not include private transcript examples unless you intentionally want them sent to the selected provider.
 
 The native UI edits these files in **Settings → Prompts** (⌘, from the menu-bar dropdown or the main window): one editor per file with Save (⌘S), Revert and Reset to Default (puts the built-in text in the editor; Save applies it). A save is validated with the same rules session start applies (required files non-empty, required placeholders present, provider length limits), so an invalid prompt cannot be written from the editor.
 
-Prompts are **hot-reloaded**: untype polls the nine files once a second. When one changes — saved from Settings or from any external editor — the Events log shows `prompts.reloaded: <files>` and an idle warm push-to-talk session is restarted at once, so the next turn uses the new prompt. A turn in progress is never interrupted (the warm session restarts after release and reads the files then); a running manual session uses the new prompts from its next start. The editor refreshes on external changes unless it holds unsaved edits.
+Prompts are **hot-reloaded**: untype polls the twelve files once a second. When one changes — saved from Settings or from any external editor — the Events log shows `prompts.reloaded: <files>` and an idle warm push-to-talk session is restarted at once, so the next turn uses the new prompt. A turn in progress is never interrupted (the warm session restarts after release and reads the files then); a running manual session uses the new prompts from its next start. The editor refreshes on external changes unless it holds unsaved edits.
 
 The repository also contains default prompt templates under `prompts/` for review and traceability. Runtime reads the user config folder, not the repository templates.
 
@@ -109,11 +131,17 @@ The repository also contains default prompt templates under `prompts/` for revie
 - `003-translation-user-template.txt` must include both `{target_language}` and `{text}`.
 - `008-composite-refinement-template.txt` must include `{text}`.
 - `009-composite-translation-template.txt` must include `{target_language}`.
+- `011-ask-user-template.txt` must include `{text}`.
+- `012-ask-translated-user-template.txt` must include both `{target_language}` and `{text}`.
 - Soniox context must be 10,000 characters or fewer.
 - ElevenLabs `previous_text` must be 50 characters or fewer.
 - ElevenLabs keyterms must be one per line, no more than 50 entries, and no entry may exceed 20 characters.
 
 Prompt contents are not written to verbose diagnostics, release latency logs, protocol JSONL events, transcript exports, or UI state.
+
+## Event Log (`events.log`)
+
+The native UI appends its session and diagnostic events to `~/.tool-agents/untype/events.log` (mode `0600`), one ISO-8601 timestamped line per event. At 1 MB the file rotates to `events.log.1`. Only `session.*`, `diagnostic.*`, `prompts.*` and `ready:` lines are written; transcripts and protocol events never are. Use it to trace a failure after untype was quit or relaunched. For example, after a provider disconnect it shows `push-to-talk session ended unexpectedly`, then `re-warming push-to-talk in N s` and `session.state: listening`. The path is fixed and needs no configuration. Delete the files at any time.
 
 ## Push-to-talk Release Latency Logging
 
@@ -128,7 +156,7 @@ The log is privacy-safe by design. It records timings, source/outcome labels, se
 |---|---|---|---|---|
 | Release latency logging enabled | `--release-latency-log` / `--no-release-latency-log` | `UNTYPE_RELEASE_LATENCY_LOG` | `false` | Enables or disables append-only JSONL timing records for push-to-talk release attempts. |
 | Release latency log path | `--release-latency-log-path <path>` | `UNTYPE_RELEASE_LATENCY_LOG_PATH` | `~/.tool-agents/untype/release-latency.jsonl` | Selects the JSONL file used when latency logging is enabled. |
-| Reset release latency log on startup | none | `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START` | `false` | Clears the configured JSONL latency log once per application process startup when release latency logging is enabled. |
+| Reset release latency log on startup | none | `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START` | `false` | Clears the configured JSONL latency log once per application process startup when release latency logging is enabled. The previous non-empty log is kept as `<path>.previous`. |
 
 Boolean values accepted in `.env` or shell variables are `true`, `false`, `yes`, `no`, `on`, `off`, `1`, and `0`.
 
@@ -150,7 +178,7 @@ UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on
 
 The default path lives under the existing user config directory. The logger creates `~/.tool-agents/untype` with `0700` permissions and the JSONL file with `0600` permissions.
 
-Set `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on` for runs where the configured latency log should start empty every time the application process launches. The reset applies to `UNTYPE_RELEASE_LATENCY_LOG_PATH` when a custom path is configured. The setting has no effect while `UNTYPE_RELEASE_LATENCY_LOG` is disabled.
+Set `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on` for runs where the configured latency log should start empty every time the application process launches. The reset applies to `UNTYPE_RELEASE_LATENCY_LOG_PATH` when a custom path is configured. The previous run's records are copied to `<path>.previous` first, replacing the older copy, so a relaunch never erases the record of the failure that prompted it. The setting has no effect while `UNTYPE_RELEASE_LATENCY_LOG` is disabled.
 
 ### Disabling
 Remove the variable, set it to `off`, or pass `--no-release-latency-log`:

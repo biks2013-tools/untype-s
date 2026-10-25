@@ -40,3 +40,35 @@ func liveLLMProviderRefinesTranslatesAndCombines() async throws {
     print("[live] refine+translate \(Int(Date().timeIntervalSince(start) * 1000)) ms: \(both.refinedText) | \(both.translatedText)")
     #expect(!both.refinedText.isEmpty && !both.translatedText.isEmpty)
 }
+
+/// Live check of the Ask operator's prompts: the reply must be the requested
+/// text itself, in the request's language or the target language.
+@Test(.enabled(if: ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_TEST"] == "1"))
+func liveLLMProviderAnswersDictatedRequests() async throws {
+    let extra = (ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_ARGS"] ?? "")
+        .split(separator: " ").map(String.init)
+    let config = try ConfigResolver().resolve(argv: ["--ask-default", "on"] + extra)
+    let asker = try #require(try LLMRefinerFactory.makeAsker(config: config.llm, systemPrompt: config.prompts.askSystemPrompt))
+
+    let requests = [
+        "ehm write a a short reply to Maria thanking her for the report and uh proposing we meet on Tuesday",
+        "γράψε μου σε δύο προτάσεις τι είναι το mutex"
+    ]
+    for request in requests {
+        let start = Date()
+        let answer = try await asker.refine(config.prompts.askUserPromptTemplate.replacingOccurrences(of: "{text}", with: request))
+        print("[live] ask \(Int(Date().timeIntervalSince(start) * 1000)) ms:\n\(answer)\n---")
+        #expect(!answer.isEmpty)
+        #expect(!answer.lowercased().hasPrefix("sure"))
+        #expect(!answer.lowercased().hasPrefix("here is"))
+    }
+
+    let start = Date()
+    let translated = try await asker.refine(
+        config.prompts.askTranslatedUserPromptTemplate
+            .replacingOccurrences(of: "{target_language}", with: "English")
+            .replacingOccurrences(of: "{text}", with: "γράψε μια πρόταση για το γιατί είναι χρήσιμες οι δοκιμές λογισμικού")
+    )
+    print("[live] ask+translate \(Int(Date().timeIntervalSince(start) * 1000)) ms:\n\(translated)\n---")
+    #expect(!translated.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) })
+}

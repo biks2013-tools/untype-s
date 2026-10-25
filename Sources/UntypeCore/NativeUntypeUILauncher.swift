@@ -369,6 +369,14 @@ final class UntypeUIModel: ObservableObject {
     /// Types the current push-to-talk turn into the focused control live.
     private var liveTyper: LiveFocusedInputTyper?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
+    /// Session and diagnostic events, persisted (see `UntypeEventLogFile`).
+    private let eventLogFile = UntypeEventLogFile(url: UntypeEventLogFile.userFile())
+    /// Re-warm after the hotkey runtime ended on its own (the provider closed
+    /// the socket, a network or microphone error); `WarmSessionRecovery` sets
+    /// the backoff.
+    private var warmSessionRewarmTask: Task<Void, Never>?
+    private var warmSessionRewarmAttempts = 0
+    private var warmSessionListeningSince: Date?
     private let audioEventInterval: TimeInterval = 2
 
     init() {
@@ -658,7 +666,15 @@ final class UntypeUIModel: ObservableObject {
         control.open()
         hotkeySessionControl = control
         overlay?.show(phase: "recording")
+        if runtime != nil, sessionOwner == .hotkey, sessionState == TranscriptionSessionState.stopped.rawValue {
+            // The runtime ended on its own before its stop event was handled;
+            // never record into it.
+            appendEvent("diagnostic.warning: [untype] \(hotkeyModeLabel) found a stopped session; starting a new one")
+            runtime = nil
+            sessionOwner = nil
+        }
         if runtime == nil, sessionOwner == nil {
+            clearWarmSessionRewarmTimer()
             startSession(owner: .hotkey, audioGate: control)
         }
         appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) started (\(source))")
@@ -690,6 +706,8 @@ final class UntypeUIModel: ObservableObject {
             patch = UntypeUISettingsPatch(clipboard: !settings.clipboard)
         case .input:
             patch = UntypeUISettingsPatch(focusedInput: !settings.focusedInput)
+        case .ask:
+            patch = UntypeUISettingsPatch(ask: !settings.ask)
         }
         update(patch)
     }
@@ -742,6 +760,9 @@ final class UntypeUIModel: ObservableObject {
 
     func stopFromApplicationQuit() {
         clearWarmSessionRecycleTimer()
+        clearWarmSessionRewarmTimer()
+        appendEvent("session.state: quitting")
+        eventLogFile.flush()
         if let runtime {
             Task.detached {
                 await runtime.stop(reason: "ui-quit", submitPending: false)
@@ -891,6 +912,9 @@ final class UntypeUIModel: ObservableObject {
                     modelBox.model?.appendEvent("session.error: \(uiDiagnosticLine(error))")
                     modelBox.model?.timeline.commitError(uiDiagnosticLine(error))
                     modelBox.model?.resetStoppedSessionState(reason: "ui-startup-error")
+                    if owner == .hotkey {
+                        modelBox.model?.hotkeySessionStartFailed(error)
+                    }
                 }
             }
         }
@@ -965,6 +989,7 @@ final class UntypeUIModel: ObservableObject {
 
     private func reconcileHotkeyWarmSession(restartExistingHotkeySession: Bool = false) {
         guard settings.hotkeyEnabled else {
+            clearWarmSessionRewarmTimer()
             stopHotkeyWarmSession(restartAfterStop: false)
             return
         }
@@ -1043,9 +1068,70 @@ final class UntypeUIModel: ObservableObject {
             return
         }
         warmSessionRecycleInFlight = true
+        warmSessionRewarmAttempts = 0
         appendEvent("diagnostic.info: [untype] recycling warm push-to-talk session")
         stopHotkeyWarmSession(restartAfterStop: true)
         warmSessionRecycleInFlight = false
+    }
+
+    /// The hotkey runtime ended on its own (e.g. Soniox closed the idle warm
+    /// socket). Drop it, so the next press never records into a dead session,
+    /// and warm a new one.
+    private func hotkeySessionEndedUnexpectedly(reason: String) {
+        guard sessionOwner == .hotkey, runtime != nil else {
+            return
+        }
+        let failure = runtime?.recordedFailure()
+        let wasRecording = hotkeyPressed
+        appendEvent("diagnostic.warning: [untype] push-to-talk session ended unexpectedly (\(failure.map(uiDiagnosticLine) ?? reason))")
+        let lived = warmSessionListeningSince.map { Date().timeIntervalSince($0) } ?? 0
+        warmSessionRewarmAttempts = WarmSessionRecovery.attemptsAfterUnexpectedStop(
+            previous: warmSessionRewarmAttempts,
+            lived: lived
+        )
+        restartWarmSessionAfterStop = false
+        resetStoppedSessionState(reason: "runtime-ended")
+        if wasRecording {
+            timeline.commitError("The speech provider closed the session during this turn; nothing was submitted. Press again.")
+        }
+        scheduleWarmSessionRewarm()
+    }
+
+    /// A hotkey session failed to start. Retry with backoff, except for
+    /// configuration and authentication errors, which need the user.
+    fileprivate func hotkeySessionStartFailed(_ error: Error) {
+        guard WarmSessionRecovery.shouldRetryStartup(after: error) else {
+            appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the configuration, then toggle the hotkey")
+            return
+        }
+        warmSessionRewarmAttempts += 1
+        scheduleWarmSessionRewarm()
+    }
+
+    private func scheduleWarmSessionRewarm() {
+        clearWarmSessionRewarmTimer()
+        guard settings.hotkeyEnabled else {
+            return
+        }
+        let seconds = WarmSessionRecovery.delaySeconds(attempts: warmSessionRewarmAttempts)
+        appendEvent("diagnostic.info: [untype] re-warming push-to-talk in \(seconds) s")
+        warmSessionRewarmTask = Task.detached { [weak self] in
+            guard (try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)) != nil, !Task.isCancelled else {
+                return
+            }
+            dispatchToUI { [weak self] in
+                guard let self, self.settings.hotkeyEnabled, self.runtime == nil, self.sessionOwner == nil else {
+                    return
+                }
+                self.warmSessionRewarmTask = nil
+                self.startHotkeyWarmSession()
+            }
+        }
+    }
+
+    private func clearWarmSessionRewarmTimer() {
+        warmSessionRewarmTask?.cancel()
+        warmSessionRewarmTask = nil
     }
 
     private func applyRuntimeOperatorChanges(previous: UntypeUISettings, next: UntypeUISettings) {
@@ -1056,7 +1142,8 @@ final class UntypeUIModel: ObservableObject {
             (.refine, previous.refine, next.refine),
             (.translate, previous.translate, next.translate),
             (.clipboard, previous.clipboard, next.clipboard),
-            (.input, previous.focusedInput, next.focusedInput)
+            (.input, previous.focusedInput, next.focusedInput),
+            (.ask, previous.ask, next.ask)
         ]
         for (key, old, new) in changes where old != new {
             let currentRuntime = runtime
@@ -1095,6 +1182,9 @@ final class UntypeUIModel: ObservableObject {
     }
 
     private func processedTranscriptStatus() -> String {
+        if settings.ask {
+            return settings.translate ? "answered + translated" : "answered"
+        }
         switch (settings.refine, settings.translate) {
         case (true, true):
             return "refined + translated"
@@ -1113,6 +1203,9 @@ final class UntypeUIModel: ObservableObject {
             sessionState = state.rawValue
             if state == .listening {
                 captureState = owner == .hotkey ? (hotkeyPressed ? "recording" : "warm") : "listening"
+                if owner == .hotkey {
+                    warmSessionListeningSince = Date()
+                }
                 if owner == .hotkey, !hotkeyPressed {
                     scheduleWarmSessionRecycle()
                 }
@@ -1121,6 +1214,9 @@ final class UntypeUIModel: ObservableObject {
                 captureState = "idle"
             }
             appendEvent("session.state: \(state.rawValue)\(reason.map { " (\($0))" } ?? "")")
+            if state == .stopped, owner == .hotkey, WarmSessionRecovery.isRuntimeInitiatedStop(reason) {
+                hotkeySessionEndedUnexpectedly(reason: reason ?? "unknown")
+            }
         case .ready(let message):
             appendEvent("ready: \(message)")
         case .diagnostic(let message, let warning):
@@ -1139,6 +1235,7 @@ final class UntypeUIModel: ObservableObject {
         guard events.last != line else {
             return
         }
+        eventLogFile.append(line)
         events.append(line)
         if events.count > 300 {
             events.removeFirst(events.count - 300)
@@ -1152,6 +1249,8 @@ final class UntypeUIModel: ObservableObject {
             || normalized.contains("operator failed")
             || normalized.contains("refine operator is enabled")
             || normalized.contains("translate operator is enabled")
+            || normalized.contains("ask operator is enabled")
+            || normalized.contains("ask operator failed")
             || normalized.contains("input operator failed")
     }
 
@@ -1713,6 +1812,15 @@ private struct UntypeRootView: View {
                 showsLabel: showsOperatorLabels
             ) {
                 model.toggleOperator(.translate)
+            }
+            UntypeOperatorChip(
+                letter: "A",
+                label: "Ask",
+                isOn: model.settings.ask,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.ask)
             }
             UntypeOperatorChip(
                 letter: "C",
@@ -2333,7 +2441,7 @@ private final class UntypeOverlayController: ObservableObject {
         return samples.map { min(1, max(-1, $0 * displayedGain)) }
     }
 
-    /// The operators the user can toggle while holding push-to-talk (R/T/C/I
+    /// The operators the user can toggle while holding push-to-talk (R/T/A/C/I
     /// keys), shown under the trace as a reminder.
     fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
         guard let settings = model?.settings else {
@@ -2342,6 +2450,7 @@ private final class UntypeOverlayController: ObservableObject {
         return [
             ("R", "Refine", settings.refine),
             ("T", "Translate", settings.translate),
+            ("A", "Ask", settings.ask),
             ("C", "Clipboard", settings.clipboard),
             ("I", "Focused input", settings.focusedInput)
         ]
@@ -3062,6 +3171,9 @@ private struct UntypeMiniView: View {
                 UntypeOperatorChip(letter: "T", label: "Translate", isOn: model.settings.translate, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.translate)
                 }
+                UntypeOperatorChip(letter: "A", label: "Ask", isOn: model.settings.ask, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.ask)
+                }
                 UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.clipboard)
                 }
@@ -3518,6 +3630,8 @@ private extension OperatorKey {
             return .clipboard
         case "I":
             return .input
+        case "A":
+            return .ask
         default:
             return nil
         }

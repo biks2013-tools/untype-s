@@ -95,7 +95,10 @@ public func applyPersistedProtocolSettings(
             : protocolConfig.initialOperators.clipboard,
         input: protocolConfig.settingSources.input == .default
             ? persisted.operators.input
-            : protocolConfig.initialOperators.input
+            : protocolConfig.initialOperators.input,
+        ask: protocolConfig.settingSources.ask == .default
+            ? persisted.operators.ask
+            : protocolConfig.initialOperators.ask
     )
 
     let translationPolicy = protocolConfig.settingSources.translationPolicy == .default

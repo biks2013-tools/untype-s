@@ -12,6 +12,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var translate: Bool
     public var clipboard: Bool
     public var focusedInput: Bool
+    /// Ask operator: the dictated text is a request to the LLM, whose answer
+    /// replaces it.
+    public var ask: Bool
     public var translationPolicy: String
     public var llmEnabled: Bool
     public var llmProvider: String
@@ -51,6 +54,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         translate: false,
         clipboard: false,
         focusedInput: false,
+        ask: false,
         translationPolicy: TranslationPolicy.opposite.rawValue,
         llmEnabled: true,
         llmProvider: LLMProvider.azureOpenAI.rawValue,
@@ -154,6 +158,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let focusedInput = patch.focusedInput {
             next.focusedInput = focusedInput
         }
+        if let ask = patch.ask {
+            next.ask = ask
+        }
         if let translationPolicy = patch.translationPolicy {
             next.translationPolicy = translationPolicy
         }
@@ -218,6 +225,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--translate-default", normalized.translate ? "on" : "off",
             "--clipboard-default", normalized.clipboard ? "on" : "off",
             "--input-default", normalized.focusedInput ? "on" : "off",
+            "--ask-default", normalized.ask ? "on" : "off",
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
             normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
@@ -276,6 +284,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var translate: Bool?
     public var clipboard: Bool?
     public var focusedInput: Bool?
+    public var ask: Bool?
     public var translationPolicy: String?
     public var llmEnabled: Bool?
     public var llmProvider: String?
@@ -305,6 +314,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         translate: Bool? = nil,
         clipboard: Bool? = nil,
         focusedInput: Bool? = nil,
+        ask: Bool? = nil,
         translationPolicy: String? = nil,
         llmEnabled: Bool? = nil,
         llmProvider: String? = nil,
@@ -333,6 +343,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.translate = translate
         self.clipboard = clipboard
         self.focusedInput = focusedInput
+        self.ask = ask
         self.translationPolicy = translationPolicy
         self.llmEnabled = llmEnabled
         self.llmProvider = llmProvider
@@ -566,6 +577,7 @@ public enum UntypeUISettingsStore {
             translate: operators.translate,
             clipboard: operators.clipboard,
             focusedInput: operators.input,
+            ask: operators.ask,
             translationPolicy: protocolConfig.translationPolicy.rawValue,
             llmEnabled: config.llm.enabled,
             llmProvider: config.llm.provider.rawValue,
@@ -630,6 +642,7 @@ private struct PersistedUISettings: Codable {
     let translate: Bool
     let clipboard: Bool
     let focusedInput: Bool
+    let ask: Bool?
     let translationPolicy: String
     let llmEnabled: Bool
     let llmProvider: String
@@ -659,6 +672,7 @@ private struct PersistedUISettings: Codable {
         case translate
         case clipboard
         case focusedInput
+        case ask
         case translationPolicy
         case llmEnabled
         case llmProvider
@@ -689,6 +703,7 @@ private struct PersistedUISettings: Codable {
         self.translate = settings.translate
         self.clipboard = settings.clipboard
         self.focusedInput = settings.focusedInput
+        self.ask = settings.ask
         self.translationPolicy = settings.translationPolicy
         self.llmEnabled = settings.llmEnabled
         self.llmProvider = settings.llmProvider
@@ -722,6 +737,7 @@ private struct PersistedUISettings: Codable {
                 translate: translate,
                 clipboard: clipboard,
                 focusedInput: focusedInput,
+                ask: ask ?? defaults.ask,
                 translationPolicy: translationPolicy,
                 llmEnabled: llmEnabled,
                 llmProvider: llmProvider,

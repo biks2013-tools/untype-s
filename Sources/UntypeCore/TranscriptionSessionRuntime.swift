@@ -620,6 +620,7 @@ public final class TranscriptionSessionRuntime {
         latencyTurn?.durations.protocolOperatorProcessingMs = summary.operatorProcessingMs
         latencyTurn?.durations.refineMs = summary.refineMs
         latencyTurn?.durations.translateMs = summary.translateMs
+        latencyTurn?.durations.askMs = summary.askMs
         latencyTurn?.durations.clipboardMs = summary.clipboardMs
         latencyTurn?.durations.focusedInputMs = summary.focusedInputMs
         latencyTurn?.sectionsProcessed = summary.sectionsProcessed

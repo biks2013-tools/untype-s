@@ -176,6 +176,7 @@ struct UntypeMenuBarPanel: View {
                     .disabled(!model.canReshapeSession)
                 }
             }
+            operatorRow("Ask the model", key: "A", isOn: model.settings.ask) { model.toggleOperator(.ask) }
             operatorRow("Clipboard", key: "C", isOn: model.settings.clipboard) { model.toggleOperator(.clipboard) }
             operatorRow("Type into focused input", key: "I", isOn: model.settings.focusedInput) { model.toggleOperator(.input) }
         }
@@ -209,7 +210,7 @@ struct UntypeMenuBarPanel: View {
             sectionHeader("Hotkeys", trailing: nil)
             hotkeyLine(model.settings.hotkey,
                        model.settings.hotkeyHoldToTalk ? "hold to record, release to submit" : "press to start, press again to submit")
-            hotkeyLine("+ R T C I", "switch an operator mid-turn")
+            hotkeyLine("+ R T A C I", "switch an operator mid-turn")
             if !model.settings.hotkeyEnabled {
                 Text("The hotkey is off — switch it on above.")
                     .font(.caption)

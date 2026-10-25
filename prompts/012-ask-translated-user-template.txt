@@ -1,0 +1,5 @@
+Dictated request:
+
+{text}
+
+Write your reply in {target_language}, whatever language the request is in.

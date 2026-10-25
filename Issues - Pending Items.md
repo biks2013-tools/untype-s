@@ -70,6 +70,34 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-10-25 - FIXED (build 25): push-to-talk went dead after the provider closed the idle warm session
+- **Symptom:** after a long idle period the hotkey shows the recording overlay but nothing is transcribed; only quitting and relaunching untype brings it back. Seen twice on 2026-10-25, around 03:49 and 10:14 local time.
+- **Evidence (macOS unified log, `/usr/bin/log show --predicate 'processImagePath CONTAINS "untype.app"'`):**
+  - pid 5818 recycled the warm Soniox WebSocket every 5 minutes as designed until 08:05:21.
+  - At 08:07:12 the server closed that socket after 111 s (`read-side closed`, `NSPOSIXErrorDomain Code=57`), and the audio engine stopped.
+  - From then until the user quit at 10:14:56, no new connection was opened and the audio engine never restarted.
+  - At 10:14:44 the press/release only tore down the dead engine.
+  - pid 88835 shows the same tear-down of an engine that had already stopped at 03:49:30.
+- **Cause:**
+  - The runtime stops itself on a transcriber error (`TranscriptionSessionRuntime`, `stop(reason: "transcriber-error")`) and emits `.stateChanged(.stopped)`.
+  - `UntypeUIModel.handleSessionEvent` (`NativeUntypeUILauncher.swift`) only sets `captureState = "idle"`. It keeps `runtime` and `sessionOwner = .hotkey`, and it does not restart the warm session.
+  - On the next press, `startHotkeySession` sees `runtime != nil` and opens the audio gate of a dead runtime.
+  - On release, `stopSession` finds `recordedFailure()` and deliberately skips the warm restart ("warm push-to-talk restart skipped after runtime failure").
+- **Missing diagnostics:**
+  - The in-app event list (300 lines) lives in memory only.
+  - `release-latency.jsonl` is truncated at every launch (`ReleaseLatencyJsonlLogger.resetOnStartIfNeeded`), so the record of the failed turn disappears on the relaunch that "fixes" it.
+- **Fix:**
+  - `handleSessionEvent` recognizes a `.stopped` event whose reason is neither `ui-*` nor `startup-*` (`WarmSessionRecovery.isRuntimeInitiatedStop`) as a self-stop of the hotkey runtime. It then logs `push-to-talk session ended unexpectedly (<failure>)`, drops the runtime (`resetStoppedSessionState`) and re-warms.
+  - The re-warm backs off 1 s → 2 → 4 … 60 s while sessions die within 30 s, and resets after a healthy session or a 5-minute recycle.
+  - A warm session that fails to start is retried the same way, except configuration and auth errors.
+  - A press that still finds a stopped runtime discards it and starts a new session.
+  - A turn lost mid-press shows "The speech provider closed the session during this turn…".
+- **Diagnostics:**
+  - New `~/.tool-agents/untype/events.log` (`UntypeEventLogFile`: `session.*`, `diagnostic.*`, `prompts.*`, `ready:` only, never transcripts or protocol events; `0600`, rotates to `events.log.1` past 1 MB).
+  - With `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=true` the previous run's latency log is now kept as `release-latency.jsonl.previous` instead of being erased.
+- **Tests:** `WarmSessionRecoveryTests` (5) and the `.previous` assertion. The provider-close path itself needs a live occurrence: check `events.log` for `ended unexpectedly` followed by `re-warming push-to-talk` and `session.state: listening`.
+
+
 ### 2026-10-24 - Homebrew tap publishing fixed (`git subtree push` replaced)
 - Cause (reproduced): `git subtree split --prefix=homebrew-tap` aborts with "cache for a6d3c5e… already exists" because two commits carry identical subtree trailers (`git-subtree-mainline: a6d3c5e`, `git-subtree-split: dedcff1`): `d54d3ef` in this repository and `8f757c6` in the tap's history, left by the 2026 folder rename/re-link. git-subtree's `find_existing_splits` reads every trailer in history and `cache_set` dies on the duplicate, so every split/push fails; a new `--rejoin` would not help (old trailers are still read) and removing them means rewriting published history in both repositories.
 - Fix: `scripts/update-homebrew-cask.sh --push` now publishes the committed `homebrew-tap/` tree as one fast-forward commit on top of the tap head (`git commit-tree` + push, then re-fetch and tree check) — the manual workaround used for builds 18, 23 and 24, automated. Guards: refuses uncommitted changes under `homebrew-tap/`; refuses, naming the files, when the tap holds file content that `homebrew-tap/` never had (direct tap commit), with the recovery commands in the message. New `--push-only` publishes non-cask edits.

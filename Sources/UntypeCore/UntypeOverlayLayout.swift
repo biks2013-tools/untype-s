@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// Geometry of the push-to-talk overlay: fixed size, bottom-centred on the screen
-/// under the mouse: the microphone trace with the R/T/C/I operator chips
+/// under the mouse: the microphone trace with the R/T/A/C/I operator chips
 /// under it. It carries no transcript text (dictated text goes straight to the
 /// focused control), so its size never changes.
 public struct UntypeOverlayLayout: Equatable, Sendable {

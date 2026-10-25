@@ -137,6 +137,8 @@ public enum UntypeEnvTemplate {
     # UNTYPE_TRANSLATE_DEFAULT=
     # UNTYPE_CLIPBOARD_DEFAULT=
     # UNTYPE_INPUT_DEFAULT=
+    # Ask: treat the dictated text as a request to the LLM and use its answer.
+    # UNTYPE_ASK_DEFAULT=
 
     # Translation policy: opposite, to-en, or to-el. Default: opposite.
     # UNTYPE_TRANSLATION_POLICY=

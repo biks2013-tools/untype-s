@@ -117,12 +117,14 @@ public struct OperatorState: Equatable, Sendable {
     public let translate: Bool
     public let clipboard: Bool
     public let input: Bool
+    public let ask: Bool
 
-    public init(refine: Bool, translate: Bool, clipboard: Bool, input: Bool) {
+    public init(refine: Bool, translate: Bool, clipboard: Bool, input: Bool, ask: Bool = false) {
         self.refine = refine
         self.translate = translate
         self.clipboard = clipboard
         self.input = input
+        self.ask = ask
     }
 }
 
@@ -136,6 +138,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
     public let translate: ProtocolSettingSource
     public let clipboard: ProtocolSettingSource
     public let input: ProtocolSettingSource
+    public let ask: ProtocolSettingSource
     public let translationPolicy: ProtocolSettingSource
 
     public init(
@@ -143,12 +146,14 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         translate: ProtocolSettingSource,
         clipboard: ProtocolSettingSource,
         input: ProtocolSettingSource,
+        ask: ProtocolSettingSource = .default,
         translationPolicy: ProtocolSettingSource
     ) {
         self.refine = refine
         self.translate = translate
         self.clipboard = clipboard
         self.input = input
+        self.ask = ask
         self.translationPolicy = translationPolicy
     }
 }

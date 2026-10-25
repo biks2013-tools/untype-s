@@ -39,6 +39,9 @@ public final class VoiceAgentProtocolController {
     private let refiner: TextRefining?
     private let translator: TextRefining?
     private let compositeRefineTranslator: CompositeRefineTranslating?
+    private let asker: TextRefining?
+    private let askUserPromptTemplate: String
+    private let askTranslatedUserPromptTemplate: String
     private let clipboardWriter: TextDelivery
     private let focusedInputWriter: FocusedInputTextDelivery
     private let diagnostics: ProtocolControllerDiagnostics
@@ -61,6 +64,9 @@ public final class VoiceAgentProtocolController {
         refiner: TextRefining? = nil,
         translator: TextRefining? = nil,
         compositeRefineTranslator: CompositeRefineTranslating? = nil,
+        asker: TextRefining? = nil,
+        askUserPromptTemplate: String = UntypePromptDefaults.askUserPromptTemplate,
+        askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate,
         clipboardWriter: @escaping TextDelivery = { _ in },
         inputWriter: @escaping TextDelivery = { _ in },
         focusedInputWriter: FocusedInputTextDelivery? = nil,
@@ -77,6 +83,9 @@ public final class VoiceAgentProtocolController {
         self.refiner = refiner
         self.translator = translator
         self.compositeRefineTranslator = compositeRefineTranslator
+        self.asker = asker
+        self.askUserPromptTemplate = askUserPromptTemplate
+        self.askTranslatedUserPromptTemplate = askTranslatedUserPromptTemplate
         self.clipboardWriter = clipboardWriter
         if let focusedInputWriter {
             self.focusedInputWriter = focusedInputWriter
@@ -203,6 +212,7 @@ public final class VoiceAgentProtocolController {
         refiner?.dispose()
         translator?.dispose()
         compositeRefineTranslator?.dispose()
+        asker?.dispose()
         renderer.dispose()
     }
 
@@ -257,12 +267,43 @@ public final class VoiceAgentProtocolController {
         var sourceLanguage: ProtocolLanguage?
         var targetLanguage: ProtocolLanguage?
         var summary = ProtocolSubmissionSummary(sectionsProcessed: 1)
-        let shouldCompositeProcess = operators.contains(.refine)
+        // Ask: the section is a request to the model and its answer becomes
+        // the output. Refine is moot (the model reads the raw dictation);
+        // translate only chooses the answer's language.
+        let shouldAsk = operators.contains(.ask)
+        let shouldCompositeProcess = !shouldAsk
+            && operators.contains(.refine)
             && operators.contains(.translate)
             && compositeRefineTranslator != nil
         let onProgress = makeStreamingProgressHandler(sectionId: sectionId)
 
-        if shouldCompositeProcess {
+        if shouldAsk {
+            if asker == nil {
+                warn("Ask operator is enabled, but no LLM is configured.")
+            } else {
+                operatorDiagnostic(.ask, stage: "started")
+                var prompt = askUserPromptTemplate.replacingOccurrences(of: "{text}", with: rawText)
+                if operators.contains(.translate) {
+                    sourceLanguage = detectProtocolLanguage(rawText)
+                    targetLanguage = targetLanguageFor(source: sourceLanguage!, policy: translationPolicy)
+                    prompt = askTranslatedUserPromptTemplate
+                        .replacingOccurrences(of: "{target_language}", with: languageDisplayName(targetLanguage!))
+                        .replacingOccurrences(of: "{text}", with: rawText)
+                }
+                do {
+                    let started = DispatchTime.now().uptimeNanoseconds
+                    let answer = try await refine(prompt, using: asker!, onProgress: onProgress)
+                    summary.askMs = releaseLatencyMilliseconds(from: started)
+                    if !answer.isEmpty {
+                        current = answer
+                    }
+                    operatorDiagnostic(.ask, stage: "completed")
+                } catch {
+                    summary.askMs = summary.askMs ?? 0
+                    logOperatorFailure(.ask, error: error)
+                }
+            }
+        } else if shouldCompositeProcess {
             operatorDiagnostic(.refine, stage: "started")
             operatorDiagnostic(.translate, stage: "started")
             sourceLanguage = detectProtocolLanguage(current)
@@ -310,7 +351,7 @@ public final class VoiceAgentProtocolController {
             }
         }
 
-        if !shouldCompositeProcess && operators.contains(.translate) {
+        if !shouldAsk && !shouldCompositeProcess && operators.contains(.translate) {
             if translator == nil {
                 warn("Translate operator is enabled, but no LLM translator is configured.")
             } else {
@@ -495,6 +536,7 @@ private func formatStatusSummary(_ report: ProtocolStatusReport) -> String {
         "translate=\(report.operators.translate ? "on" : "off")",
         "clipboard=\(report.operators.clipboard ? "on" : "off")",
         "input=\(report.operators.input ? "on" : "off")",
+        "ask=\(report.operators.ask ? "on" : "off")",
         "translation_policy=\(report.translationPolicy.rawValue)",
         "pending_section=\(report.pendingSection ? "yes" : "no")"
     ].joined(separator: ", ")
