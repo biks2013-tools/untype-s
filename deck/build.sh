@@ -4,7 +4,7 @@
 # Usage: ./build.sh [--no-pdf]
 set -euo pipefail
 cd "$(dirname "$0")"
-SK="${NBG_DESIGN_SKILL:-$HOME/.claude/plugins/cache/nbg-design/nbg-design/1.20.0/skills/nbg-design}"
+SK="${NBG_DESIGN_SKILL:-$(ls -d "$HOME"/.claude/plugins/cache/nbg-design/nbg-design/*/skills/nbg-design 2>/dev/null | sort -V | tail -1)}"
 [ -d "$SK/scripts" ] || { echo "nbg-design skill not found at $SK (set NBG_DESIGN_SKILL)"; exit 1; }
 
 cat src/shell-head.html src/slides.html src/shell-tail.html > untype-deck.src.html

@@ -4,10 +4,10 @@
   <div class="fade"></div>
   <div class="copy">
     <h1>untype<br /><span>hold a key, speak, release.</span></h1>
-    <div class="sub">A Swift-native push-to-talk dictation tool for macOS that streams speech to a realtime STT provider, cleans and translates it with an LLM, and types the result into whatever you have focused.</div>
+    <div class="sub">A Swift-native push-to-talk dictation tool for the macOS menu bar. It streams speech to a realtime STT provider, types it live into whatever you have focused, and lets an LLM clean it, translate it or answer it.</div>
     <div class="meta">
       <div>Technical walkthrough · what it is, how it works, how to install and configure it</div>
-      <div>Version 0.1.0 · build 13 · September 2026</div>
+      <div>Version 0.1.0 · build 27 · October 2026</div>
     </div>
   </div>
   <div class="logo"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /></div>
@@ -20,9 +20,9 @@
   <div class="rule"></div>
   <div class="grid g2" style="gap:28px 60px">
     <div class="step"><div class="n">01</div><div><h3>What untype is</h3><p>The problem, the product, who it serves, and the principles it is built on.</p></div></div>
-    <div class="step"><div class="n">04</div><div><h3>Configuration and moving parts</h3><p>The resolution chain, every setting that matters, prompt files, state files, and the CLI.</p></div></div>
-    <div class="step"><div class="n">02</div><div><h3>How it works</h3><p>Hotkey to audio to transcript to LLM to focused input, with the Swift types behind each stage.</p></div></div>
-    <div class="step"><div class="n">05</div><div><h3>Operating and troubleshooting</h3><p>The daily loop, the latency log, common symptoms, and the guardrails contributors must respect.</p></div></div>
+    <div class="step"><div class="n">04</div><div><h3>Configuration and moving parts</h3><p>The resolution chain, every setting that matters, the fifteen prompt files, state and log files, and the CLI.</p></div></div>
+    <div class="step"><div class="n">02</div><div><h3>How it works</h3><p>Hotkey to audio to transcript to LLM to focused input, the seven operators, and the menu-bar interface.</p></div></div>
+    <div class="step"><div class="n">05</div><div><h3>Operating and troubleshooting</h3><p>The daily loop, recipes for Ask, Follow-up and Selection, the logs, common symptoms, and the guardrails.</p></div></div>
     <div class="step"><div class="n">03</div><div><h3>Installation</h3><p>Install from Homebrew or the notarized disk image, or build, sign and notarize it yourself, then grant the three macOS permissions correctly.</p></div></div>
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>untype · technical deck</span></div><span class="pg"></span></div>
@@ -63,8 +63,8 @@
   <div class="grid g4">
     <div class="col"><div class="n">01</div><h3>Push-to-talk</h3><p>A global hotkey (default <code>Control+`</code>) opens the audio gate while held; release finalizes the turn and delivers the output. Push-to-listen mode toggles instead: press to start, press again to stop.</p></div>
     <div class="col"><div class="n">02</div><h3>Realtime STT</h3><p>Microphone audio streams over WebSocket to Soniox or ElevenLabs. Partials render live; finals drive the protocol.</p></div>
-    <div class="col"><div class="n">03</div><h3>Refine and translate</h3><p>An LLM cleans disfluencies and, if enabled, translates between Greek and English in one composite call.</p></div>
-    <div class="col"><div class="n">04</div><h3>Focused-input delivery</h3><p>The result is inserted into the focused control of the frontmost app and, optionally, copied to the clipboard.</p></div>
+    <div class="col"><div class="n">03</div><h3>Refine, translate or ask</h3><p>An LLM cleans disfluencies, translates between Greek and English, or, with Ask on, answers what you said. Selected text and the previous answer can go along.</p></div>
+    <div class="col"><div class="n">04</div><h3>Live typing at the caret</h3><p>While you speak, the words are typed straight into the focused control. On release they are replaced in place by the processed text, and optionally copied to the clipboard.</p></div>
   </div>
   <div class="callout">Two things are treated as non-negotiable: push-to-talk must always work, and processed text must always reach the focused input. Every change is verified against both.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
@@ -95,14 +95,14 @@
     <div class="card">
       <div class="tag">Two front ends</div>
       <ul>
-        <li><code>untype ui</code> or the app bundle: native SwiftUI window, overlay, hotkey.</li>
+        <li>The app bundle: a menu-bar icon with a dropdown, a Transcript window, a Settings window, the overlay and the hotkey.</li>
         <li><code>untype [options]</code>: terminal streaming with the same runtime.</li>
       </ul>
     </div>
     <div class="card">
       <div class="tag">Voice-agent protocol</div>
       <ul>
-        <li>Spoken markers such as <code>command send</code> or <code>command cancel</code> control sections.</li>
+        <li>Spoken markers such as <code>command send</code>, <code>command cancel</code> or <code>command ask on</code> control sections and operators.</li>
         <li>Machine-readable JSONL events let an agent consume the dictation stream.</li>
       </ul>
     </div>
@@ -116,17 +116,17 @@
   <div class="title">The project in numbers.</div>
   <div class="rule"></div>
   <div class="stat">
-    <div class="big"><span>229</span></div>
+    <div class="big"><span>272</span></div>
     <div class="cap">automated Swift Testing tests, all passing at the last recorded run, with zero third-party dependencies.</div>
   </div>
   <div class="stat-list">
     <div class="row"><span>Platform</span><span>macOS 14+</span></div>
     <div class="row"><span>Toolchain</span><span>Swift 6 · SwiftPM</span></div>
-    <div class="row"><span>Source files / lines</span><span>38 · ~20 000</span></div>
+    <div class="row"><span>Source files / lines</span><span>48 · ~17 300</span></div>
     <div class="row"><span>STT providers</span><span>2</span></div>
-    <div class="row"><span>LLM providers implemented</span><span>2 of 8 names</span></div>
-    <div class="row"><span>Prompt files</span><span>9</span></div>
-    <div class="row"><span>Installed build</span><span>0.1.0 · build 13</span></div>
+    <div class="row"><span>LLM providers implemented</span><span>4 of 10 names</span></div>
+    <div class="row"><span>Operators · prompt files</span><span>7 · 15</span></div>
+    <div class="row"><span>Latest build · released</span><span>27 · 24</span></div>
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
 </section>
@@ -164,8 +164,8 @@
     <div class="node"><div class="i">2 · Capture</div><h4>Microphone to PCM16</h4><p>AVAudioEngine tap, mono 16-bit at the configured rate, silence while the gate is closed.</p><div class="t">AVFoundationAudioSource · PCM16MonoConverter</div></div>
     <div class="node"><div class="i">3 · Transcribe</div><h4>Realtime STT stream</h4><p>WebSocket to Soniox or ElevenLabs; partials and finals flow back to the runtime.</p><div class="t">SonioxTranscriber · ElevenLabsTranscriber</div></div>
     <div class="node"><div class="i">4 · Protocol</div><h4>Markers and sections</h4><p>Finals are parsed for spoken commands; text is buffered into sections with operator flags.</p><div class="t">VoiceAgentProtocolController · VoiceCommandStateMachine</div></div>
-    <div class="node"><div class="i">5 · LLM</div><h4>Refine and translate</h4><p>One composite call or sequential refine then translate; fail-open on error, 15 s timeout.</p><div class="t">AzureOpenAIRefiner · GoogleRefiner</div></div>
-    <div class="node hot"><div class="i">6 · Deliver</div><h4>Focused input and clipboard</h4><p>AX caret insertion, then paste, then Unicode key events; overlay hides 1.2 s later.</p><div class="t">FocusedInputDelivery · MacOSClipboardWriter</div></div>
+    <div class="node"><div class="i">5 · LLM</div><h4>Refine, translate, ask</h4><p>One composite call, or one Ask call with selection and conversation; fail-open on error.</p><div class="t">AzureOpenAIRefiner · GoogleRefiner · AnthropicMessagesRefiner</div></div>
+    <div class="node hot"><div class="i">6 · Deliver</div><h4>Live typing, then in place</h4><p>Typed live while held, edited in place on release; AX, paste or key events otherwise.</p><div class="t">LiveFocusedInputTyper · FocusedInputDelivery</div></div>
   </div>
   <div class="note">Each stage is timed into one record of <code>release-latency.jsonl</code>. The whole chain is assembled by <code>UntypeRuntimeFactory</code> into a single <code>TranscriptionSessionRuntime</code>, shared by the CLI and the native UI.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
@@ -177,10 +177,10 @@
   <div class="title">The lifecycle of one press.</div>
   <div class="rule"></div>
   <div class="steps" style="right:840px; gap:18px">
-    <div class="step"><div class="n">1</div><div><h3>Warm session</h3><p>Enabling push-to-talk starts a hotkey-owned runtime with the gate closed. Idle sessions are recycled every 5 minutes.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Press</h3><p>Capture state becomes <code>recording</code>, the target app is remembered, the overlay appears and the gate opens. Key auto-repeat is ignored. In push-to-listen mode the first press starts and the next press stops; releases are ignored.</p></div></div>
+    <div class="step"><div class="n">1</div><div><h3>Warm session</h3><p>Enabling the hotkey starts a hotkey-owned runtime with the gate closed. Idle sessions are recycled every 5 minutes; a session that dies on its own, for example when the provider closes an idle socket, is re-warmed with backoff.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Press</h3><p>The target app and any selected text are captured, the overlay appears, the gate opens and the words start being typed live. A press during the previous delivery is queued, not lost. In push-to-listen mode the first press starts and the next one stops.</p></div></div>
     <div class="step"><div class="n">3</div><div><h3>Release</h3><p>The gate closes, the provider is asked to commit, and the runtime waits up to 1.5 s for final text. Quick Close submits the latest partial immediately instead.</p></div></div>
-    <div class="step"><div class="n">4</div><div><h3>Submit and restart</h3><p>Pending text drains through the state machine, output is delivered, and a fresh warm session starts for the next press.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Submit and restart</h3><p>The LLM runs while the overlay shows a processing wave, the live text is replaced in place, "this turn" operators switch off, and a fresh warm session starts.</p></div></div>
   </div>
   <div class="image-right" style="background-image:url('{{HOTKEY_PRESS}}')"></div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
@@ -236,7 +236,7 @@
     <div class="card">
       <div class="tag">Soniox · default</div>
       <ul>
-        <li>Model <code>stt-rt-v4</code> at <code>wss://stt-rt.soniox.com/transcribe-websocket</code>.</li>
+        <li>Model <code>stt-rt-v5</code> (v4 is an alias) at <code>wss://stt-rt.soniox.com/transcribe-websocket</code>.</li>
         <li>Startup frame carries the key, <code>pcm_s16le</code>, sample rate, endpoint detection, language hints or auto identification, and optional context text from prompt file 004.</li>
         <li>Release sends <code>{"type":"finalize"}</code> followed by a 250 ms drain. Utterance boundaries arrive as <code>&lt;end&gt;</code> and <code>&lt;fin&gt;</code> tokens.</li>
         <li>Error frames map 401/403 to <code>soniox_auth</code>, 503 to <code>soniox_network</code>, the rest to <code>soniox_protocol</code>.</li>
@@ -274,19 +274,47 @@
 <!-- ============================ 16 OPERATORS ============================ -->
 <section class="slide">
   <div class="eyebrow">02 · Operators and voice commands</div>
-  <div class="title">Four switches decide what happens to a section.</div>
+  <div class="title">Seven switches decide what happens to a turn.</div>
   <div class="rule"></div>
-  <table class="t">
-    <thead><tr><th style="width:220px">Operator</th><th style="width:520px">Effect on the submitted section</th><th>How to toggle it</th></tr></thead>
+  <table class="t compact" style="top:320px">
+    <thead><tr><th style="width:200px">Operator</th><th style="width:90px">Key</th><th style="width:820px">Effect</th><th>Default lifetime</th></tr></thead>
     <tbody>
-      <tr><td class="k">refine</td><td>Send the text to the LLM for cleanup, preserving meaning and language.</td><td>Voice <code>command refine on|off</code> · UI switch · key <code>R</code> while recording · <code>--refine-default</code></td></tr>
-      <tr><td class="k">translate</td><td>Translate the refined text according to the translation policy.</td><td>Voice <code>command translate on|off</code> · UI switch · key <code>T</code> · <code>--translate-default</code></td></tr>
-      <tr><td class="k">clipboard</td><td>Write the processed text to the general pasteboard.</td><td>Voice <code>command clipboard on|off</code> · UI switch · key <code>C</code> · <code>--clipboard-default</code></td></tr>
-      <tr><td class="k">input</td><td>Insert the processed text into the focused control of the frontmost app.</td><td>Voice <code>command input on|off</code> · UI switch · key <code>I</code> · <code>--input-default</code></td></tr>
-      <tr><td class="k">command status</td><td colspan="2">Reports the current operators, translation policy and whether a section is pending.</td></tr>
+      <tr><td class="k">refine</td><td class="k">R</td><td>The LLM cleans the transcript, preserving meaning and language.</td><td>Until changed</td></tr>
+      <tr><td class="k">translate</td><td class="k">T</td><td>Translate to the target (opposite, English or Greek) set next to the switch.</td><td>Until changed</td></tr>
+      <tr><td class="k">ask</td><td class="k">A</td><td>What you say is a request to the model; its answer replaces the dictation.</td><td>This turn</td></tr>
+      <tr><td class="k">followup</td><td class="k">F</td><td>Ask also sends the conversation so far, so the model can revise its last answer.</td><td>This turn</td></tr>
+      <tr><td class="k">selection</td><td class="k">S</td><td>The text selected in the app in front goes along, as material or as context.</td><td>This turn</td></tr>
+      <tr><td class="k">clipboard</td><td class="k">C</td><td>Copy the result to the clipboard.</td><td>Until changed</td></tr>
+      <tr><td class="k">input</td><td class="k">I</td><td>Type the result into the focused control of the frontmost app.</td><td>Until changed</td></tr>
     </tbody>
   </table>
-  <div class="callout">Operators default to off unless configured; when a flag is not set, the values persisted in <code>state.json</code> at the last shutdown apply. If an operator is on but its LLM is not configured, the section is delivered unprocessed with a warning.</div>
+  <div class="callout">Toggle an operator in the menu-bar dropdown, in Settings, with the hotkey plus its letter while recording, or by voice: <code>command ask on</code>. Settings decides per operator whether a change lasts <em>this turn</em> or <em>until changed</em>; flags such as <code>--ask-default</code> set the starting state. An operator that needs an unconfigured LLM delivers the text unprocessed, with a warning.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ 16b ASK FOLLOW-UP SELECTION ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · Ask, Follow-up and Selection</div>
+  <div class="title">Talk to the model, not just through it.</div>
+  <div class="rule"></div>
+  <div class="grid g3" style="gap:32px">
+    <div class="card ink"><div class="tag">A · Ask</div><h3>Dictate a request, get the answer</h3><ul>
+      <li>"Write a short reply thanking them and proposing Tuesday." The answer is typed where the request was.</li>
+      <li>One call with prompts 010 and 011; with Translate on, prompt 012 writes the answer in the target language.</li>
+      <li>Refine is skipped. Own limits: 8 000 output tokens and a 120 s timeout.</li>
+    </ul></div>
+    <div class="card"><div class="tag">F · Follow-up</div><h3>Revise the previous answer</h3><ul>
+      <li>With Follow-up on, Ask sends the earlier requests and answers too: "shorter", "more formal", "add a closing line".</li>
+      <li>Keeps the last 20 exchanges in memory only, never on disk.</li>
+      <li>Off means a new conversation; the dropdown also has <em>New conversation</em>.</li>
+    </ul></div>
+    <div class="card"><div class="tag">S · Selection</div><h3>Work on the selected text</h3><ul>
+      <li>Read through Accessibility at press time, or by a ⌘C that restores your clipboard.</li>
+      <li><strong>Material</strong> (default): the selection is processed and replaced; a silent tap is enough.</li>
+      <li><strong>Context</strong>: reference only; the result goes after the selection.</li>
+    </ul></div>
+  </div>
+  <div class="callout">Combine them. Select a paragraph, turn on Selection and Translate, tap the hotkey: the paragraph is replaced by its translation. Select an email, turn on Ask and Selection, say "draft a polite no": the draft appears in place.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
@@ -300,8 +328,8 @@
     <ul>
       <li>The text is content to clean, never a message to the model: questions are not answered, instructions are not followed, and nothing is added.</li>
       <li>The output stays in the input language. A request for translation inside the transcript is part of the text, not a command.</li>
-      <li>Providers implemented: Azure OpenAI chat completions and Google Gemini. Six other provider names are accepted but raise a configuration error if refinement is on.</li>
-      <li>Temperature 0.2, fixed 15 s timeout, one keep-alive URLSession shared across sessions, saving 100 to 400 ms per release.</li>
+      <li>Providers implemented: Azure OpenAI, Google Gemini, and Claude, either direct (<code>anthropic</code>) or on Microsoft Foundry (<code>azure-anthropic</code>). Six other names are accepted but raise a configuration error if refinement is on.</li>
+      <li>Temperature 0.2 for OpenAI and Gemini; Claude uses effort <code>low</code> instead. Fixed 15 s timeout and one keep-alive URLSession, saving 100 to 400 ms per release.</li>
     </ul>
   </div>
   <div class="image-right" style="background-image:url('{{LLM_NETWORK}}')"></div>
@@ -356,35 +384,46 @@ Return only JSON with refined_text and translated_text.</pre>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 20 STREAMING & OVERLAY ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">02 · Streaming and the overlay</div>
-  <div class="title">Perceived latency, without touching the committed result.</div>
+<!-- ============================ 20 OVERLAY ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · The overlay</div>
+  <div class="title">A small oscilloscope, not a text box.</div>
   <div class="rule"></div>
-  <div class="body">
+  <div class="body" style="right:960px">
     <ul>
-      <li>The overlay is a non-activating <code>NSPanel</code> at status-bar level: 720×96 pt, bottom-centre of the screen with the pointer, joins all Spaces, ignores the mouse.</li>
-      <li>Phases <code>recording</code> and <code>finalizing</code> show the live partial and the processing state; R/T/C/I indicators sit bottom-left and the phase pill bottom-right.</li>
-      <li>Text wraps and the panel grows upward from a stored anchor; it hides 1.2 s after delivery.</li>
-      <li>Optional LLM streaming (<code>--llm-streaming</code>, default off) updates the finalizing text token by token for Azure OpenAI and Gemini via server-sent events.</li>
-      <li>Streaming is display-only: focused-input insertion always uses the strictly parsed final text, atomically.</li>
+      <li>While the hotkey is held, a transparent 200×84 pt panel at the bottom centre of the screen draws the real microphone signal, with automatic gain so quiet speech still swings.</li>
+      <li>Under the wave, seven chips R T A F S C I show the operators: solid amber when on. Press the hotkey plus a letter to flip one mid-turn.</li>
+      <li>After release a breathing wave stays on screen while the model refines, translates or answers, and the panel hides once the text has been delivered.</li>
+      <li>The panel never takes focus, ignores the mouse, joins every Space and is recreated at every appearance.</li>
+      <li>The transcript is not in the overlay any more: it is typed into your field. <code>--llm-streaming</code> remains, but with nothing to display it only matters for logs.</li>
     </ul>
   </div>
-  <div class="image-right" style="background-image:url('{{UI_OVERVIEW}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+  <div class="shot-panel"></div>
+  <div class="overlay-mock" style="top:300px; right:240px">
+    <svg viewBox="0 0 340 90" fill="none"><path d="M0 45 C10 45 14 30 20 30 S30 62 36 62 S46 18 52 18 S62 74 68 74 S78 8 84 8 S94 84 100 84 S110 22 116 22 S126 66 132 66 S142 36 148 36 S158 54 164 54 S174 12 180 12 S190 80 196 80 S206 26 212 26 S222 60 228 60 S238 40 244 40 S254 50 260 50 S270 34 276 34 S286 56 292 56 S302 42 308 42 S318 47 324 47 S334 45 340 45" stroke="#E3A64A" stroke-width="3" stroke-linecap="round"/></svg>
+    <div class="chipset"><div class="chip on">R</div><div class="chip on">T</div><div class="chip">A</div><div class="chip">F</div><div class="chip">S</div><div class="chip on">C</div><div class="chip on">I</div></div>
+  </div>
+  <div class="shot-cap" style="top:530px; right:240px; width:420px; text-align:center">Recording · Refine, Translate, Clipboard, Input on</div>
+  <div class="overlay-mock" style="top:620px; right:240px">
+    <svg viewBox="0 0 340 90" fill="none"><path d="M0 45 C20 45 30 33 50 33 S80 57 100 57 S130 31 150 31 S180 59 200 59 S230 34 250 34 S280 55 300 55 S330 45 340 45" stroke="#E08A5E" stroke-width="3" stroke-linecap="round" opacity="0.85"/></svg>
+    <div class="chipset"><div class="chip">R</div><div class="chip">T</div><div class="chip on">A</div><div class="chip">F</div><div class="chip on">S</div><div class="chip">C</div><div class="chip on">I</div></div>
+  </div>
+  <div class="shot-cap" style="top:850px; right:240px; width:420px; text-align:center">Processing · Ask with the selection</div>
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · overlay drawn for illustration</span></div><span class="pg"></span></div>
 </section>
 
 <!-- ============================ 21 DELIVERY ============================ -->
 <section class="slide with-image">
   <div class="eyebrow">02 · Delivery</div>
-  <div class="title">Reaching the caret, three ways.</div>
+  <div class="title">Reaching the caret: live first, three fallbacks.</div>
   <div class="rule"></div>
-  <div class="steps" style="right:840px; gap:16px">
-    <div class="step"><div class="n">1</div><div><h3>AX caret insertion</h3><p>Set <code>kAXSelectedText</code> at the caret and verify the UTF-16 length changed. A no-op result falls through instead of rewriting the whole value, which protects rich-text bodies such as Outlook.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Clipboard-preserving paste</h3><p>Snapshot the pasteboard, paste with Command-V, restore the user's clipboard after 0.8 s. Browsers get this method first.</p></div></div>
+  <div class="steps" style="right:840px; gap:14px">
+    <div class="step"><div class="n">0</div><div><h3>Live typing while you speak</h3><p>With Input on, the transcript is typed into the app that was in front at press time. On release only the differing tail is deleted and retyped; a result with a line break is pasted. These keystrokes carry a marker the hotkey monitors ignore.</p></div></div>
+    <div class="step"><div class="n">1</div><div><h3>AX caret insertion</h3><p>For turns without live text: set <code>kAXSelectedText</code> at the caret and verify the length changed, which protects rich-text bodies such as Outlook.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Clipboard-preserving paste</h3><p>Snapshot the pasteboard, paste with ⌘V, restore the clipboard after 0.8 s. Browsers get this first.</p></div></div>
     <div class="step"><div class="n">3</div><div><h3>Unicode key events</h3><p>Type the text as key events when it is at most 500 UTF-16 units.</p></div></div>
   </div>
-  <div class="callout" style="right:840px; bottom:100px">UI sessions deliver in-process so the TCC grant belongs to <code>untype.app</code>. CLI runs spawn <code>untype-input-helper</code> with the text on stdin, never in argv. If untype itself is frontmost, the last external app is re-activated first.</div>
+  <div class="callout" style="right:840px; bottom:100px">Do not move the caret or type while holding the hotkey: live text is edited relative to where it started. The app delivers in-process, so the grant belongs to <code>untype.app</code>; CLI runs use <code>untype-input-helper</code>.</div>
   <div class="image-right" style="background-image:url('{{TEXT_DELIVERY}}')"></div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
@@ -431,16 +470,18 @@ Return only JSON with refined_text and translated_text.</pre>
   <div class="tree" style="position:absolute; top:330px; left:90px; font-size:18px"><span class="d">Package.swift</span>                <span class="m">swift-tools-version 6.0, macOS 14, no dependencies</span>
 <span class="d">Sources/untype/</span>              <span class="m">@main: UI launch or CLI command</span>
 <span class="d">Sources/untype-input-helper/</span> <span class="m">stdin text → focused input, JSON result</span>
-<span class="d">Sources/UntypeCore/</span>          <span class="m">38 files, all logic</span>
+<span class="d">Sources/UntypeCore/</span>          <span class="m">46 files, all logic</span>
   ConfigResolver · EnvChain · Dotenv · DotenvEditor · EnvTemplate · PromptConfig
   TranscriptionSessionRuntime · UntypeRuntimeFactory
   AVFoundationAudioSource · PCM16MonoConverter
   SonioxTranscriber · ElevenLabsTranscriber
   VoiceAgentProtocolController · ProtocolStateMachine · ProtocolMarkerMatcher
-  LLMRefiners · ProtocolJsonlWriter · ReleaseLatencyLogger
-  FocusedInputDelivery · FocusedInputHelper · MacOSClipboardWriter
-  NativeUntypeUILauncher (4 125 lines) · UntypeUISettings · UntypeOverlayLayout
-<span class="d">Tests/UntypeCoreTests/</span>       <span class="m">16 files, 229 tests</span>
+  LLMRefiners · PromptFileStore · ProtocolJsonlWriter · ReleaseLatencyLogger
+  FocusedInputDelivery · LiveFocusedInputTyper · SelectedTextReader
+  NativeUntypeUILauncher (4 093 lines) · UntypeMenuBarController
+  UntypeMenuBarPanel · UntypeSettingsWindow · UntypePromptSettingsView
+  WarmSessionRecovery · UntypeTurnContext · UntypeEventLogFile
+<span class="d">Tests/UntypeCoreTests/</span>       <span class="m">22 files, 272 tests</span>
 <span class="d">scripts/</span>                     <span class="m">package-macos-app.sh, update-homebrew-cask.sh</span>
 <span class="d">packaging/macos/</span>             <span class="m">icon, entitlements, INSTALL.txt</span>
 <span class="d">docs/design/ · docs/reference/ · docs/research/</span></div>
@@ -448,20 +489,66 @@ Return only JSON with refined_text and translated_text.</pre>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 24 NATIVE UI ============================ -->
+<!-- ============================ 24 MENU-BAR DROPDOWN ============================ -->
 <section class="slide">
-  <div class="eyebrow">02 · Native UI</div>
-  <div class="title">A monitoring window, an inspector, and the overlay.</div>
+  <div class="eyebrow">02 · The interface · menu bar</div>
+  <div class="title" style="right:960px">untype lives in the menu bar.</div>
   <div class="rule"></div>
-  <div class="kv" style="top:330px">
-    <div class="row"><span class="key">Layout</span><span class="val">Three-column split view: Monitor sidebar (Transcript, History, Events plus a status card), centre work area, trailing inspector. Default 1180×760, minimum 860×620, compact mini mode 440×260 with <code>⌥⌘M</code>.</span></div>
-    <div class="row"><span class="key">Titlebar strip</span><span class="val">Record or stop (<code>⌘R</code>), then the hotkey-mode switch (on: push-to-talk, off: push-to-listen), refresh, permission setup (<code>⌥⌘P</code>), appearance, inspector toggle (<code>⌘\</code>), compact mode. Clicking the brand mark toggles the sidebar.</span></div>
-    <div class="row"><span class="key">Inspector sections</span><span class="val">Session (with <em>Edit keys…</em> in its header), Provider, Protocol, Operators, Refinement (LLM), Push to talk with a <em>Hold to talk</em> row, Permissions, Credentials. Credentials show the key name, source tier and expiry, never the value; the editor writes them to the user <code>.env</code>.</span></div>
-    <div class="row"><span class="key">Locking</span><span class="val">Provider, model, languages, mode, policy, LLM and push-to-talk settings lock while a session is active; the four operator switches stay live and route to the controller.</span></div>
-    <div class="row"><span class="key">Monitor tabs</span><span class="val">Transcript: live partial, raw and processed bubbles, waveform, copy and save. History: session-local turns in memory. Events: bounded log with filters all, warnings, provider, audio, hotkey, protocol.</span></div>
-    <div class="row"><span class="key">Onboarding</span><span class="val">A scrollable welcome sheet with status cards, a step-by-step guide for Microphone, Accessibility and Input Monitoring (expanded while one is missing), deep links, and a <em>Set keys…</em> button that opens the credentials editor; skipping suppresses it for 24 hours.</span></div>
+  <div class="body" style="right:960px; font-size:20px">
+    <p>There is no Dock icon. Click the waveform icon at the top right of the screen for the dropdown; right-click it for a short menu.</p>
+    <ul>
+      <li><strong>Header:</strong> the STT and LLM providers and the state: idle, ready, recording, finalizing or listening.</li>
+      <li><strong>Hotkey:</strong> the on/off switch, then <em>Push-to-talk</em> (hold) or <em>Push-to-listen</em> (press, press again).</li>
+      <li><strong>Mode and Theme:</strong> Dictation, Agent or Hybrid; System, Light or Dark.</li>
+      <li><strong>Operators:</strong> the seven switches with their letters and the translation target. <code>1×</code> marks an operator that lasts one turn.</li>
+      <li><strong>Hotkeys:</strong> a reminder of the hotkey and of hotkey + letter.</li>
+      <li><strong>Windows:</strong> Transcript (⌘1), History (⌘2), New conversation, Settings (⌘,) and Quit (⌘Q).</li>
+    </ul>
+  </div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_DROPDOWN}}" alt="untype menu-bar dropdown" style="top:80px; right:225px; height:900px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 27</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ 24b MAIN WINDOW ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · The interface · Transcript window</div>
+  <div class="title">The window shows what was heard and what was delivered.</div>
+  <div class="rule"></div>
+  <img class="shot" src="{{UI_MAIN_WINDOW}}" alt="untype main window" style="top:330px; right:90px; width:1130px" />
+  <div class="shot-cap" style="top:925px; right:90px">Transcript blurred for privacy</div>
+  <div class="body" style="right:1290px; font-size:19px; top:330px">
+    <ul>
+      <li>Open it with ⌘1 or ⌘2 from the dropdown. Closing it never quits untype.</li>
+      <li><strong>Sidebar:</strong> Transcript, History and Events, plus live status of microphone, Accessibility, the API key and the hotkey.</li>
+      <li><strong>Top bar:</strong> start or stop the session, the push-to-talk switch, refresh, permissions, theme, Settings and compact mode.</li>
+      <li><strong>Chips:</strong> the seven operators, clickable.</li>
+      <li><strong>Turns:</strong> raw and processed text with a copy button each; Copy, Save and Clear for the whole list.</li>
+    </ul>
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ 24c SETTINGS GENERAL ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · The interface · Settings</div>
+  <div class="title" style="right:960px">One Settings window, opened with ⌘,</div>
+  <div class="rule"></div>
+  <div class="body" style="right:960px; font-size:19px">
+    <p><strong>General</strong> holds every setting, in groups:</p>
+    <ul>
+      <li><strong>Session</strong> with <em>Edit keys…</em>, and <strong>Appearance</strong>.</li>
+      <li><strong>Provider:</strong> STT provider, model, languages, sample rate.</li>
+      <li><strong>Protocol:</strong> mode and translation target.</li>
+      <li><strong>Operators:</strong> each switch with a <em>Lasts</em> choice, <em>This turn</em> or <em>Until changed</em>, and whether selected text is material or context.</li>
+      <li><strong>Refinement (LLM):</strong> on/off, provider, model.</li>
+      <li><strong>Push to talk</strong>, <strong>Permissions</strong> and <strong>Credentials</strong>.</li>
+    </ul>
+    <p><strong>Prompts</strong> edits the prompt files, covered in section 04. Settings are editable while the session is only warm; during a turn they lock.</p>
+  </div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_OPERATORS}}" alt="untype Settings, General tab" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 27</span></div><span class="pg"></span></div>
 </section>
 
 <!-- ============================ 25 DIVIDER 03 ============================ -->
@@ -479,10 +566,10 @@ Return only JSON with refined_text and translated_text.</pre>
   <div class="title">Two ways in, no toolchain required.</div>
   <div class="rule"></div>
   <div class="grid g2" style="gap:40px 60px">
-    <div class="card ink"><div class="tag">Homebrew</div><h3>Tap and install the cask</h3><p><code>brew tap BikS2013/untype</code> then <code>brew install --cask untype</code>; later <code>brew upgrade --cask untype</code>. The tap <code>BikS2013/homebrew-untype</code> points at the latest GitHub release asset and is regenerated after every release with <code>scripts/update-homebrew-cask.sh</code>.</p></div>
-    <div class="card"><div class="tag">GitHub release</div><h3>Download the notarized disk image</h3><p>Every build is a release tagged <code>v0.1.0-b&lt;N&gt;</code> (first one: <code>v0.1.0-b8</code>) with <code>untype-0.1.0.dmg</code>, the notarized zip and <code>SHA256SUMS</code>. The always-newest link is <code>releases/latest/download/untype-0.1.0.dmg</code>. Open the image, drag untype to Applications, follow <code>INSTALL.txt</code>.</p></div>
+    <div class="card ink"><div class="tag">Homebrew</div><h3>Tap and install the cask</h3><p><code>brew tap biks2013-tools/untype</code> then <code>brew install --cask untype</code>; later <code>brew upgrade --cask untype</code>. The tap <code>biks2013-tools/homebrew-untype</code> points at the latest release asset. It is maintained from the repository's <code>homebrew-tap/</code> folder and published by <code>scripts/update-homebrew-cask.sh --push</code>.</p></div>
+    <div class="card"><div class="tag">GitHub release</div><h3>Download the notarized disk image</h3><p>Every build is a release tagged <code>v0.1.0-b&lt;N&gt;</code> (first one: <code>v0.1.0-b8</code>) with <code>untype-0.1.0.dmg</code>, the notarized zip and <code>SHA256SUMS</code>. Download it from <code>github.com/biks2013-tools/untype-s/releases/latest</code>, open the image, drag untype to Applications, follow <code>INSTALL.txt</code>.</p></div>
   </div>
-  <div class="callout">Both paths install the same Developer ID signed and notarized bundle, so macOS opens it without a Gatekeeper warning and permissions survive upgrades. Building from source, next, is only needed to release a new build.</div>
+  <div class="callout">Both paths install the same signed and notarized bundle, so permissions survive upgrades. The repository moved from <code>github.com/BikS2013/untype-s</code> to <code>github.com/biks2013-tools/untype-s</code>: an old tap must be re-tapped. The latest release is build 24; Ask, Follow-up and Selection are in builds 25 to 27 and ship with the next release.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
@@ -511,7 +598,7 @@ swift build
 <span class="c"># release build → .build/release/untype + untype-input-helper</span>
 swift build -c release
 
-<span class="c"># 216 Swift Testing tests</span>
+<span class="c"># 272 Swift Testing tests</span>
 swift test
 
 <span class="c"># terminal smoke run (no LLM), append mode, verbose diagnostics</span>
@@ -537,7 +624,7 @@ swift test
   <div class="title">One script builds, tests, signs, notarizes and staples.</div>
   <div class="rule"></div>
   <pre class="code" style="top:330px; left:90px; width:1000px; height:250px; font-size:18px">scripts/package-macos-app.sh \
-  --bundle-id com.local.untype --version 0.1.0 --build 13 \
+  --bundle-id com.local.untype --version 0.1.0 --build 27 \
   --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" \
   --notary-profile untype-notary \
   --dmg</pre>
@@ -590,7 +677,7 @@ swift test
 osascript -e 'tell application "untype" to quit'
 
 <span class="c"># 2. keep the previous bundle</span>
-mv /Applications/untype.app .build/deploy/untype.app.build12-backup
+mv /Applications/untype.app .build/deploy/untype.app.previous
 
 <span class="c"># 3. copy the new bundle and verify it</span>
 ditto .build/deploy/untype.app /Applications/untype.app
@@ -618,11 +705,13 @@ ln -sf /Applications/untype.app/Contents/MacOS/untype ~/.local/bin/untype</pre>
   <div class="rule"></div>
   <div class="steps" style="right:840px; gap:18px">
     <div class="step"><div class="n">1</div><div><h3>Microphone</h3><p>Prompted on the first recording. Denial fails fast with <code>microphone_permission</code> and exit code 3.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Accessibility</h3><p>Required for the push-to-talk event tap and for inserting text into the focused field. The entry to check is <code>untype.app</code>, not the nested helper.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Accessibility</h3><p>Required for the hotkey event tap, for typing into the focused field and for reading the selected text. The entry to check is <code>untype.app</code>, not the nested helper.</p></div></div>
     <div class="step"><div class="n">3</div><div><h3>Input Monitoring</h3><p>Add untype here if the hotkey does not fire while another app is in front.</p></div></div>
   </div>
-  <div class="callout" style="right:840px; bottom:100px">Quit and relaunch after changing any permission. The UI offers deep links into System Settings, and <code>⌥⌘P</code> opens the permission setup sheet on demand.</div>
-  <div class="image-right" style="background-image:url('{{PERMISSIONS_KEYS}}')"></div>
+  <div class="callout" style="right:840px; bottom:100px">Quit and relaunch after changing any permission. Settings › General › Permissions shows the live status; <em>Open Permission Setup</em> (or <code>⌥⌘P</code>) opens the guide with deep links into System Settings.</div>
+  <div class="shot-panel" style="width:760px"></div>
+  <img class="shot" src="{{UI_SETTINGS_SYSTEM}}" alt="untype Settings, permissions and credentials" style="top:190px; right:50px; width:660px" />
+  <div class="shot-cap" style="top:810px; right:50px; width:660px; text-align:center">Settings › General · Permissions and Credentials</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
@@ -684,9 +773,9 @@ open -a /Applications/untype.app
   <div class="title">Setting up the API keys.</div>
   <div class="rule"></div>
   <div class="grid g2" style="gap:40px 60px">
-    <div class="card ink"><div class="tag">In the app</div><h3>Welcome screen › <em>Set keys…</em>, or Settings › Session › <em>Edit keys…</em></h3><ul>
+    <div class="card ink"><div class="tag">In the app</div><h3>Welcome screen › <em>Set keys…</em>, or Settings › General › Session › <em>Edit keys…</em></h3><ul>
       <li><strong>Speech-to-text, one required:</strong> Soniox API key (the default provider) or ElevenLabs API key (with the provider switched to ElevenLabs).</li>
-      <li><strong>Refinement and translation, only if enabled:</strong> Azure OpenAI API key, endpoint (<code>https://&lt;resource&gt;.openai.azure.com</code>), deployment name and API version, or the Google Gemini API key for the <code>google</code> provider.</li>
+      <li><strong>LLM, only for Refine, Translate or Ask:</strong> the Azure OpenAI key, endpoint, deployment and API version; or <code>GOOGLE_API_KEY</code>; or Claude: <code>ANTHROPIC_API_KEY</code> direct, or <code>ANTHROPIC_FOUNDRY_API_KEY</code> with <code>ANTHROPIC_FOUNDRY_RESOURCE</code> on Microsoft Foundry.</li>
       <li>Secrets are masked; a <em>Show</em> switch reveals them while editing. <em>Save</em> writes only the fields you changed; an emptied field unsets that key.</li>
       <li>Keys are stored in <code>~/.tool-agents/untype/.env</code>, readable only by you, and never appear in logs or diagnostics.</li>
     </ul></div>
@@ -694,7 +783,7 @@ open -a /Applications/untype.app
       <li>The first session start creates it as a fully commented template: every variable as <code># NAME=</code> with its description, allowed values and default.</li>
       <li>Remove the leading <code># </code> and fill the value, for example <code>SONIOX_API_KEY=…</code> or <code>AZURE_OPENAI_API_KEY=…</code>; comments and order are preserved, and later duplicates of a key are removed by the editor.</li>
       <li>Optional expiry dates, <code>SONIOX_API_KEY_EXPIRES_AT</code> and <code>ELEVENLABS_API_KEY_EXPIRES_AT</code>, make the UI warn 14 days before a key expires.</li>
-      <li>The inspector's Credentials group shows each key's name, source tier and expiry, never the value.</li>
+      <li>Settings › General › Credentials shows each key's name, source tier and expiry, never the value. Pick the LLM provider and model in Settings › Refinement (LLM).</li>
     </ul></div>
   </div>
   <div class="callout warn"><strong>Nothing is defaulted.</strong> A required key that is missing everywhere is a configuration error that names the variable and the four places it may be set; the onboarding checklist stays open until a speech-to-text key is present.</div>
@@ -707,11 +796,11 @@ open -a /Applications/untype.app
   <div class="title">From launch to the first delivered sentence.</div>
   <div class="rule"></div>
   <div class="steps" style="gap:16px">
-    <div class="step"><div class="n">1</div><div><h3>Launch from Applications or Spotlight</h3><p>The onboarding checklist appears whenever microphone, accessibility or credentials are not ready.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Set the provider keys</h3><p><em>Set keys…</em> on the welcome screen (or Settings › Credentials › <em>Edit keys…</em>) writes <code>SONIOX_API_KEY</code> or <code>ELEVENLABS_API_KEY</code>, and the Azure OpenAI or Google variables if refinement is on, into <code>~/.tool-agents/untype/.env</code>. Editing by hand works too: the first session start provisions that file as a fully commented template (folder 0700, file 0600).</p></div></div>
-    <div class="step"><div class="n">3</div><div><h3>Let the prompt files provision themselves</h3><p>On first start the nine prompt files are written with their defaults under <code>~/.tool-agents/untype/prompts/</code>.</p></div></div>
-    <div class="step"><div class="n">4</div><div><h3>Grant permissions, pick the hotkey mode, set the hotkey</h3><p>The welcome screen explains each permission; the top-bar switch selects push-to-talk (hold) or push-to-listen (press, press again). Then speak and watch the text appear in the focused field.</p></div></div>
-    <div class="step"><div class="n">5</div><div><h3>Verify</h3><p>Turn on the latency log and confirm the newest record reads <code>delivered_to_focused_input</code> with <code>focused_input.ok=true</code>.</p></div></div>
+    <div class="step"><div class="n">1</div><div><h3>Launch from Applications or Spotlight</h3><p>The waveform icon appears in the menu bar. While microphone, Accessibility or a speech-to-text key is missing, the window opens with the onboarding checklist.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Set the provider keys</h3><p><em>Set keys…</em> writes them to <code>~/.tool-agents/untype/.env</code>. Editing by hand works too: the first session start provisions that file as a fully commented template, and the fifteen prompt files under <code>prompts/</code>.</p></div></div>
+    <div class="step"><div class="n">3</div><div><h3>Grant the permissions</h3><p>Microphone, Accessibility and, if the hotkey stays silent, Input Monitoring; quit and relaunch after each change.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Switch the hotkey on in the dropdown</h3><p>Pick Push-to-talk or Push-to-listen and the operators you want: Refine and Input are a good start. Click into a text field, hold <code>Control+`</code>, speak, release.</p></div></div>
+    <div class="step"><div class="n">5</div><div><h3>Verify</h3><p>The words appear while you speak and are replaced by the refined text on release. With the latency log on, the newest record reads <code>focused_input.ok=true</code>.</p></div></div>
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
@@ -750,24 +839,22 @@ open -a /Applications/untype.app
   <div class="rule"></div>
   <div class="tree" style="position:absolute; top:330px; left:90px; width:900px"><span class="d">~/.tool-agents/untype/</span>              <span class="m">mode 0700</span>
 ├── <span class="d">.env</span>                         <span class="m">keys and settings, 0600 (template)</span>
-├── <span class="d">prompts/</span>
-│   ├── 001-refinement-system.txt
-│   ├── 002-translation-system.txt
-│   ├── 003-translation-user-template.txt
-│   ├── 004-soniox-transcription-context.txt
-│   ├── 005-elevenlabs-previous-text.txt
-│   ├── 006-elevenlabs-keyterms.txt
-│   ├── 007-composite-refine-translate-system.txt
-│   ├── 008-composite-refinement-template.txt
-│   └── 009-composite-translation-template.txt
-├── <span class="d">state.json</span>                   <span class="m">operators + policy, saved at shutdown</span>
-├── <span class="d">ui-state.json</span>                <span class="m">window, tabs, hotkey and its mode, settings</span>
-├── <span class="d">release-latency.jsonl</span>        <span class="m">opt-in per-release records</span>
-└── <span class="d">AuthKey_&lt;KEYID&gt;.p8</span>           <span class="m">App Store Connect key for notarization</span></div>
+├── <span class="d">prompts/</span>                     <span class="m">15 files, hot-reloaded</span>
+│   ├── 001 … 003                <span class="m">refinement, translation</span>
+│   ├── 004 … 006                <span class="m">STT provider context</span>
+│   ├── 007 … 009                <span class="m">composite refine + translate</span>
+│   ├── 010 … 012                <span class="m">Ask</span>
+│   ├── 013 · 014                <span class="m">selected text</span>
+│   └── 015                      <span class="m">Follow-up conversation</span>
+├── <span class="d">state.json</span>                   <span class="m">operators + policy</span>
+├── <span class="d">ui-state.json</span>                <span class="m">window, hotkey, settings</span>
+├── <span class="d">events.log</span>                   <span class="m">session events, 0600, 1 MB</span>
+├── <span class="d">release-latency.jsonl</span>        <span class="m">opt-in, + .previous</span>
+└── <span class="d">AuthKey_&lt;KEYID&gt;.p8</span>           <span class="m">notarization key</span></div>
   <div class="body" style="left:1050px; right:90px; top:330px; font-size:20px">
     <ul>
-      <li>The tool never writes secrets anywhere else, and never logs transcript text into this folder.</li>
-      <li>Prompt files are provisioned with defaults if missing and validated on every start.</li>
+      <li>The tool never writes secrets anywhere else, and never logs transcript text, selections or answers into this folder.</li>
+      <li>Prompt files are provisioned with defaults if missing, validated on every start, and editable in Settings › Prompts.</li>
       <li>The Developer ID certificate lives in the login keychain, not here.</li>
       <li>Repository copies of the prompts under <code>prompts/</code> are for review only; the runtime reads this folder.</li>
       <li>A legacy <code>~/.tool-agents/mic-tool-ts/</code> folder without this one triggers a migration hint at startup.</li>
@@ -789,7 +876,7 @@ open -a /Applications/untype.app
       <tr><td class="k">SONIOX_API_KEY_EXPIRES_AT</td><td class="k">--api-key-expires-at</td><td>YYYY-MM-DD; warns when 14 days or fewer remain.</td></tr>
       <tr><td class="k">ELEVENLABS_API_KEY</td><td class="k">--elevenlabs-api-key</td><td>Required when the provider is ElevenLabs.</td></tr>
       <tr><td class="k">ELEVENLABS_API_KEY_EXPIRES_AT</td><td class="k">--elevenlabs-api-key-expires-at</td><td>Same reminder behaviour.</td></tr>
-      <tr><td class="k">UNTYPE_MODEL</td><td class="k">--model</td><td>Realtime model; <code>stt-rt-v4</code> or <code>scribe_v2_realtime</code> by provider.</td></tr>
+      <tr><td class="k">UNTYPE_MODEL</td><td class="k">--model</td><td>Realtime model; <code>stt-rt-v5</code> or <code>scribe_v2_realtime</code> by provider.</td></tr>
       <tr><td class="k">UNTYPE_ENDPOINT</td><td class="k">--endpoint</td><td>WebSocket URL; provider default when unset.</td></tr>
       <tr><td class="k">UNTYPE_LANGUAGES</td><td class="k">--language (repeatable)</td><td>Hints such as <code>el,en</code>, or <code>auto</code> alone.</td></tr>
       <tr><td class="k">UNTYPE_SAMPLE_RATE</td><td class="k">--sample-rate</td><td>16 000 Hz default; ElevenLabs accepts a fixed set.</td></tr>
@@ -808,19 +895,37 @@ open -a /Applications/untype.app
   <table class="t compact" style="top:320px">
     <thead><tr><th style="width:420px">Environment variable</th><th style="width:340px">CLI flag</th><th>Purpose and default</th></tr></thead>
     <tbody>
-      <tr><td class="k">UNTYPE_REFINE</td><td class="k">--refine / --no-refine</td><td>Master switch for LLM processing; on by default.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_PROVIDER</td><td class="k">--llm-provider</td><td><code>azure-openai</code> (default) or <code>google</code>; six other names are accepted but not implemented.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_MODEL</td><td class="k">--llm-model</td><td>Model name, default <code>gpt-5.4</code>.</td></tr>
-      <tr><td class="k">AZURE_OPENAI_API_KEY</td><td>env only</td><td>Required for Azure when refinement is on.</td></tr>
-      <tr><td class="k">AZURE_OPENAI_ENDPOINT</td><td>env only</td><td>Resource URL; required for Azure.</td></tr>
-      <tr><td class="k">AZURE_OPENAI_DEPLOYMENT</td><td>env only</td><td>Deployment name; falls back to the model name (a documented tension with the no-fallback rule).</td></tr>
-      <tr><td class="k">AZURE_OPENAI_API_VERSION</td><td>env only</td><td>Default <code>2024-10-21</code>.</td></tr>
-      <tr><td class="k">GOOGLE_API_KEY</td><td>env only</td><td>Required for the Google provider.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_MAX_OUTPUT_TOKENS</td><td class="k">--llm-max-output-tokens</td><td>Sent as max completion or output tokens; omitted when unset.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_REASONING_EFFORT</td><td class="k">--llm-reasoning-effort</td><td><code>none|minimal|low|medium|high</code>; any non-none value drops temperature. Do not set it for non-reasoning deployments.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_STREAMING</td><td class="k">--[no-]llm-streaming</td><td>Token streaming into the overlay; off by default.</td></tr>
+      <tr><td class="k">UNTYPE_REFINE</td><td class="k">--refine / --no-refine</td><td>Master switch for LLM processing, which Refine, Translate and Ask need; on by default.</td></tr>
+      <tr><td class="k">UNTYPE_LLM_PROVIDER</td><td class="k">--llm-provider</td><td><code>azure-openai</code> (default), <code>google</code>, <code>anthropic</code>, <code>azure-anthropic</code>; six other names are accepted but not implemented.</td></tr>
+      <tr><td class="k">UNTYPE_LLM_MODEL</td><td class="k">--llm-model</td><td>Model name, default <code>gpt-5.4</code>; for Foundry the deployment name, such as <code>claude-opus-5-5</code>.</td></tr>
+      <tr><td class="k">AZURE_OPENAI_API_KEY · _ENDPOINT</td><td>env only</td><td>Required for <code>azure-openai</code>.</td></tr>
+      <tr><td class="k">AZURE_OPENAI_DEPLOYMENT · _API_VERSION</td><td>env only</td><td>Deployment (falls back to the model name) and API version, default <code>2024-10-21</code>.</td></tr>
+      <tr><td class="k">GOOGLE_API_KEY</td><td>env only</td><td>Required for <code>google</code>.</td></tr>
+      <tr><td class="k">UNTYPE_LLM_MAX_OUTPUT_TOKENS</td><td class="k">--llm-max-output-tokens</td><td>Caps refine and translate output; omitted when unset (Claude: 4 096).</td></tr>
+      <tr><td class="k">UNTYPE_LLM_REASONING_EFFORT</td><td class="k">--llm-reasoning-effort</td><td><code>none|minimal|low|medium|high</code>; drops temperature. Claude maps none and minimal to <code>low</code>.</td></tr>
+      <tr><td class="k">UNTYPE_LLM_STREAMING</td><td class="k">--[no-]llm-streaming</td><td>Token streaming of the LLM response; off by default.</td></tr>
     </tbody>
   </table>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ 38b CLAUDE AND ASK SETTINGS ============================ -->
+<section class="slide">
+  <div class="eyebrow">04 · Claude and Ask settings</div>
+  <div class="title">Claude direct or on Microsoft Foundry, and the Ask limits.</div>
+  <div class="rule"></div>
+  <table class="t compact" style="top:320px">
+    <thead><tr><th style="width:460px">Variable</th><th style="width:240px">Applies to</th><th>Meaning and how to obtain it</th></tr></thead>
+    <tbody>
+      <tr><td class="k">ANTHROPIC_API_KEY</td><td>anthropic</td><td>Claude API key from the Claude Console.</td></tr>
+      <tr><td class="k">ANTHROPIC_FOUNDRY_API_KEY</td><td>azure-anthropic</td><td>Foundry portal › Build › Models › your deployment › Details › Key. Set it even if it equals the Azure OpenAI key: nothing falls back.</td></tr>
+      <tr><td class="k">ANTHROPIC_FOUNDRY_RESOURCE</td><td>azure-anthropic</td><td>Resource name; the endpoint becomes <code>https://&lt;resource&gt;.services.ai.azure.com/anthropic</code>.</td></tr>
+      <tr><td class="k">ANTHROPIC_FOUNDRY_BASE_URL</td><td>azure-anthropic</td><td>A full base URL instead of the resource name. Setting both is an error.</td></tr>
+      <tr><td class="k">UNTYPE_ASK_DEFAULT</td><td>Ask</td><td><code>--ask-default on|off</code>, default off. Also <code>UNTYPE_FOLLOWUP_DEFAULT</code> and <code>UNTYPE_SELECTION_DEFAULT</code>.</td></tr>
+      <tr><td class="k">UNTYPE_ASK_MAX_OUTPUT_TOKENS</td><td>Ask</td><td><code>--ask-max-output-tokens</code>, default 8 000. Answers are full texts, so they do not share the refine cap.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">Claude requests use <code>x-api-key</code>, effort <code>low</code> by default and no temperature. A refusal or a <code>max_tokens</code> stop counts as a failure, so the raw text is delivered rather than a fragment. Ask has a fixed 120 s timeout; refine and translate keep 15 s.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
 </section>
 
@@ -840,7 +945,7 @@ open -a /Applications/untype.app
       <tr><td class="k">UNTYPE_SECTION_CANCEL_PHRASE</td><td class="k">--section-cancel-phrase</td><td>Default <code>command cancel</code>.</td></tr>
       <tr><td class="k">UNTYPE_LITERAL_NEXT_PHRASE</td><td class="k">--literal-next-phrase</td><td>Default <code>literal phrase</code>; the next marker is dictated as text.</td></tr>
       <tr><td class="k">UNTYPE_GUARD_PHRASE</td><td class="k">--guard-phrase</td><td>Default <code>τέλος εντολής</code>, an alias of section end.</td></tr>
-      <tr><td class="k">UNTYPE_{REFINE,TRANSLATE,CLIPBOARD,INPUT}_DEFAULT</td><td class="k">--&lt;operator&gt;-default on|off</td><td>Initial operator states; unset means <code>state.json</code> values apply.</td></tr>
+      <tr><td class="k">UNTYPE_&lt;OPERATOR&gt;_DEFAULT</td><td class="k">--&lt;operator&gt;-default on|off</td><td>Starting state of refine, translate, ask, followup, selection, clipboard, input; unset means <code>state.json</code> applies.</td></tr>
       <tr><td class="k">UNTYPE_TRANSLATION_POLICY</td><td class="k">--translation-policy</td><td><code>opposite</code> (default), <code>to-en</code>, <code>to-el</code>.</td></tr>
     </tbody>
   </table>
@@ -850,42 +955,44 @@ open -a /Applications/untype.app
 <!-- ============================ 40 PROMPT FILES ============================ -->
 <section class="slide">
   <div class="eyebrow">04 · Prompt files</div>
-  <div class="title">Nine files, six required, all editable.</div>
+  <div class="title">Fifteen files, twelve required, all editable.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:470px">File</th><th style="width:120px">Required</th><th>Purpose</th></tr></thead>
+  <table class="t compact" style="top:310px">
+    <thead><tr><th style="width:500px">File</th><th style="width:110px">Required</th><th>Purpose</th></tr></thead>
     <tbody>
-      <tr><td class="k">001-refinement-system.txt</td><td>Yes</td><td>System prompt for refinement; keeps language, never answers the text.</td></tr>
-      <tr><td class="k">002-translation-system.txt</td><td>Yes</td><td>System prompt for translation; preserves technical terms and identifiers.</td></tr>
-      <tr><td class="k">003-translation-user-template.txt</td><td>Yes</td><td>Per-call template; must contain <code>{target_language}</code> and <code>{text}</code>.</td></tr>
-      <tr><td class="k">004-soniox-transcription-context.txt</td><td>No</td><td>Sent as Soniox <code>context.text</code>; up to 10 000 characters.</td></tr>
-      <tr><td class="k">005-elevenlabs-previous-text.txt</td><td>No</td><td>ElevenLabs first-chunk <code>previous_text</code>; 50 characters or fewer.</td></tr>
-      <tr><td class="k">006-elevenlabs-keyterms.txt</td><td>No</td><td>One keyterm per line; up to 50 terms of 20 characters.</td></tr>
-      <tr><td class="k">007-composite-refine-translate-system.txt</td><td>Yes</td><td>Composite JSON prompt with <code>refined_text</code> and <code>translated_text</code>.</td></tr>
-      <tr><td class="k">008-composite-refinement-template.txt</td><td>Yes</td><td>Refinement instruction in the composite request; must contain <code>{text}</code>.</td></tr>
-      <tr><td class="k">009-composite-translation-template.txt</td><td>Yes</td><td>Translation instruction in the composite request; must contain <code>{target_language}</code>.</td></tr>
+      <tr><td class="k">001-refinement-system.txt</td><td>Yes</td><td>Refinement; keeps the language, never answers the text.</td></tr>
+      <tr><td class="k">002 · 003 translation system / user template</td><td>Yes</td><td>Translation; 003 needs <code>{target_language}</code> and <code>{text}</code>.</td></tr>
+      <tr><td class="k">004 · 005 · 006 Soniox / ElevenLabs context</td><td>No</td><td>Recognition hints sent to the STT provider: context text, previous text, keyterms.</td></tr>
+      <tr><td class="k">007 · 008 · 009 composite</td><td>Yes</td><td>One-call refine + translate as JSON; 008 needs <code>{text}</code>, 009 <code>{target_language}</code>.</td></tr>
+      <tr><td class="k">010-ask-system.txt</td><td>Yes</td><td>Ask: fulfil the dictated request and return only the requested text.</td></tr>
+      <tr><td class="k">011-ask-user-template.txt</td><td>Yes</td><td>The Ask message; needs <code>{text}</code>.</td></tr>
+      <tr><td class="k">012-ask-translated-user-template.txt</td><td>Yes</td><td>Ask with Translate on; needs <code>{target_language}</code> and <code>{text}</code>.</td></tr>
+      <tr><td class="k">013-selection-context-template.txt</td><td>Yes</td><td>Selection as reference only; needs <code>{selection}</code>.</td></tr>
+      <tr><td class="k">014-ask-selection-template.txt</td><td>Yes</td><td>Selection put before an Ask request; needs <code>{selection}</code>.</td></tr>
+      <tr><td class="k">015-ask-conversation-template.txt</td><td>Yes</td><td>Follow-up history before an Ask request; needs <code>{history}</code>.</td></tr>
     </tbody>
   </table>
-  <div class="note" style="bottom:100px">Required files must be non-empty; violations raise typed configuration errors before a session starts. Prompt contents are never logged or persisted anywhere else.</div>
+  <div class="note" style="bottom:100px">Violations raise typed configuration errors before a session starts, and the Settings editor refuses to save them. Prompt contents are never logged.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
 </section>
 
 <!-- ============================ 41 CUSTOMISING PROMPTS ============================ -->
-<section class="slide with-image">
+<section class="slide">
   <div class="eyebrow">04 · Customising prompts</div>
-  <div class="title">Edit a text file, restart the app.</div>
+  <div class="title" style="right:960px">Edit, save, and the next turn already uses it.</div>
   <div class="rule"></div>
-  <div class="body">
+  <div class="body" style="right:960px; font-size:19px">
     <ul>
-      <li>Change wording directly in <code>~/.tool-agents/untype/prompts/</code>. No rebuild, no redeploy; the next session picks it up.</li>
-      <li>Keep the placeholders the loader validates: <code>{target_language}</code> and <code>{text}</code> in file 003, <code>{text}</code> in file 008, <code>{target_language}</code> in file 009.</li>
-      <li>Delete a file to get the built-in default back on the next start.</li>
-      <li>Two invariants worth keeping in any rewrite: refinement must not change the language, and no prompt may let the model answer or act on the dictated text.</li>
-      <li>Provider context files 004 to 006 improve recognition of names and jargon; they are sent to the STT provider, so avoid private examples.</li>
+      <li>Settings › <strong>Prompts</strong> lists the files by group: Refinement, Translation, Refine + translate, Ask, Selected text, Transcription context.</li>
+      <li>Edit, then <strong>Save</strong> (⌘S). <em>Revert</em> drops unsaved edits; <em>Reset to Default</em> loads the built-in text for you to save.</li>
+      <li>A save is validated with the same rules as session start, so a missing placeholder cannot be written.</li>
+      <li>untype checks the files every second, including edits from another editor. The Events tab shows <code>prompts.reloaded</code> and an idle warm session restarts at once; a turn in progress is never interrupted.</li>
+      <li>Keep two invariants: refinement must not change the language, and only Ask may answer the dictated text.</li>
     </ul>
   </div>
-  <div class="image-right" style="background-image:url('{{PROMPT_WRITING}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_PROMPTS}}" alt="untype Settings, Prompts tab" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04 · screenshot of build 27</span></div><span class="pg"></span></div>
 </section>
 
 <!-- ============================ 42 RUNTIME & DIAGNOSTICS ============================ -->
@@ -898,20 +1005,21 @@ open -a /Applications/untype.app
     <tbody>
       <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG</td><td>Enable the per-release JSONL log; off by default. Flag <code>--[no-]release-latency-log</code>.</td></tr>
       <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG_PATH</td><td>Default <code>~/.tool-agents/untype/release-latency.jsonl</code>.</td></tr>
-      <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START</td><td>Clear the log once per process start; env only.</td></tr>
+      <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START</td><td>Clear the log once per process start, keeping the previous run as <code>.previous</code>; env only.</td></tr>
+      <tr><td class="k">events.log (fixed path)</td><td>Session and diagnostic events of the app, kept across relaunches; no transcripts.</td></tr>
       <tr><td class="k">UNTYPE_VERBOSE / -v</td><td>State transitions and operator diagnostics on stderr; never text.</td></tr>
     </tbody>
   </table>
   <div class="stat-list" style="top:320px; width:640px">
     <div class="row"><span>Final-text wait after release</span><span>1.5 s</span></div>
     <div class="row"><span>Soniox finalize drain</span><span>250 ms</span></div>
-    <div class="row"><span>LLM request timeout (fixed)</span><span>15 s</span></div>
-    <div class="row"><span>Overlay hide delay</span><span>1.2 s</span></div>
+    <div class="row"><span>LLM timeout: refine · Ask</span><span>15 s · 120 s</span></div>
+    <div class="row"><span>Selection ⌘C fallback wait</span><span>≤ 300 ms</span></div>
     <div class="row"><span>Warm-session idle recycle</span><span>5 min</span></div>
     <div class="row"><span>Pasteboard restore after paste</span><span>0.8 s</span></div>
-    <div class="row"><span>Focused-input helper timeout</span><span>10 s</span></div>
+    <div class="row"><span>Follow-up memory</span><span>20 exchanges</span></div>
   </div>
-  <div class="note" style="right:800px">The timings on the right are compiled constants, not settings. They are listed because they explain what an operator sees: a 15 s pinned "finalizing" overlay is a hung LLM call, not a stuck hotkey.</div>
+  <div class="note" style="right:800px">The timings on the right are compiled constants, not settings. They explain what you see: a processing wave that lasts 15 s is a hung LLM call, not a stuck hotkey; with Ask, long answers can take 30 s.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
 </section>
 
@@ -926,21 +1034,22 @@ open -a /Applications/untype.app
   <span class="h">"saved_at"</span>: "2026-09-11T23:52:00Z",
   <span class="h">"protocol"</span>: {
     <span class="h">"operators"</span>: { "refine": true, "translate": false,
-                    "clipboard": true, "input": true },
+      "ask": false, "followup": false, "selection": false,
+      "clipboard": true, "input": true },
     <span class="h">"translation_policy"</span>: "opposite"
   }
 }</pre>
   <pre class="code" style="top:330px; right:90px; width:860px; height:420px; font-size:17px"><span class="c">// ui-state.json — window and settings</span>
 {
   <span class="h">"version"</span>: 1, <span class="h">"saved_at"</span>: "…",
-  <span class="h">"settings"</span>: { "provider": "soniox", "model": "stt-rt-v4",
-    "languages": ["el","en"], "sampleRate": 16000,
-    "protocolMode": "dictation", "translationPolicy": "opposite",
-    "llmEnabled": true, "llmProvider": "azure-openai",
-    "llmModel": "gpt-5.4", "llmStreaming": false,
-    "hotkeyEnabled": true, "hotkeyHoldToTalk": true, "hotkey": "Control+`",
-    "windowWidth": 1180, "windowHeight": 760,
-    "appearance": "system", … },
+  <span class="h">"settings"</span>: { "provider": "soniox", "model": "stt-rt-v5",
+    "languages": ["el","en"], "protocolMode": "dictation",
+    "llmEnabled": true, "llmProvider": "azure-anthropic",
+    "llmModel": "claude-opus-5-5",
+    "hotkeyEnabled": true, "hotkeyHoldToTalk": true,
+    "hotkey": "Control+`", "appearance": "light",
+    "perTurnOperators": ["ask","followup","selection"],
+    "selectionRole": "material", … },
   <span class="h">"push_to_talk"</span>: { "enabled": true, "hotkey": "Control+`" }
 }</pre>
   <div class="callout">Persisted operator values apply only when the corresponding flag or environment variable is not set. An invalid file is a typed error that names the file to fix or delete, never a silent reset.</div>
@@ -979,12 +1088,30 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
   <div class="title">Focus a field, hold, speak, release.</div>
   <div class="rule"></div>
   <div class="grid g4">
-    <div class="col"><div class="n">01</div><h3>Focus the target</h3><p>Click into the field of any app. If untype is frontmost, the last external app is re-activated for you before delivery.</p></div>
-    <div class="col"><div class="n">02</div><h3>Hold and speak</h3><p>Or press once in push-to-listen mode. The overlay shows the live partial and the R/T/C/I state. Press R, T, C or I to flip an operator mid-recording.</p></div>
-    <div class="col"><div class="n">03</div><h3>Release, or press again</h3><p>The overlay moves to finalizing; with streaming on you see tokens arrive. The text lands at the caret and the overlay hides.</p></div>
-    <div class="col"><div class="n">04</div><h3>Use voice commands</h3><p>In agent or hybrid mode, say "command send", "command cancel" or "command status", or the Greek guard phrase.</p></div>
+    <div class="col"><div class="n">01</div><h3>Set the turn</h3><p>In the menu-bar dropdown, switch on what this turn needs: Ask, Follow-up or Selection. Refine, Translate, Clipboard and Input usually stay on.</p></div>
+    <div class="col"><div class="n">02</div><h3>Focus and hold</h3><p>Click into the target field, or select the text to work on. Hold the hotkey, or press once in push-to-listen mode, and speak. Your words appear as you say them.</p></div>
+    <div class="col"><div class="n">03</div><h3>Flip mid-turn</h3><p>Still holding, press R, T, A, F, S, C or I to switch an operator. The overlay chips show the result. Keep the caret where it is.</p></div>
+    <div class="col"><div class="n">04</div><h3>Release</h3><p>The wave breathes while the model works, then the live text is replaced in place. Operators set to <em>this turn</em> switch off again.</p></div>
   </div>
-  <div class="callout">Quick Close trades accuracy for speed: it submits the latest partial the moment you release. Leave it off when the provider's final punctuation matters, turn it on for short agent commands.</div>
+  <div class="callout">Quick Close trades accuracy for speed: it submits the latest partial the moment you release. In Agent or Hybrid mode, say "command send", "command cancel", "command status" or "command ask on".</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ 46b RECIPES ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Recipes</div>
+  <div class="title">Five things to try in the first week.</div>
+  <div class="rule"></div>
+  <table class="t" style="top:320px">
+    <thead><tr><th style="width:360px">Goal</th><th style="width:330px">Switch on</th><th>Do this</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Clean dictation</strong></td><td><span class="pill on">R</span><span class="pill on">I</span></td><td>Hold, speak naturally with ums and restarts, release. A tidy sentence replaces the raw words.</td></tr>
+      <tr><td><strong>Write in the other language</strong></td><td><span class="pill on">R</span><span class="pill on">T</span><span class="pill on">I</span></td><td>Speak Greek, get English, or the reverse. Pick the target next to Translate in the dropdown.</td></tr>
+      <tr><td><strong>Translate existing text</strong></td><td><span class="pill on">T</span><span class="pill on">S</span><span class="pill on">I</span></td><td>Select a paragraph and tap the hotkey without speaking. The paragraph is replaced by its translation.</td></tr>
+      <tr><td><strong>Draft a reply</strong></td><td><span class="pill on">A</span><span class="pill on">S</span><span class="pill on">I</span></td><td>Set <em>Selected text is</em> to Context, select the message, say "reply that I agree and propose Tuesday at ten". The draft goes after the message, not over it.</td></tr>
+      <tr><td><strong>Refine the draft</strong></td><td><span class="pill on">A</span><span class="pill on">F</span><span class="pill on">I</span></td><td>Right after an Ask, say "shorter and more formal". The model revises its previous answer.</td></tr>
+    </tbody>
+  </table>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
 </section>
 
@@ -1001,9 +1128,9 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
     <tbody>
       <tr><td class="k">provider_final_wait_ms high</td><td>Provider finalization or voice activity detection is slow; consider Quick Close for short commands.</td></tr>
       <tr><td class="k">runtime_scheduling_ms high</td><td>UI or runtime scheduling contention on the main thread.</td></tr>
-      <tr><td class="k">refine_ms / translate_ms high</td><td>The LLM is the bottleneck: model choice, reasoning effort, or network.</td></tr>
-      <tr><td class="k">focused_input_ms high or ok=false</td><td>Accessibility, target application or paste problems; check the <code>code</code> field.</td></tr>
-      <tr><td class="k">text_source=quick_close_partial with low total</td><td>Quick Close worked as intended.</td></tr>
+      <tr><td class="k">refine_ms / translate_ms / ask_ms high</td><td>The LLM is the bottleneck: model choice, reasoning effort, answer length, or network.</td></tr>
+      <tr><td class="k">focused_input ok=false</td><td>Accessibility, target application or paste problems; check <code>code</code>. <code>method=live-typed</code> means live typing delivered the turn.</td></tr>
+      <tr><td class="k">events.log after a relaunch</td><td>Shows what happened before: <code>push-to-talk session ended unexpectedly</code>, then the re-warm attempts.</td></tr>
       <tr><td class="k">text_source=timeout_fallback_partial</td><td>The provider did not finalize within 1.5 s; the latest partial was used with a warning.</td></tr>
     </tbody>
   </table>
@@ -1021,11 +1148,32 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
       <tr><td><code>focused_input_failed</code>, <code>accessibility_not_trusted</code></td><td>Accessibility grant tied to an older signing identity.</td><td><code>tccutil reset Accessibility com.local.untype</code>, relaunch, re-add the app.</td></tr>
       <tr><td>Hotkey does nothing after an install</td><td>Input Monitoring grant belongs to the previous identity.</td><td>Remove the stale entry, re-add <code>/Applications/untype.app</code>, relaunch.</td></tr>
       <tr><td>Text processed but not inserted; untype was frontmost</td><td>No external target to restore.</td><td>Focus the target edit control before release.</td></tr>
-      <tr><td>Overlay stuck in finalizing for 15 s</td><td>Hung LLM request hitting the fixed timeout.</td><td>Check the endpoint and deployment; the section is delivered raw (fail-open).</td></tr>
+      <tr><td>Processing wave lasts 15 s, raw text delivered</td><td>Hung LLM request hitting the fixed timeout.</td><td>Check the endpoint and deployment; delivery is fail-open.</td></tr>
       <tr><td>Refinement silently skipped, HTTP 400</td><td><code>UNTYPE_LLM_REASONING_EFFORT</code> set on a non-reasoning deployment.</td><td>Unset it for that deployment.</td></tr>
       <tr><td>UI shows one Azure deployment, requests use another</td><td>Duplicate <code>AZURE_OPENAI_DEPLOYMENT</code> lines; last one wins.</td><td>Keep a single definition in <code>.env</code>.</td></tr>
       <tr><td>Warm session keeps restarting after a provider error</td><td>Fatal provider error such as an exhausted balance.</td><td>Auto-restart is skipped after fatal errors; fix the account, restart the session.</td></tr>
       <tr><td>Notarization <code>status: Invalid</code></td><td>Signing or entitlement problem in the bundle.</td><td><code>xcrun notarytool log &lt;id&gt; --keychain-profile untype-notary</code>.</td></tr>
+    </tbody>
+  </table>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ 48b SYMPTOMS IN USE ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Symptoms in daily use</div>
+  <div class="title">Live typing, Ask and Selection have their own pitfalls.</div>
+  <div class="rule"></div>
+  <table class="t compact" style="top:320px">
+    <thead><tr><th style="width:520px">Symptom</th><th style="width:560px">Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Final text lands in the wrong place or garbled</td><td>The caret moved, or you typed, while the hotkey was held.</td><td>Keep hands off the field until the text settles.</td></tr>
+      <tr><td>Live words stay after "command cancel"</td><td>Only a delivered result replaces live text.</td><td>Undo or delete them by hand.</td></tr>
+      <tr><td>Ask returns your words, with "ask operator failed"</td><td>LLM off or misconfigured, or the request failed.</td><td>Turn on Refinement (LLM) and check the provider keys.</td></tr>
+      <tr><td>Ask answer cut off, "stop_reason max_tokens"</td><td>The answer exceeded the Ask output cap.</td><td>Raise <code>UNTYPE_ASK_MAX_OUTPUT_TOKENS</code> above 8 000.</td></tr>
+      <tr><td>Selection ignored</td><td>The app exposes no selection and the ⌘C fallback copied nothing.</td><td>Check Accessibility; some editors copy the whole line when nothing is selected.</td></tr>
+      <tr><td>Translated selection overwrote text you wanted to keep</td><td>The Material role replaces the selection.</td><td>Switch <em>Selected text is</em> to Context.</td></tr>
+      <tr><td>Ask switched itself off</td><td>Ask, Follow-up and Selection last one turn by default.</td><td>Set <em>Lasts</em> to Until changed in Settings › Operators.</td></tr>
+      <tr><td>First press after a long idle did nothing (older builds)</td><td>The provider closed the idle socket.</td><td>Build 25 and later re-warm the session automatically; see <code>events.log</code>.</td></tr>
     </tbody>
   </table>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
@@ -1040,7 +1188,7 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
     <p class="lead">Do not break push-to-talk.</p>
     <p>Any change to the UI, session controls, hotkey configuration, permission flow, overlay or runtime lifecycle must keep the whole chain: listening stays active, press and release reach the hotkey-owned session, the gate opens and closes, the overlay shows and hides, and delivery runs after release. Verify in <code>NativeUntypeUILauncher</code>, <code>UntypeHotkeyMonitor</code>, <code>HotkeySessionControl</code> and <code>TranscriptionSessionRuntime</code>.</p>
     <p class="lead">Do not break focused-input delivery.</p>
-    <p>Any change touching delivery, the protocol controller, the packaging script, or any redeploy must be followed by a real release into a text field with <code>focused_input.ok=true</code> in the log.</p>
+    <p>Any change touching delivery, live typing, the protocol controller, the packaging script, or any redeploy must be followed by a real release into a text field with <code>focused_input.ok=true</code> in the log. untype's own keystrokes must keep the marker that the hotkey monitors ignore.</p>
     <p class="lead">Never redeploy an ad-hoc bundle.</p>
     <p>Always package with the Developer ID identity and notarize; an unsigned build silently revokes Accessibility.</p>
   </div>
@@ -1054,8 +1202,8 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
   <div class="num" style="font-size:120px; top:300px">untype</div>
   <div class="label" style="top:450px; bottom:auto; width:640px; font-size:48px; line-height:1.05">Where it stands, and what is next.</div>
   <div class="cap" style="top:590px; width:620px; font-size:19px">
-    Build 13 ships signed and notarized on GitHub Releases and Homebrew, with push-to-talk and push-to-listen, focused-input delivery, refinement, translation, streaming, a credentials editor and a commented <code>.env</code> template.<br /><br />
-    Open items: synchronise runtime state across execution contexts, await provider handshakes and trailing finals, reduce UI main-thread writes, complete the visual verification pass, and replace the placeholder bundle id in one deliberate build.<br /><br />
+    Build 27 is a menu-bar app with live typing at the caret, a text-free oscilloscope overlay, seven operators including Ask, Follow-up and Selection, a Settings window with hot-reloaded prompts, and Claude on Microsoft Foundry. Build 24 is the latest on GitHub Releases and Homebrew.<br /><br />
+    Open items: publish builds 25 to 27, synchronise runtime state across execution contexts, await provider handshakes and trailing finals, reduce UI main-thread writes, and replace the placeholder bundle id in one deliberate build.<br /><br />
     Docs: <code>docs/design/project-design.md</code>, <code>configuration-guide.md</code>, <code>deployment-guide.md</code>, <code>release-runbook.md</code> and the issue register in <code>Issues - Pending Items.md</code>.
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>untype · technical deck</span></div><span class="pg"></span></div>

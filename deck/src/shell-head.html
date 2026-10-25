@@ -179,6 +179,18 @@
   .flow .node.hot code { background: rgba(255,255,255,0.14); color: var(--paper); }
   .flow .node::after { content: "→"; position: absolute; right: -18px; top: 46%; color: var(--copper); font-size: 26px; font-weight: 700; }
   .flow .node:last-child::after { content: none; }
+  /* ---- real UI screenshots and the overlay illustration ---- */
+  .shot { position: absolute; display: block; border-radius: 14px; box-shadow: 0 30px 70px -34px rgba(27,29,33,0.55), 0 0 0 1px rgba(27,29,33,0.10); }
+  .shot-cap { position: absolute; font-family: var(--mono); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--grey-2); }
+  .shot-panel { position: absolute; top: 0; right: 0; width: 900px; height: 1080px; background: rgba(27,29,33,0.06); }
+  .chipset { display: flex; gap: 8px; }
+  .chip { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 15px; font-weight: 700; border: 1.5px solid rgba(246,243,236,0.35); color: rgba(246,243,236,0.55); }
+  .chip.on { background: var(--amber); border-color: var(--amber); color: var(--ink); }
+  .overlay-mock { position: absolute; width: 420px; height: 196px; border-radius: 26px; background: rgba(17,19,22,0.88); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; box-shadow: 0 30px 70px -30px rgba(17,19,22,0.7); }
+  .overlay-mock svg { width: 340px; height: 90px; }
+  .ops { display: grid; grid-template-columns: 44px 1fr; gap: 10px 16px; align-items: start; }
+  .ops .chip { border-color: rgba(27,29,33,0.25); color: var(--ink); background: var(--white); width: 36px; height: 36px; font-size: 17px; }
+  .ops .chip.on { background: var(--amber); border-color: var(--amber); }
 </style>
 </head>
 <body>

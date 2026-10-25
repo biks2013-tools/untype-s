@@ -1,10 +1,10 @@
 <structure-and-conventions>
 ## Structure & Conventions — Documentation Map
 
-<!-- Maintained automatically. The master copy lives at
-     ~/.claude/structure-and-conventions.md (claude-workdocs repo) and the SessionStart
-     hook ~/.claude/scripts/sync-claude-md.sh keeps this copy of the block up to date —
-     edit the master, never this block. The block is committed with the repository on
+<!-- Maintained automatically. The master copy is block/structure-and-conventions.md in
+     the structure-and-conventions Claude Code plugin (repository
+     BikS2013-coding-agents/structure-and-conventions-repo), which checks this copy at
+     every session start and brings it up to date — edit the master, never this block. The block is committed with the repository on
      purpose: it tells anyone (human or agent) working with this repo where the
      project's documentation lives and how to read and maintain it. -->
 

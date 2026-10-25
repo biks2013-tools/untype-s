@@ -2,7 +2,7 @@
 
 Zero-dependency Node scripts (Node >= 18, no `npm install`) that make asset embedding
 deterministic, add a browser-free quality gate, capture per-slide screenshots, and export
-the finished deck to PDF. They exist because the hand-pasting of large base64 data URIs is
+the finished deck to PDF and to an editable PowerPoint file. They exist because the hand-pasting of large base64 data URIs is
 the step that silently breaks in headless / SSH / Linux runs — the model "approximates" a
 photo with a gradient or substitutes a text/box logo, and with no display to screenshot,
 the lapse ships — and because a PDF produced any other way (browser "Save as PDF",
@@ -38,9 +38,19 @@ node "<skill-root>/scripts/embed-assets.mjs" my-deck.html
 - Define each token **once** (e.g. a CSS `background-image: url("{{PHOTO_STREET}}")` class)
   and reuse the class, so the large URI appears only once in the file.
 - Fails loudly if a token has no matching asset or the asset isn't a `data:image/` URI.
-- `--theme biks2013` takes the assets of the BikS2013 personal theme (`BikS2013-Design/assets/`) instead of
-  the NBG ones (`--theme nbg`, the default); the tokens are the same in every theme. `--assets <dir>` still
-  overrides the directory outright. Unknown theme names fail.
+- `--theme <name>` takes the assets of a theme instead of the NBG ones (`--theme nbg`, the default): `biks2013`
+  resolves from `BikS2013-Design/assets/`; `aihub` from `AIHub-Design/assets/` and then, for the shared technology
+  photography, from `NBG-Design/assets/`; `instrument` from `Instrument-Design/assets/`, then `NBG-Design/`, then
+  `AIHub-Design/` (each theme declares its search path; its own folder always wins). The
+  tokens are the same in every theme, and font tokens work the same way (`{{FONT_OSWALD}}` →
+  `font-oswald.datauri.txt`, a `data:font/woff2` URI for `@font-face`). `--assets <dir>` still overrides the
+  directory outright. Unknown theme names fail.
+- **Theme-prefixed tokens** (v1.23.0): a token whose first segment names a theme — `{{NBG_LOGO_PRIMARY}}`,
+  `{{AIHUB_LOGO_KNOCKOUT}}` — is read from THAT theme's own folder and bypasses the search path entirely.
+  The Instrument theme uses this to carry both the NBG and the NBG AI Hub lockups, so a deck picks the
+  identity it is presented under. The prefix is dropped before the file mapping
+  (`{{AIHUB_LOGO_KNOCKOUT}}` → `AIHub-Design/assets/logo-knockout.datauri.txt`), and a missing file still
+  fails loudly. `--assets <dir>` disables the prefix handling, since it overrides the folder outright.
 - `-o out.html` writes to a new file; default overwrites in place.
 
 ## 2. Verify the deck — `verify-deck.mjs`
@@ -73,14 +83,20 @@ required viewports so they can be read and inspected:
 node "<skill-root>/scripts/screenshot-deck.mjs" my-deck.html [-o <dir>] [--viewports WxH,WxH] [--slides 1,2,5]
 ```
 
-- Auto-detects a browser (override with `--browser <path>` or env `NBG_BROWSER` / `CHROME_BIN`).
+- Auto-detects a browser (override with `--browser <path>` or env `NBG_BROWSER` / `CHROME_BIN`): the
+  install folders of the platform it runs on — macOS `/Applications`, the Linux `/usr/bin` and `/snap`
+  paths, and on Windows (v1.24.0) Chrome, Edge, Brave and Chromium under `%PROGRAMFILES%`,
+  `%PROGRAMFILES(X86)%` and `%LOCALAPPDATA%` — then the `PATH` (`where` answers with CRLF line ends,
+  which the lookup now strips).
 - Navigates slides generically: injects a shim (before the **last** `</body>`) that calls the
   deck's `window.showSlide` / `window.gotoSlide` if present, then forces the Nth top-level
   `.slide` to be the only visible one **in place** — so `.active` toggles, `.hidden` toggles,
   inline `display` toggles and stacked scrolling decks all work, and the deck's own
   viewport-fit scaling still applies to the capture.
 - Counts slides by the exact class token `slide` (`slide-title` / `slide-footer` do not count).
-- Default viewports `1366x768,1440x900`; default output `test_scripts/screenshots/`.
+- Default viewports `1366x768,1440x900`; default output `<deck-name>-screenshots/` next to the deck, as the PDF
+  goes next to it (v1.24.0; before that it was `test_scripts/screenshots/` in whatever folder the command was
+  run from — the development workspace's layout leaking into users' projects). `-o <dir>` still overrides it.
 - **Exit codes:** 0 = screenshots written, 1 = error, **3 = no browser found** (a soft signal — fall
   back to `verify-deck.mjs --strict`, which is the mandatory gate on headless hosts).
 
@@ -191,6 +207,123 @@ node "<skill-root>/scripts/fix-pdf-soft-masks.mjs" my-deck.pdf [-o out.pdf] [--c
 - Idempotent: a second run finds nothing to do. Exit 0 = done / nothing to do, 1 = error or
   `--check` found work, 2 = usage. Only Chrome/Skia PDFs (classic cross-reference table, no
   object streams) are supported; anything else is reported and left untouched.
+
+## 4c. Export to PowerPoint — `export-pptx.mjs` (needs a browser)
+
+```
+node "<skill-root>/scripts/export-pptx.mjs" my-deck.html [-o my-deck.pptx] [--theme nbg|biks2013|aihub|instrument]
+                                            [--selector <css>] [--wrap-slack 0.02] [--keep-line-breaks]
+                                            [--settle 400] [--timeout 180000]
+                                            [--browser <path>] [--json model.json]
+```
+
+Converts the finished deck into an **editable** PowerPoint presentation — native objects, never slide
+screenshots. The deck is opened in headless Chrome with the print-layout shim (`lib/print-layout.js`, as
+for the PDF); `lib/pptx-extract.js` then measures every slide in the browser and `lib/pptx-writer.mjs`
+writes the Office Open XML package (zip written in the file, no dependency).
+
+| HTML | PowerPoint |
+|---|---|
+| a block of text (`p`, `h1`, `div`, `li`, a table cell…) with its inline runs | one text box; runs keep typeface, size, weight, italic, colour, alpha, letter-spacing, underline / strike, all-caps (`cap="all"`), baseline shift, link; `<br>` → line break; exact line spacing |
+| single-line text | unwrapped box hugging the line, anchored as the CSS alignment |
+| multi-line text | wrapping box: the element's content width, capped at the widest line + `--wrap-slack` (2 %) |
+| `text-wrap: balance / pretty`, paragraphs with chips, everything with `--keep-line-breaks` | Chrome's line breaks carried over as line breaks |
+| inline chip padding / border / margin (`code`, `kbd` pills) | a zero-width space with that letter-spacing (same advance as Chrome) |
+| background colour, linear / radial gradient | rectangle / rounded rectangle / ellipse / per-corner custom path with solid or gradient fill |
+| uniform border | the shape's outline (inset by half its width) · one-sided borders → thin rectangles · dashed / dotted → dashed lines (Chrome's 2.75 w / 2.5 w dash) |
+| `box-shadow` (outer) | `outerShdw` (blur × 1.35 — PowerPoint's falloff — spread as a scale) |
+| `opacity` | multiplied into every fill, line, text colour and picture |
+| `<img>`, CSS `background-image: url()` | picture with its full source and a `srcRect` crop (`object-fit`, `object-position`, `background-size`, `-position`, overflow clips, rounded clipping frames); CSS `filter` baked in |
+| inline `<svg>` | SVG picture (`svgBlip`, computed styles inlined) + PNG fallback · `<canvas>` → PNG |
+| `::before` / `::after` | converted as real elements (materialised first) |
+| speaker notes (`data-notes`, `aside.notes`, `template.notes`) | slide notes |
+| `<video>`, `<iframe>`, conic gradients | left out, reported |
+
+- **Placement.** Every position is Chrome's own layout. Line pitch is written as a percentage (PowerPoint
+  rounds exact spacing to whole points; 100 % = 1.2 × size for every face). A text box is placed so that
+  PowerPoint's first baseline — 0.75 × the line pitch + a small per-face offset (`BASELINE_EM` in `lib/pptx-writer.mjs`,
+  measured with the workspace's `test_scripts/pptx-baseline-calibration.mjs`) — lands on Chrome's.
+- **Faces.** The weight written is the face Chrome actually drew (DevTools `CSS.getPlatformFontsForNode`);
+  PowerPoint knows only a bold flag, so other weights become face names (`Aptos Light`, `IBM Plex Sans
+  SemiBold`, `Avenir Next Ultra Light`, `Segoe UI Semibold`…). Office faces in a stack are kept even when the
+  exporting host lacks them; `system-ui` / `-apple-system` yield to the next face. Fonts are not embedded —
+  the report lists the faces the presenting machine needs.
+- **Theme.** The presentation's theme fonts are the deck theme's faces (Aptos; Avenir Next; Oswald headings
+  with Segoe UI body; IBM Plex Sans) — for a deck with no recorded theme, the face carrying most of the text; its colour scheme is the
+  deck theme's palette (`--theme`, default: the theme recorded in the deck's menu block, NBG without one).
+- Slide size 13.333 × 7.5 in for the 1920 × 1080 artboard (1 px = 6350 EMU = 0.5 pt).
+- Exit: 0 = written, 1 = error, 2 = usage, 3 = no browser.
+
+## 4d. Check the PowerPoint file — `compare-pptx.mjs`
+
+```
+node "<skill-root>/scripts/compare-pptx.mjs" my-deck.html <my-deck.pptx | Google Slides URL or id> [-o <dir>] [--slides 1,4,9]
+                                             [--renderer powerpoint|libreoffice|google] [--fonts <dir>] [--soffice <path>]
+                                             [--gws <path>] [--keep] [--browser <path>] [--timeout <ms>]
+```
+
+- Captures each slide of the deck in Chrome (print layout, 1920 × 1080), renders the `.pptx` to PDF with
+  **Microsoft PowerPoint** (macOS, AppleScript; the default where it is installed — the files pass through a
+  temporary folder in PowerPoint's sandbox container), **LibreOffice** (`--renderer libreoffice`) or **Google
+  Slides** (`--renderer google`: the `.pptx` is uploaded to Drive as a temporary Google Slides presentation,
+  exported as PDF and deleted), and rasterises the pages with poppler's `pdftoppm` at the artboard size. Given a
+  Google Slides URL or presentation id instead of a `.pptx`, it exports that presentation as it is (the check of
+  `export-gslides.mjs`, §4e).
+- Writes `<deck-name>-pptx-check/slide-NN.png` — deck | PowerPoint | difference (red) — and `report.json`;
+  prints per slide the *solid difference* (pixels with |Δ| > 48 on a channel that survive a 3 × 3 erosion, so
+  anti-aliasing seams do not count) and flags slides above 1.5 % with `<-- READ`. `--keep` also keeps the raw
+  captures (`html-N.png`, `pptx-N.png`).
+- Both renderers draw with the fonts installed on the host: a missing face is substituted and shows up as a
+  text difference that is not a conversion defect. `--fonts <dir>` hands `.ttf/.otf` files to LibreOffice's
+  throw-away profile (honoured by Linux/Windows builds; LibreOffice for macOS reads only installed fonts).
+- Exit: 0 = compared, 1 = error, 2 = usage, 3 = browser / renderer / `pdftoppm` / `gws` missing.
+
+## 4e. Export to Google Slides — `export-gslides.mjs` (needs a browser and the gws CLI)
+
+```
+node "<skill-root>/scripts/export-gslides.mjs" my-deck.html [--name "<title>"] [--folder <Drive folder id>] [--pptx <path>]
+                                               [--theme nbg|biks2013|aihub|instrument] [--reflow] [--selector <css>]
+                                               [--check <dir>] [--gws <path>] [--browser <path>] [--timeout <ms>]
+```
+
+- Measures the deck as `export-pptx.mjs` does, writes a Slides-tuned `.pptx` (kept with `--pptx`), uploads it to
+  Google Drive with conversion to Google Slides (in `--folder`, else My Drive), corrects the result through the
+  Slides API and prints the presentation URL. `--check <dir>` then runs `compare-pptx.mjs` on the presentation.
+- **Google access**: through the Google Workspace CLI `gws` (https://github.com/googleworkspace/cli), signed in
+  once with `gws auth login` (Drive and Slides scopes). The script checks the sign-in before anything else;
+  it never reads or stores credentials.
+- **Typefaces** (`lib/gslides-fonts.mjs`): Slides draws only Google Fonts and a list of licensed faces. Each run
+  gets the face Chrome drew, kept when Slides has it (Google Fonts are recognised on fonts.googleapis.com), else
+  its substitute — chosen by measurement with the workspace's `test_scripts/gslides-font-match.mjs` (advance
+  width, x-height, glyph shape, stroke weight, Greek):
+
+  | Face | In Google Slides | Why |
+  |---|---|---|
+  | Aptos | Source Sans 3 (same weight) | width 0.98, x-height 1.02, glyph IoU 0.73; has Greek |
+  | Segoe UI | Open Sans | same designer and proportions |
+  | Avenir Next 100–300 | Outfit 100 | Nunito Sans's lightest weight is 24 % heavier than Ultra Light |
+  | Avenir Next 400 / 500 / 600+ | Nunito Sans 400 / 600 / 700 | width 0.99–1.00, stroke weight matched (700 is the heaviest weight Slides spaces correctly) |
+  | Menlo, Monaco, SF Mono | JetBrains Mono | width 1.00, glyph IoU 0.76, Greek |
+  | Helvetica 100–300 / 500–600 | Helvetica Neue Light / Regular | Slides has Helvetica in regular and bold only, Helvetica Neue also in Light |
+  | macOS system face (`.SF NS`, SF Pro) | Roboto | closest glyph shapes, Greek (Inter fits SF's width at text sizes but scored worse on five decks) |
+
+  The import keeps only regular / bold; every run's family, weight and colour is then set with `updateTextStyle`
+  (the imported shapes are named `p<slide>_i<shape id>`, so each run is found exactly). Measured API behaviour:
+  `bold: false` draws the regular face whatever the weight, and `bold: true` with a weight above 700 draws the
+  heavier face but spaces it as 700 — so weights up to 600 go without bold, 700 and above as 700 with bold.
+  A bullet takes the text colour on import; only a style update over the whole text reaches the bullet, so
+  bulleted boxes get one with the bullet colour before the runs are set.
+- **Chip padding** (code / key chips) is written as no-break spaces of the run's font (Slides drops the
+  letter-spacing of the zero-width space PowerPoint gets).
+- **Translucent text** is blended with the dominant colour under its box (captured with the glyphs hidden):
+  Slides has no text transparency.
+- **Layout**: Chrome's line breaks are kept (`--reflow` to let Slides wrap), including breaks after a hyphen;
+  text boxes get room on their free side (Slides wraps every box); a raised run ending a paragraph becomes its
+  own box (Slides has only a fixed superscript); the first baseline follows Slides' rule — 0.75 × the line
+  pitch, capped at a pitch of 100 % (1.2 × size), + 0.055 em, calibrated on 10 faces with
+  `test_scripts/pptx-baseline-calibration.mjs --renderer google`; dashed lines use the preset dash.
+- Each run creates a new presentation; nothing is shared. Exit: 0 = created, 1 = error, 2 = usage,
+  3 = no browser / no `gws`.
 
 ## 5. In-deck right-click menu — `add-deck-menu.mjs`
 
@@ -576,18 +709,27 @@ node "<skill-root>/scripts/add-deck-menu.mjs" my-deck.html [-o <out.html>] [--re
 - The CLI exporter prints the file on disk, not a viewer's unsaved edits: to get a PDF of an
   edited deck, export the saved `-edited.html` copy.
 
-### The theme (block v14, v1.20.0)
+### The theme (block v14, v1.20.0; block v15 adds `aihub`, v1.21.0; block v17 adds `instrument`, v1.23.0)
 
 `add-deck-menu.mjs <deck> --theme biks2013` records `{"theme":"biks2013"}` in the block's configuration
 (`window.nbgDeckMenuConfig`), and the editor then serves the BikS2013 personal theme: the swatches of the
 formatting, shape and SVG toolbars are the BikS2013 palette (ink `#1B1D21`, copper `#C8623A`, copper
 light `#E08A5E`, amber `#E3A64A`, black `#111316`, grey `#6E7379`, paper `#F6F3EC`, white), the
 editor's own accent colours and font follow the theme, the assistant's system prompt and its built-in
-prompts speak of the BikS2013 system, and the menu is titled "BikS2013 deck". `--theme nbg` (the
-default) is the NBG editor as before. Re-running the CLI without `--theme` keeps the theme the block
+prompts speak of the BikS2013 system, and the menu is titled "BikS2013 deck". `--theme aihub` (block v15) serves the AIHub theme the same way: the AIHub palette (navy `#012A30`, deep blue
+`#024A6C`, lagoon `#1C869D`, cyan `#33B3BF`, sun `#FFF77D`, amber `#FFDB7A`, grey `#B1BACC`, mist `#F3F6F8`,
+white), the Segoe UI editor font, an assistant briefed on the developer-portal look, the title "AIHub deck".
+`--theme instrument` (block v17) serves the Instrument theme: the Instrument palette (night `#0E1726`, grid
+`#24334A`, slate `#3C4E6B`, steel `#7D8CA3`, lagoon `#2F7D6E`, amber `#E0A32E`, rust `#C4441C`, ink `#1A1A18`,
+light `#E9EEF5`, paper `#F2F1EE`, white), the IBM Plex Sans editor font, an assistant briefed on the theme
+and on its chart discipline, the title "Instrument deck".
+The themes are one table in `lib/deck-menu.js` (`THEMES`: name, accents, font, palette, font-picker head,
+briefing). Block v17 also makes the **font picker** theme-aware: the two or three faces the theme itself uses
+head the list (it named "Default (Aptos)" on every theme before), followed by the faces every machine has.
+`--theme nbg` (the default) is the NBG editor as before. Re-running the CLI without `--theme` keeps the theme the block
 carries, as it keeps every other configuration key, and the rebuild script carries it over on every
 rebuild. `theme` is the sixth configuration key next to `mode`, `root`, `unit`, `title` and `aiSystem`;
-only `nbg` and `biks2013` are accepted.
+only `nbg`, `biks2013`, `aihub` and `instrument` are accepted (block v16 names the AIHub brand "NBG AI Hub" in the assistant's briefing). v1.23.0 also repairs the validation error message itself, which had lost its template interpolations and read `menu config theme must be one of , not ""`.
 
 ## 6. Rebuild script — `write-rebuild-script.mjs`
 
@@ -631,9 +773,21 @@ node my-deck.rebuild.mjs --scripts <dir>    # the skill's scripts/ directory, ex
   already rebuilt; the backup holds the previous file), 2 = usage, 3 = HTML rebuilt but no browser
   for the PDF.
 - **Scripts directory resolution** (highest priority first): `--scripts <dir>`, `NBG_DESIGN_SCRIPTS`,
-  the recorded directory. It must hold `add-deck-menu.mjs`, `verify-deck.mjs`, `export-pdf.mjs`,
-  `lib/deck-menu.js`, `lib/print-layout.js`; otherwise the script exits 1 naming the source and the
-  path. No other location is ever tried.
+  the **current install** in Claude Code's plugin registry, the recorded directory. It must hold
+  `add-deck-menu.mjs`, `verify-deck.mjs`, `export-pdf.mjs`, `lib/deck-menu.js`, `lib/print-layout.js`;
+  otherwise the script exits 1 naming the source and the path. The output line says which source won.
+- **The plugin registry step** (v1.24.0). The generator records the plugin's registry key
+  (`nbg-design@nbg-design`) and the scripts' path inside it (`skills/nbg-design/scripts`) when it runs
+  from an installed plugin; the generated script reads `plugins/installed_plugins.json` under
+  `CLAUDE_CONFIG_DIR` (else `~/.claude`) and uses that key's current `installPath` (the newest editor
+  if several scopes carry it). Why it outranks the recorded directory: that directory is a *versioned*
+  cache folder, and Claude Code keeps old version folders after an update — so a script trusting it ran
+  the old tools and `--check` reported a stale deck as CURRENT. A deck built from a development checkout
+  or a copied folder records no key and skips this step.
+- **Self-refresh** (v1.24.0). After a rebuild, the script re-renders itself with the skill's current
+  generator and a record pointing at the directory it just used, so both its folder and its own logic
+  stay current. A script written before v1.24.0 lacks the registry step: run it once with
+  `--scripts <skill>/scripts` and it rewrites itself with the new lookup.
 - Windows: the script only uses `node:path`, `node:fs`, `node:child_process` and `process.execPath`;
   it has not been run on Windows yet (see the issue register).
 
@@ -641,7 +795,10 @@ node my-deck.rebuild.mjs --scripts <dir>    # the skill's scripts/ directory, ex
 
 ```
 # 1. author my-deck.html using {{TOKEN}} placeholders for every image
-#    (a BikS2013 personal deck: add --theme biks2013 to embed-assets.mjs and add-deck-menu.mjs below)
+#    (a BikS2013 personal deck: add --theme biks2013 to embed-assets.mjs and add-deck-menu.mjs below;
+#     an AIHub deck: --theme aihub, and declare the Oswald @font-face rule through the {{FONT_OSWALD}} token;
+#     an Instrument deck: --theme instrument, declare the @font-face rules through {{FONT_PLEX_SANS}} and
+#     {{FONT_PLEX_MONO_*}}, and sign it with either the {{NBG_LOGO_*}} or the {{AIHUB_LOGO_*}} lockups)
 node "<skill-root>/scripts/embed-assets.mjs"    my-deck.html
 node "<skill-root>/scripts/add-deck-menu.mjs"   my-deck.html            # standard: right-click menu (edit text / export PDF)
 node "<skill-root>/scripts/verify-deck.mjs"     my-deck.html --strict   # mandatory, headless-safe
@@ -650,7 +807,9 @@ node "<skill-root>/scripts/screenshot-deck.mjs" my-deck.html            # option
 # then READ the PNGs and inspect them
 node "<skill-root>/scripts/export-pdf.mjs"      my-deck.html            # when a PDF was requested (shadows re-anchored for Preview)
 # then rasterise a few pages and READ them against the screenshots
-# deliver my-deck.html + my-deck.pdf + my-deck.rebuild.mjs
+node "<skill-root>/scripts/export-pptx.mjs"     my-deck.html            # when PowerPoint was requested (editable)
+node "<skill-root>/scripts/compare-pptx.mjs"    my-deck.html my-deck.pptx   # then READ my-deck-pptx-check/slide-NN.png
+# deliver my-deck.html + my-deck.pdf / my-deck.pptx + my-deck.rebuild.mjs
 ```
 
 ### Update an existing deck
@@ -677,5 +836,6 @@ deck to the current skill".
 (print-layout shim, browser JS, used by the exporter and inlined by the menu; prints blurred
 box-shadows as images on the menu's print path — block v13), `deck-menu.js`
 (menu UI, text editing, persistence, saved copy, print orchestration; browser JS),
-`pdf-soft-masks.mjs` (re-anchors Chrome's luminosity soft masks for macOS Preview; used by the
+`pptx-extract.js` (slide measurement for the PowerPoint export; browser JS), `pptx-writer.mjs` (Office
+Open XML writer and zip), `pdf-soft-masks.mjs` (re-anchors Chrome's luminosity soft masks for macOS Preview; used by the
 exporter and by `fix-pdf-soft-masks.mjs`).
