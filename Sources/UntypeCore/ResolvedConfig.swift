@@ -109,19 +109,23 @@ public struct MarkerConfig: Equatable, Sendable {
     public let sectionEndAliases: [String]
     public let sectionCancelPhrase: String
     public let literalNextPhrase: String
+    /// false: no spoken marker is recognised; everything spoken is text.
+    public let voiceCommandsEnabled: Bool
 
     public init(
         commandPhrase: String,
         sectionEndPhrase: String,
         sectionEndAliases: [String],
         sectionCancelPhrase: String,
-        literalNextPhrase: String
+        literalNextPhrase: String,
+        voiceCommandsEnabled: Bool = true
     ) {
         self.commandPhrase = commandPhrase
         self.sectionEndPhrase = sectionEndPhrase
         self.sectionEndAliases = sectionEndAliases
         self.sectionCancelPhrase = sectionCancelPhrase
         self.literalNextPhrase = literalNextPhrase
+        self.voiceCommandsEnabled = voiceCommandsEnabled
     }
 }
 

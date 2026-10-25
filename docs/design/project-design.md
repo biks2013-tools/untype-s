@@ -135,6 +135,7 @@ When `overwrite` is requested for a non-TTY destination, the renderer downgrades
 ## Voice-Agent Protocol Runtime
 The current Swift protocol runtime implements the source-compatible, provider-independent voice-agent primitives:
 - marker normalization and matching for state commands, section submit/cancel markers, Greek guard aliases, slash-style markers, and literal-next behavior;
+- a voice-commands switch (`MarkerConfig.voiceCommandsEnabled`, UI setting `voiceCommands`, `--voice-commands` / `UNTYPE_VOICE_COMMANDS`, default on): when off, `markerDefinitions(for:)` is empty, so no marker of any kind is matched and all speech is section text; sections are then closed only by hotkey release / push-to-listen stop or shutdown submission. It is session-scoped: the UI restarts the warm session when it changes;
 - operator state changes for `refine`, `translate`, `clipboard`, and `input`, including runtime toggles and status reports;
 - section lifecycle handling with stable `sec_000001`-style identifiers, spoken cancellation, shutdown cancellation, and optional shutdown submission;
 - JSONL event writing with source event names and monotonically increasing `seq` values;

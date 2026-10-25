@@ -120,6 +120,11 @@ public enum UntypeEnvTemplate {
     # Spoken phrase that closes the current turn. Default: τέλος εντολής
     # UNTYPE_GUARD_PHRASE=
 
+    # Voice commands on/off. Off: no spoken marker (command phrase, section end,
+    # cancel, literal phrase, guard phrase) is recognised; everything spoken is
+    # dictated text. Values: true/false. Default: true
+    # UNTYPE_VOICE_COMMANDS=
+
     # Spoken marker for state commands. Default: command
     # UNTYPE_COMMAND_PHRASE=
 

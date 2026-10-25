@@ -70,6 +70,15 @@ Refinement and translation can run on Claude through the Anthropic Messages API,
 - A `refusal` or `max_tokens` stop reason is treated as a failed refinement (the raw transcript is delivered instead of a fragment).
 - Live check: `UNTYPE_LIVE_LLM_TEST=1 UNTYPE_LIVE_LLM_ARGS="--llm-provider azure-anthropic --llm-model claude-opus-5-5" swift test --filter liveLLM` (2026-10-24 on `claude-opus-5-5`: refine ≈2.0 s, translate ≈1.3 s, refine+translate ≈1.4 s).
 
+## Voice Commands On/Off
+
+**Voice commands** (Settings → General → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.
+
+- **On:** the spoken markers work as configured: the command phrase (`command translate on`, `command status` …), section end (`command send` and the guard phrase `τέλος εντολής`), section cancel (`command cancel`) and `literal phrase`.
+- **Off:** none of them is recognised. Everything you say is dictated text, including the words "command send". Turns are delivered on hotkey release (push-to-talk) or on the second press (push-to-listen); operators are changed with the hotkey letters, the dropdown or Settings.
+- Use Off when you dictate text that naturally contains the command words, or to rule out accidental operator changes.
+- The setting applies from the next session: changing it restarts the warm push-to-talk session. It cannot be changed while a manual session is running. Priority: CLI flag > `UNTYPE_VOICE_COMMANDS` (shell, then `.env` files) > UI setting > default `true`. The native UI passes the UI setting as the CLI flag, so in the app the Settings toggle decides.
+
 ## Operator Persistence: "This turn" or "Until changed"
 
 Every operator (Refine, Translate, Ask, Follow-up, Selection, Clipboard, Focused input) has a **Lasts** choice in Settings → General → Operators:

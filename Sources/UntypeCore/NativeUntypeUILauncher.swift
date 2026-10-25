@@ -1363,6 +1363,7 @@ final class UntypeUIModel: ObservableObject {
             previous.llmEnabled == next.llmEnabled &&
             previous.llmProvider == next.llmProvider &&
             previous.llmModel == next.llmModel &&
+            previous.voiceCommands == next.voiceCommands &&
             previous.hotkeyEnabled == next.hotkeyEnabled &&
             previous.hotkey == next.hotkey
     }

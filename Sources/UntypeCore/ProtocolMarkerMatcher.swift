@@ -135,7 +135,10 @@ public func consumeCommandArgs(in text: String, start: String.Index) -> Consumed
 }
 
 func markerDefinitions(for markers: MarkerConfig) -> [MarkerDefinition] {
-    [
+    guard markers.voiceCommandsEnabled else {
+        return []
+    }
+    return [
         MarkerDefinition(kind: .stateCommand, phrases: [markers.commandPhrase]),
         MarkerDefinition(
             kind: .sectionEnd,
