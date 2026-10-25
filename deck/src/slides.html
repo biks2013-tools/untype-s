@@ -7,7 +7,7 @@
     <div class="sub">A Swift-native push-to-talk dictation tool for the macOS menu bar. It streams speech to a realtime STT provider, types it live into whatever you have focused, and lets an LLM clean it, translate it or answer it.</div>
     <div class="meta">
       <div>Technical walkthrough · what it is, how it works, how to install and configure it</div>
-      <div>Version 0.1.0 · build 27 · October 2026</div>
+      <div>Version 0.1.0 · build 28 · October 2026</div>
     </div>
   </div>
   <div class="logo"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /></div>
@@ -116,7 +116,7 @@
   <div class="title">The project in numbers.</div>
   <div class="rule"></div>
   <div class="stat">
-    <div class="big"><span>272</span></div>
+    <div class="big"><span>281</span></div>
     <div class="cap">automated Swift Testing tests, all passing at the last recorded run, with zero third-party dependencies.</div>
   </div>
   <div class="stat-list">
@@ -126,7 +126,7 @@
     <div class="row"><span>STT providers</span><span>2</span></div>
     <div class="row"><span>LLM providers implemented</span><span>4 of 10 names</span></div>
     <div class="row"><span>Operators · prompt files</span><span>7 · 15</span></div>
-    <div class="row"><span>Latest build · released</span><span>27 · 24</span></div>
+    <div class="row"><span>Latest build · released</span><span>28 · 28</span></div>
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
 </section>
@@ -261,9 +261,10 @@
   <div class="eyebrow">02 · Voice-agent protocol</div>
   <div class="title">Markers turn speech into sections; sections carry operators.</div>
   <div class="rule"></div>
-  <div class="kv" style="top:330px">
+  <div class="kv" style="top:320px">
     <div class="row"><span class="key">Marker</span><span class="val">A spoken phrase recognised in a final transcript. Four kinds: <code>state_command</code>, <code>section_end</code>, <code>section_cancel</code>, <code>literal_next</code>. Matching is case and diacritic insensitive with Greek locale rules and requires word boundaries.</span></div>
     <div class="row"><span class="key">Default phrases</span><span class="val">Command phrase <code>command</code>, section end <code>command send</code>, section cancel <code>command cancel</code>, literal next <code>literal phrase</code>. The guard phrase <code>τέλος εντολής</code> is an alias of section end.</span></div>
+    <div class="row"><span class="key">Voice commands on/off</span><span class="val">Settings › Protocol › <em>Voice commands</em> (default on). Off: no marker is recognised, so everything spoken is dictated text, "command send" included. Turns end on release, operators change with the hotkey letters or the menu.</span></div>
     <div class="row"><span class="key">Section</span><span class="val">The dictated text buffered between markers, identified as <code>sec_000001</code> and so on. "Command send" submits it with the active operators; "command cancel" discards it; shutdown submits pending text.</span></div>
     <div class="row"><span class="key">Interaction modes</span><span class="val"><code>dictation</code> (default), <code>agent-protocol</code> (JSONL events on stdout, no human status lines) and <code>hybrid</code> (both; the CLI requires <code>--protocol-output</code>).</span></div>
     <div class="row"><span class="key">Events</span><span class="val">Protocol <code>untype.voice-agent.v1</code>: session started and ended, state and status, section submitted, processed and cancelled, streaming progress, clipboard copied, input sent, warnings. Every event has a monotonic <code>seq</code>.</span></div>
@@ -288,7 +289,7 @@
       <tr><td class="k">input</td><td class="k">I</td><td>Type the result into the focused control of the frontmost app.</td><td>Until changed</td></tr>
     </tbody>
   </table>
-  <div class="callout">Toggle an operator in the menu-bar dropdown, in Settings, with the hotkey plus its letter while recording, or by voice: <code>command ask on</code>. Settings decides per operator whether a change lasts <em>this turn</em> or <em>until changed</em>; flags such as <code>--ask-default</code> set the starting state. An operator that needs an unconfigured LLM delivers the text unprocessed, with a warning.</div>
+  <div class="callout">Toggle an operator in the menu-bar dropdown, in Settings, with the hotkey plus its letter while recording, or by voice, <code>command ask on</code>, while voice commands are on. Settings decides per operator whether a change lasts <em>this turn</em> or <em>until changed</em>; flags such as <code>--ask-default</code> set the starting state. An operator that needs an unconfigured LLM delivers the text unprocessed, with a warning.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
@@ -481,7 +482,7 @@ Return only JSON with refined_text and translated_text.</pre>
   NativeUntypeUILauncher (4 093 lines) · UntypeMenuBarController
   UntypeMenuBarPanel · UntypeSettingsWindow · UntypePromptSettingsView
   WarmSessionRecovery · UntypeTurnContext · UntypeEventLogFile
-<span class="d">Tests/UntypeCoreTests/</span>       <span class="m">22 files, 272 tests</span>
+<span class="d">Tests/UntypeCoreTests/</span>       <span class="m">24 files, 281 tests</span>
 <span class="d">scripts/</span>                     <span class="m">package-macos-app.sh, update-homebrew-cask.sh</span>
 <span class="d">packaging/macos/</span>             <span class="m">icon, entitlements, INSTALL.txt</span>
 <span class="d">docs/design/ · docs/reference/ · docs/research/</span></div>
@@ -539,7 +540,7 @@ Return only JSON with refined_text and translated_text.</pre>
     <ul>
       <li><strong>Session</strong> with <em>Edit keys…</em>, and <strong>Appearance</strong>.</li>
       <li><strong>Provider:</strong> STT provider, model, languages, sample rate.</li>
-      <li><strong>Protocol:</strong> mode and translation target.</li>
+      <li><strong>Protocol:</strong> mode, translation target, and the <em>Voice commands</em> switch.</li>
       <li><strong>Operators:</strong> each switch with a <em>Lasts</em> choice, <em>This turn</em> or <em>Until changed</em>, and whether selected text is material or context.</li>
       <li><strong>Refinement (LLM):</strong> on/off, provider, model.</li>
       <li><strong>Push to talk</strong>, <strong>Permissions</strong> and <strong>Credentials</strong>.</li>
@@ -548,7 +549,7 @@ Return only JSON with refined_text and translated_text.</pre>
   </div>
   <div class="shot-panel"></div>
   <img class="shot" src="{{UI_SETTINGS_OPERATORS}}" alt="untype Settings, General tab" style="top:150px; right:60px; width:780px" />
-  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 27</span></div><span class="pg"></span></div>
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 28</span></div><span class="pg"></span></div>
 </section>
 
 <!-- ============================ 25 DIVIDER 03 ============================ -->
@@ -569,7 +570,7 @@ Return only JSON with refined_text and translated_text.</pre>
     <div class="card ink"><div class="tag">Homebrew</div><h3>Tap and install the cask</h3><p><code>brew tap biks2013-tools/untype</code> then <code>brew install --cask untype</code>; later <code>brew upgrade --cask untype</code>. The tap <code>biks2013-tools/homebrew-untype</code> points at the latest release asset. It is maintained from the repository's <code>homebrew-tap/</code> folder and published by <code>scripts/update-homebrew-cask.sh --push</code>.</p></div>
     <div class="card"><div class="tag">GitHub release</div><h3>Download the notarized disk image</h3><p>Every build is a release tagged <code>v0.1.0-b&lt;N&gt;</code> (first one: <code>v0.1.0-b8</code>) with <code>untype-0.1.0.dmg</code>, the notarized zip and <code>SHA256SUMS</code>. Download it from <code>github.com/biks2013-tools/untype-s/releases/latest</code>, open the image, drag untype to Applications, follow <code>INSTALL.txt</code>.</p></div>
   </div>
-  <div class="callout">Both paths install the same signed and notarized bundle, so permissions survive upgrades. The repository moved from <code>github.com/BikS2013/untype-s</code> to <code>github.com/biks2013-tools/untype-s</code>: an old tap must be re-tapped. The latest release is build 24; Ask, Follow-up and Selection are in builds 25 to 27 and ship with the next release.</div>
+  <div class="callout">Both paths install the same signed and notarized bundle, so permissions survive upgrades. The repository moved from <code>github.com/BikS2013/untype-s</code> to <code>github.com/biks2013-tools/untype-s</code>: an old tap must be re-tapped. The latest release is build 28, with Ask, Follow-up, Selection and the voice-commands switch.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
@@ -598,7 +599,7 @@ swift build
 <span class="c"># release build → .build/release/untype + untype-input-helper</span>
 swift build -c release
 
-<span class="c"># 272 Swift Testing tests</span>
+<span class="c"># 281 Swift Testing tests</span>
 swift test
 
 <span class="c"># terminal smoke run (no LLM), append mode, verbose diagnostics</span>
@@ -624,7 +625,7 @@ swift test
   <div class="title">One script builds, tests, signs, notarizes and staples.</div>
   <div class="rule"></div>
   <pre class="code" style="top:330px; left:90px; width:1000px; height:250px; font-size:18px">scripts/package-macos-app.sh \
-  --bundle-id com.local.untype --version 0.1.0 --build 27 \
+  --bundle-id com.local.untype --version 0.1.0 --build 28 \
   --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" \
   --notary-profile untype-notary \
   --dmg</pre>
@@ -945,6 +946,7 @@ open -a /Applications/untype.app
       <tr><td class="k">UNTYPE_SECTION_CANCEL_PHRASE</td><td class="k">--section-cancel-phrase</td><td>Default <code>command cancel</code>.</td></tr>
       <tr><td class="k">UNTYPE_LITERAL_NEXT_PHRASE</td><td class="k">--literal-next-phrase</td><td>Default <code>literal phrase</code>; the next marker is dictated as text.</td></tr>
       <tr><td class="k">UNTYPE_GUARD_PHRASE</td><td class="k">--guard-phrase</td><td>Default <code>τέλος εντολής</code>, an alias of section end.</td></tr>
+      <tr><td class="k">UNTYPE_VOICE_COMMANDS</td><td class="k">--[no-]voice-commands</td><td>On by default; off ignores every spoken marker above. In the app, the Settings switch decides.</td></tr>
       <tr><td class="k">UNTYPE_&lt;OPERATOR&gt;_DEFAULT</td><td class="k">--&lt;operator&gt;-default on|off</td><td>Starting state of refine, translate, ask, followup, selection, clipboard, input; unset means <code>state.json</code> applies.</td></tr>
       <tr><td class="k">UNTYPE_TRANSLATION_POLICY</td><td class="k">--translation-policy</td><td><code>opposite</code> (default), <code>to-en</code>, <code>to-el</code>.</td></tr>
     </tbody>
@@ -1093,7 +1095,7 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
     <div class="col"><div class="n">03</div><h3>Flip mid-turn</h3><p>Still holding, press R, T, A, F, S, C or I to switch an operator. The overlay chips show the result. Keep the caret where it is.</p></div>
     <div class="col"><div class="n">04</div><h3>Release</h3><p>The wave breathes while the model works, then the live text is replaced in place. Operators set to <em>this turn</em> switch off again.</p></div>
   </div>
-  <div class="callout">Quick Close trades accuracy for speed: it submits the latest partial the moment you release. In Agent or Hybrid mode, say "command send", "command cancel", "command status" or "command ask on".</div>
+  <div class="callout">Quick Close trades accuracy for speed: it submits the latest partial the moment you release. With voice commands on, say "command send", "command cancel", "command status" or "command ask on". Switch them off in Settings › Protocol if you dictate text containing those words.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
 </section>
 
@@ -1173,6 +1175,8 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
       <tr><td>Selection ignored</td><td>The app exposes no selection and the ⌘C fallback copied nothing.</td><td>Check Accessibility; some editors copy the whole line when nothing is selected.</td></tr>
       <tr><td>Translated selection overwrote text you wanted to keep</td><td>The Material role replaces the selection.</td><td>Switch <em>Selected text is</em> to Context.</td></tr>
       <tr><td>Ask switched itself off</td><td>Ask, Follow-up and Selection last one turn by default.</td><td>Set <em>Lasts</em> to Until changed in Settings › Operators.</td></tr>
+      <tr><td>An operator flips, or the turn ends, while you dictate</td><td>Your text contained a command phrase such as "command translate on".</td><td>Switch off Settings › Protocol › <em>Voice commands</em>.</td></tr>
+      <tr><td>"command send" does nothing and is typed as text</td><td>Voice commands are off.</td><td>Switch them on, or end the turn with the hotkey.</td></tr>
       <tr><td>First press after a long idle did nothing (older builds)</td><td>The provider closed the idle socket.</td><td>Build 25 and later re-warm the session automatically; see <code>events.log</code>.</td></tr>
     </tbody>
   </table>
@@ -1202,8 +1206,8 @@ untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</p
   <div class="num" style="font-size:120px; top:300px">untype</div>
   <div class="label" style="top:450px; bottom:auto; width:640px; font-size:48px; line-height:1.05">Where it stands, and what is next.</div>
   <div class="cap" style="top:590px; width:620px; font-size:19px">
-    Build 27 is a menu-bar app with live typing at the caret, a text-free oscilloscope overlay, seven operators including Ask, Follow-up and Selection, a Settings window with hot-reloaded prompts, and Claude on Microsoft Foundry. Build 24 is the latest on GitHub Releases and Homebrew.<br /><br />
-    Open items: publish builds 25 to 27, synchronise runtime state across execution contexts, await provider handshakes and trailing finals, reduce UI main-thread writes, and replace the placeholder bundle id in one deliberate build.<br /><br />
+    Build 28, on GitHub Releases and Homebrew, is a menu-bar app with live typing at the caret, a text-free oscilloscope overlay, seven operators including Ask, Follow-up and Selection, a voice-commands switch, a Settings window with hot-reloaded prompts, and Claude on Microsoft Foundry.<br /><br />
+    Open items: synchronise runtime state across execution contexts, await provider handshakes and trailing finals, reduce UI main-thread writes, and replace the placeholder bundle id in one deliberate build.<br /><br />
     Docs: <code>docs/design/project-design.md</code>, <code>configuration-guide.md</code>, <code>deployment-guide.md</code>, <code>release-runbook.md</code> and the issue register in <code>Issues - Pending Items.md</code>.
   </div>
   <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>untype · technical deck</span></div><span class="pg"></span></div>

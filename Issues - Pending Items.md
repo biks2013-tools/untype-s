@@ -4,12 +4,14 @@ Register of issues, pending items and discrepancies of the untype deck. Pending 
 
 ## Pending
 
-### Deck describes build 27, whose Follow-up and Selection work is not committed yet (2026-10-25)
-
-- **Issue:** the deck was updated from the build 27 installed on the author's Mac. Ask (builds 25 and 26) is committed on `main`, but Follow-up, Selection, per-turn operators and the processing wave (plan-037, FR-38 to FR-41) were still uncommitted work on `main` at the time. The latest GitHub release and Homebrew cask are build 24, which has none of these operators. The install slide and the closing slide say so.
-- **Action:** when plan-037 is committed and build 27 (or later) is released, drop the "ship with the next release" sentence from slide 29 and the "publish builds 25 to 27" open item from the closing slide. If plan-037 changes before it is committed, re-check the operator, Ask/Follow-up/Selection, prompt-file and recipe slides.
+_None._
 
 ## Completed
+
+### Deck updated to build 28: voice-commands switch; plan-037 now released (2026-10-25)
+
+- **Issue:** build 28 added Settings › General › Protocol › *Voice commands* (`--[no-]voice-commands`, `UNTYPE_VOICE_COMMANDS`, default on; off means no spoken marker is recognised). The deck also still said that Follow-up and Selection were uncommitted and that build 24 was the latest release, while builds 27 and 28 had been committed and released.
+- **Solution:** the protocol, operators, Settings, protocol-settings, daily-workflow and symptoms slides cover the switch, and the Settings screenshot was recaptured from build 28 to show it. The cover, numbers (281 tests), install, packaging and closing slides now say build 28 is the released version. The earlier pending item "Deck describes build 27, whose Follow-up and Selection work is not committed yet" is closed by this.
 
 ### Deck updated to build 27: menu-bar interface, new operators, Claude provider, moved repository (2026-10-25)
 
