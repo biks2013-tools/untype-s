@@ -70,6 +70,10 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-10-25 - Build 27 released, published, and on Homebrew (v0.1.0-b27)
+- Packaged with `--build 27 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary` (same leaf as builds 13–26, no permission re-grant). Suite 273/273 inside the pipeline. App and disk image (`--dmg-only`): notarization `Accepted`, stapled, `spctl` = `accepted` / `source=Notarized Developer ID`; the image contains build 27. Builds 25 and 26 were installed locally only; this release carries their changes too (Ask, warm-session recovery, queued press, Ask limits) plus plan-037.
+- Commit `4f525ee`, tag `v0.1.0-b27`. GitHub Release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b27 with `untype-0.1.0.dmg` (SHA-256 `7cab3ba84ce073a2a989e3a220c40133ba586d76989f32bfda4bf5dec6a6a4cd`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap `0.1.0,27` (cask commit `69b2e53`, tap head `80d7e88`); `brew style` clean. `brew audit` / `brew livecheck` were not run: the installed Homebrew now refuses to load casks from untrusted taps ("Run `brew trust biks2013-tools/untype`"); the published cask was checked through the GitHub API instead (version, sha256, URL). Pending: decide whether to `brew trust` the tap on this Mac and add that to release-runbook step 7c.
+
 ### 2026-10-25 - FIXED (build 26): Ask answers truncated, and a press during delivery was lost
 - **Ask `max_tokens` (seen 09:43:45Z).**
   - Cause: the Ask call inherited `UNTYPE_LLM_MAX_OUTPUT_TOKENS=1000` (set for refine/translate) and the 15 s LLM timeout. The same request answered in 28.9 s live.
