@@ -171,10 +171,22 @@ final class LiveFocusedInputTyper {
     private var transcript = LiveTranscriptText()
     private var typed = ""
     private let poster: LiveKeyboardPoster
+    /// While held, the transcript accumulates but nothing is typed (the
+    /// selection is being read; typing would replace it).
+    private var isHeld = false
 
     init(targetPID: pid_t, poster: LiveKeyboardPoster = LiveKeyboardPoster()) {
         self.targetPID = targetPID
         self.poster = poster
+    }
+
+    func hold() {
+        isHeld = true
+    }
+
+    func resume() {
+        isHeld = false
+        sync()
     }
 
     func partial(_ text: String) {
@@ -216,7 +228,7 @@ final class LiveFocusedInputTyper {
     private func sync() {
         // Never type into another app; the text catches up if the target
         // becomes frontmost again.
-        guard targetIsFrontmost else {
+        guard !isHeld, targetIsFrontmost else {
             return
         }
         let target = transcript.text

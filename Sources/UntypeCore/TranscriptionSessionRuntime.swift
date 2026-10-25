@@ -539,6 +539,9 @@ public final class TranscriptionSessionRuntime {
                 try await protocolController.final(fallback)
                 try await submitPendingTranscript(latencyTurn: latencyTurn)
             } else {
+                if try await submitSelectionWithoutDictation(latencyTurn: latencyTurn) {
+                    return
+                }
                 diagnostic(
                     "[untype] WARNING: push-to-talk release did not have finalized or partial transcript text available for Quick Close; no text was submitted.",
                     warning: true
@@ -579,6 +582,9 @@ public final class TranscriptionSessionRuntime {
                     latencyTurn?.textSource = "timeout_fallback_partial"
                     try await protocolController.final(fallback)
                 } else {
+                    if try await submitSelectionWithoutDictation(latencyTurn: latencyTurn) {
+                        return
+                    }
                     diagnostic(
                         "[untype] WARNING: push-to-talk release did not receive finalized transcript from \(options.sttProviderLabel) before timeout; no text was submitted.",
                         warning: true
@@ -593,6 +599,9 @@ public final class TranscriptionSessionRuntime {
                     return
                 }
             } else {
+                if try await submitSelectionWithoutDictation(latencyTurn: latencyTurn) {
+                    return
+                }
                 latencyTurn?.textSource = "no_submitted_text"
                 finishReleaseLatencyTurn(
                     latencyTurn,
@@ -612,10 +621,31 @@ public final class TranscriptionSessionRuntime {
         try await submitPendingTranscript(latencyTurn: latencyTurn)
     }
 
+    /// No dictated text, but the selected text alone can be processed
+    /// (Selection operator): submit it. Returns false when there is nothing.
+    private func submitSelectionWithoutDictation(latencyTurn: ReleaseLatencyTurn?) async throws -> Bool {
+        let submissionStarted = DispatchTime.now().uptimeNanoseconds
+        guard let summary = try await protocolController.submitWithoutDictation() else {
+            return false
+        }
+        submissionDiagnostic("[untype] push-to-talk release: no dictated text; processed the selected text", warning: false)
+        latencyTurn?.textSource = "selected_text_only"
+        recordSubmission(summary, latencyTurn: latencyTurn, startedAt: submissionStarted)
+        return true
+    }
+
     private func submitPendingTranscript(latencyTurn: ReleaseLatencyTurn?) async throws {
         submissionDiagnostic("[untype] push-to-talk release: submitting transcript for processing", warning: false)
         let submissionStarted = DispatchTime.now().uptimeNanoseconds
         let summary = try await protocolController.submitPending()
+        recordSubmission(summary, latencyTurn: latencyTurn, startedAt: submissionStarted)
+    }
+
+    private func recordSubmission(
+        _ summary: ProtocolSubmissionSummary,
+        latencyTurn: ReleaseLatencyTurn?,
+        startedAt submissionStarted: UInt64
+    ) {
         latencyTurn?.durations.protocolSubmissionMs = releaseLatencyMilliseconds(from: submissionStarted)
         latencyTurn?.durations.protocolOperatorProcessingMs = summary.operatorProcessingMs
         latencyTurn?.durations.refineMs = summary.refineMs

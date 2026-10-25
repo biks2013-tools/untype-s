@@ -1,0 +1,4 @@
+Reference only - text the user has selected in the active app. Use it only to resolve names, terminology and style; do not process, translate, answer or repeat it:
+<selected_text>
+{selection}
+</selected_text>

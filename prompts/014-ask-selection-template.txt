@@ -1,0 +1,4 @@
+Text the user has selected in the active app (the request may refer to it as "this", "the selected text" or similar):
+<selected_text>
+{selection}
+</selected_text>

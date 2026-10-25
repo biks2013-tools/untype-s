@@ -64,7 +64,7 @@ private let allOperatorsOff = OperatorState(
     try controller.startSession()
     try await controller.final("command status")
 
-    #expect(rendered.text == "[untype] status: refine=on, translate=off, clipboard=on, input=off, ask=off, translation_policy=to-en, pending_section=no\n\n")
+    #expect(rendered.text == "[untype] status: refine=on, translate=off, clipboard=on, input=off, ask=off, followup=off, selection=off, translation_policy=to-en, pending_section=no\n\n")
     #expect(diagnostics.text.contains("[untype] protocol status: refine=on"))
 }
 

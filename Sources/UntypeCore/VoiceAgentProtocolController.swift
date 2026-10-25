@@ -42,6 +42,11 @@ public final class VoiceAgentProtocolController {
     private let asker: TextRefining?
     private let askUserPromptTemplate: String
     private let askTranslatedUserPromptTemplate: String
+    private let turnContext: UntypeTurnContext?
+    private let askConversation: AskConversation?
+    private let selectionContextTemplate: String
+    private let askSelectionTemplate: String
+    private let askConversationTemplate: String
     private let clipboardWriter: TextDelivery
     private let focusedInputWriter: FocusedInputTextDelivery
     private let diagnostics: ProtocolControllerDiagnostics
@@ -67,6 +72,11 @@ public final class VoiceAgentProtocolController {
         asker: TextRefining? = nil,
         askUserPromptTemplate: String = UntypePromptDefaults.askUserPromptTemplate,
         askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate,
+        turnContext: UntypeTurnContext? = nil,
+        askConversation: AskConversation? = nil,
+        selectionContextTemplate: String = UntypePromptDefaults.selectionContextTemplate,
+        askSelectionTemplate: String = UntypePromptDefaults.askSelectionTemplate,
+        askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate,
         clipboardWriter: @escaping TextDelivery = { _ in },
         inputWriter: @escaping TextDelivery = { _ in },
         focusedInputWriter: FocusedInputTextDelivery? = nil,
@@ -86,6 +96,11 @@ public final class VoiceAgentProtocolController {
         self.asker = asker
         self.askUserPromptTemplate = askUserPromptTemplate
         self.askTranslatedUserPromptTemplate = askTranslatedUserPromptTemplate
+        self.turnContext = turnContext
+        self.askConversation = askConversation
+        self.selectionContextTemplate = selectionContextTemplate
+        self.askSelectionTemplate = askSelectionTemplate
+        self.askConversationTemplate = askConversationTemplate
         self.clipboardWriter = clipboardWriter
         if let focusedInputWriter {
             self.focusedInputWriter = focusedInputWriter
@@ -180,6 +195,30 @@ public final class VoiceAgentProtocolController {
         return summary
     }
 
+    /// A release with no dictated text: still process the turn when the
+    /// selected text alone can be processed (Ask, or refine/translate with the
+    /// selection as material). Returns nil when there is nothing to do.
+    public func submitWithoutDictation() async throws -> ProtocolSubmissionSummary? {
+        guard !sessionEnded, !disposed else {
+            return nil
+        }
+        let operators = stateMachine.activeOperatorKeys
+        guard operators.contains(.selection), turnContext?.selectedText != nil else {
+            return nil
+        }
+        let processesSelection = operators.contains(.ask)
+            || (turnContext?.selectionRole == .material
+                && (operators.contains(.refine) || operators.contains(.translate)))
+        guard processesSelection else {
+            return nil
+        }
+        return try await handleAction(.sectionSubmitted(
+            sectionId: stateMachine.makeSectionId(),
+            rawText: "",
+            operators: operators
+        ))
+    }
+
     public func endSession(
         reason: String,
         options: EndProtocolSessionOptions = EndProtocolSessionOptions()
@@ -262,7 +301,27 @@ public final class VoiceAgentProtocolController {
 
     private func processSection(sectionId: String, rawText: String, operators: [OperatorKey]) async -> ProtocolSubmissionSummary {
         let sectionStarted = DispatchTime.now().uptimeNanoseconds
-        var current = rawText
+        // Selection: as material it is the text to process (the dictation
+        // follows it); as context it is a reference block added to the input.
+        let selection = operators.contains(.selection) ? turnContext?.selectedText : nil
+        let selectionRole = turnContext?.selectionRole ?? .material
+        var processInput = rawText
+        var selectionReference: String?
+        if let selection {
+            switch selectionRole {
+            case .material:
+                processInput = rawText.isEmpty ? selection : "\(selection)\n\n\(rawText)"
+            case .context:
+                selectionReference = selectionContextTemplate.replacingOccurrences(of: "{selection}", with: selection)
+            }
+        }
+        let withReference: (String) -> String = { input in
+            guard let selectionReference else {
+                return input
+            }
+            return "\(input)\n\n\(selectionReference)"
+        }
+        var current = processInput
         var refinedText: String?
         var sourceLanguage: ProtocolLanguage?
         var targetLanguage: ProtocolLanguage?
@@ -282,20 +341,37 @@ public final class VoiceAgentProtocolController {
                 warn("Ask operator is enabled, but no LLM is configured.")
             } else {
                 operatorDiagnostic(.ask, stage: "started")
-                var prompt = askUserPromptTemplate.replacingOccurrences(of: "{text}", with: rawText)
+                let request = rawText.isEmpty ? "(no spoken request: respond to the selected text)" : rawText
+                var prompt = askUserPromptTemplate.replacingOccurrences(of: "{text}", with: request)
                 if operators.contains(.translate) {
-                    sourceLanguage = detectProtocolLanguage(rawText)
+                    sourceLanguage = detectProtocolLanguage(rawText.isEmpty ? (selection ?? "") : rawText)
                     targetLanguage = targetLanguageFor(source: sourceLanguage!, policy: translationPolicy)
                     prompt = askTranslatedUserPromptTemplate
                         .replacingOccurrences(of: "{target_language}", with: languageDisplayName(targetLanguage!))
-                        .replacingOccurrences(of: "{text}", with: rawText)
+                        .replacingOccurrences(of: "{text}", with: request)
                 }
+                // Follow-up sends the conversation so far; without it every
+                // Ask starts a new conversation.
+                var preamble: [String] = []
+                if operators.contains(.followup) {
+                    let history = askConversation?.rendered() ?? ""
+                    if !history.isEmpty {
+                        preamble.append(askConversationTemplate.replacingOccurrences(of: "{history}", with: history))
+                    }
+                } else {
+                    askConversation?.clear()
+                }
+                if let selection {
+                    preamble.append(askSelectionTemplate.replacingOccurrences(of: "{selection}", with: selection))
+                }
+                prompt = (preamble + [prompt]).joined(separator: "\n\n")
                 do {
                     let started = DispatchTime.now().uptimeNanoseconds
                     let answer = try await refine(prompt, using: asker!, onProgress: onProgress)
                     summary.askMs = releaseLatencyMilliseconds(from: started)
                     if !answer.isEmpty {
                         current = answer
+                        askConversation?.append(AskExchange(request: request, answer: answer))
                     }
                     operatorDiagnostic(.ask, stage: "completed")
                 } catch {
@@ -312,7 +388,7 @@ public final class VoiceAgentProtocolController {
                 let started = DispatchTime.now().uptimeNanoseconds
                 let result = try await compositeRefineTranslator!.refineAndTranslate(
                     CompositeRefineTranslateRequest(
-                        rawText: rawText,
+                        rawText: withReference(processInput),
                         targetLanguageName: languageDisplayName(targetLanguage!)
                     ),
                     onProgress: onProgress
@@ -337,7 +413,7 @@ public final class VoiceAgentProtocolController {
                 operatorDiagnostic(.refine, stage: "started")
                 do {
                     let started = DispatchTime.now().uptimeNanoseconds
-                    let refined = try await refine(current, using: refiner!, onProgress: onProgress)
+                    let refined = try await refine(withReference(current), using: refiner!, onProgress: onProgress)
                     summary.refineMs = releaseLatencyMilliseconds(from: started)
                     if !refined.isEmpty {
                         refinedText = refined
@@ -359,10 +435,10 @@ public final class VoiceAgentProtocolController {
                 sourceLanguage = detectProtocolLanguage(current)
                 targetLanguage = targetLanguageFor(source: sourceLanguage!, policy: translationPolicy)
                 do {
-                    let prompt = renderTranslationPrompt(
+                    let prompt = withReference(renderTranslationPrompt(
                         text: current,
                         targetLanguage: languageDisplayName(targetLanguage!)
-                    )
+                    ))
                     let started = DispatchTime.now().uptimeNanoseconds
                     let translated = try await refine(prompt, using: translator!, onProgress: onProgress)
                     summary.translateMs = releaseLatencyMilliseconds(from: started)
@@ -537,6 +613,8 @@ private func formatStatusSummary(_ report: ProtocolStatusReport) -> String {
         "clipboard=\(report.operators.clipboard ? "on" : "off")",
         "input=\(report.operators.input ? "on" : "off")",
         "ask=\(report.operators.ask ? "on" : "off")",
+        "followup=\(report.operators.followup ? "on" : "off")",
+        "selection=\(report.operators.selection ? "on" : "off")",
         "translation_policy=\(report.translationPolicy.rawValue)",
         "pending_section=\(report.pendingSection ? "yes" : "no")"
     ].joined(separator: ", ")

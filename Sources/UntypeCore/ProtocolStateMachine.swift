@@ -8,6 +8,10 @@ public enum OperatorKey: String, CaseIterable, Sendable, Equatable, Codable {
     /// The dictated text is a request to the model; its answer replaces the
     /// text (refine is skipped; translate sets the answer's language).
     case ask
+    /// Ask also sends the conversation so far (Ask only).
+    case followup
+    /// The text selected in the active app is included in the request.
+    case selection
 }
 
 public struct ProtocolSettingsSnapshot: Sendable, Equatable, Codable {
@@ -237,6 +241,15 @@ public final class VoiceCommandStateMachine {
         return setOperator(operatorKey, enabled: value == nil ? true : value == "on")
     }
 
+    public var activeOperatorKeys: [OperatorKey] {
+        activeOperators()
+    }
+
+    /// A section id for a section that does not come from the buffer.
+    public func makeSectionId() -> String {
+        nextSectionId()
+    }
+
     private func activeOperators() -> [OperatorKey] {
         OperatorKey.allCases.filter { operatorState.value(for: $0) }
     }
@@ -263,6 +276,8 @@ extension OperatorState: Codable {
         case clipboard
         case input
         case ask
+        case followup
+        case selection
     }
 
     public init(from decoder: Decoder) throws {
@@ -272,7 +287,9 @@ extension OperatorState: Codable {
             translate: try container.decode(Bool.self, forKey: .translate),
             clipboard: try container.decode(Bool.self, forKey: .clipboard),
             input: try container.decodeIfPresent(Bool.self, forKey: .input) ?? false,
-            ask: try container.decodeIfPresent(Bool.self, forKey: .ask) ?? false
+            ask: try container.decodeIfPresent(Bool.self, forKey: .ask) ?? false,
+            followup: try container.decodeIfPresent(Bool.self, forKey: .followup) ?? false,
+            selection: try container.decodeIfPresent(Bool.self, forKey: .selection) ?? false
         )
     }
 
@@ -283,6 +300,8 @@ extension OperatorState: Codable {
         try container.encode(clipboard, forKey: .clipboard)
         try container.encode(input, forKey: .input)
         try container.encode(ask, forKey: .ask)
+        try container.encode(followup, forKey: .followup)
+        try container.encode(selection, forKey: .selection)
     }
 
     public func value(for key: OperatorKey) -> Bool {
@@ -297,6 +316,10 @@ extension OperatorState: Codable {
             return input
         case .ask:
             return ask
+        case .followup:
+            return followup
+        case .selection:
+            return selection
         }
     }
 
@@ -306,7 +329,9 @@ extension OperatorState: Codable {
             translate: key == .translate ? value : translate,
             clipboard: key == .clipboard ? value : clipboard,
             input: key == .input ? value : input,
-            ask: key == .ask ? value : ask
+            ask: key == .ask ? value : ask,
+            followup: key == .followup ? value : followup,
+            selection: key == .selection ? value : selection
         )
     }
 }

@@ -131,13 +131,25 @@ public struct OperatorState: Equatable, Sendable {
     public let clipboard: Bool
     public let input: Bool
     public let ask: Bool
+    public let followup: Bool
+    public let selection: Bool
 
-    public init(refine: Bool, translate: Bool, clipboard: Bool, input: Bool, ask: Bool = false) {
+    public init(
+        refine: Bool,
+        translate: Bool,
+        clipboard: Bool,
+        input: Bool,
+        ask: Bool = false,
+        followup: Bool = false,
+        selection: Bool = false
+    ) {
         self.refine = refine
         self.translate = translate
         self.clipboard = clipboard
         self.input = input
         self.ask = ask
+        self.followup = followup
+        self.selection = selection
     }
 }
 
@@ -152,6 +164,8 @@ public struct ProtocolSettingSources: Equatable, Sendable {
     public let clipboard: ProtocolSettingSource
     public let input: ProtocolSettingSource
     public let ask: ProtocolSettingSource
+    public let followup: ProtocolSettingSource
+    public let selection: ProtocolSettingSource
     public let translationPolicy: ProtocolSettingSource
 
     public init(
@@ -160,6 +174,8 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         clipboard: ProtocolSettingSource,
         input: ProtocolSettingSource,
         ask: ProtocolSettingSource = .default,
+        followup: ProtocolSettingSource = .default,
+        selection: ProtocolSettingSource = .default,
         translationPolicy: ProtocolSettingSource
     ) {
         self.refine = refine
@@ -167,6 +183,8 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         self.clipboard = clipboard
         self.input = input
         self.ask = ask
+        self.followup = followup
+        self.selection = selection
         self.translationPolicy = translationPolicy
     }
 }

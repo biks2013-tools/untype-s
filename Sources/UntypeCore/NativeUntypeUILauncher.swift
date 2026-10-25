@@ -375,6 +375,10 @@ final class UntypeUIModel: ObservableObject {
     /// Types the current push-to-talk turn into the focused control live.
     private var liveTyper: LiveFocusedInputTyper?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
+    /// Per-turn inputs (the selected text) and the Ask conversation; both
+    /// outlive the per-turn runtimes, which read them.
+    private let turnContext = UntypeTurnContext()
+    private let askConversation = AskConversation()
     /// Session and diagnostic events, persisted (see `UntypeEventLogFile`).
     private let eventLogFile = UntypeEventLogFile(url: UntypeEventLogFile.userFile())
     /// Re-warm after the hotkey runtime ended on its own (the provider closed
@@ -467,6 +471,46 @@ final class UntypeUIModel: ObservableObject {
         if let name = sessionFocusedInputApplication?.localizedName {
             appendEvent("diagnostic.info: [untype] focused-input target captured: \(name) (\(reason))")
         }
+    }
+
+    /// Reads the selection of the app in front before anything is typed
+    /// (typing would replace it). Accessibility always (no side effects);
+    /// the ⌘C fallback only with the Selection operator on. Live typing is
+    /// held meanwhile. Only the length is logged, never the text.
+    private func captureSelectedText() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        guard isExternalFocusedInputApplication(frontmost) else {
+            return
+        }
+        switch SelectedTextReader.readAccessibility() {
+        case .selected(let text):
+            applyCapturedSelection(text, via: "accessibility")
+        case .nothingSelected:
+            break
+        case .unsupported:
+            guard settings.selection else {
+                return
+            }
+            liveTyper?.hold()
+            Task { @MainActor [weak self] in
+                let text = await SelectedTextReader.readByCopying()
+                self?.applyCapturedSelection(text, via: "copy")
+            }
+        }
+    }
+
+    private func applyCapturedSelection(_ text: String?, via method: String) {
+        turnContext.setSelection(text)
+        if let text, settings.selection {
+            appendEvent("diagnostic.info: [untype] selected text captured (\(text.count) characters, \(method), \(settings.selectionRole))")
+            if settings.selectionRoleValue == .context, settings.focusedInput {
+                // Context: the result goes after the selection, not over it.
+                SelectedTextReader.collapseSelectionToEnd()
+            }
+        } else if settings.selection, method == "copy" {
+            appendEvent("diagnostic.info: [untype] no selected text found")
+        }
+        liveTyper?.resume()
     }
 
     /// Live typing needs focused-input delivery on and an external app in
@@ -675,7 +719,9 @@ final class UntypeUIModel: ObservableObject {
         latestTranscript = ""
         timeline.clearPartial()
         captureFocusedInputTarget(reason: "hotkey-press")
+        turnContext.begin(selectionRole: settings.selectionRoleValue)
         startLiveTyping()
+        captureSelectedText()
         clearWarmSessionRecycleTimer()
         let control = hotkeySessionControl ?? HotkeySessionControl()
         control.waveform.configure(sampleRate: settings.sampleRate)
@@ -713,25 +759,39 @@ final class UntypeUIModel: ObservableObject {
         appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) stopped (\(source))")
         restartWarmSessionAfterStop = settings.hotkeyEnabled
         stopSession(reason: "ui-hotkey-release", submitPending: true, releaseMarker: releaseMarker)
+        // The processing wave stays until the turn is delivered (the stop
+        // completion hides it), however long the model takes.
         overlay?.show(phase: "finalizing")
-        overlay?.hideAfterDelay()
     }
 
     func toggleOperator(_ key: OperatorKey) {
-        let patch: UntypeUISettingsPatch
-        switch key {
-        case .refine:
-            patch = UntypeUISettingsPatch(refine: !settings.refine)
-        case .translate:
-            patch = UntypeUISettingsPatch(translate: !settings.translate)
-        case .clipboard:
-            patch = UntypeUISettingsPatch(clipboard: !settings.clipboard)
-        case .input:
-            patch = UntypeUISettingsPatch(focusedInput: !settings.focusedInput)
-        case .ask:
-            patch = UntypeUISettingsPatch(ask: !settings.ask)
+        update(UntypeUISettings.operatorPatch(key, !settings.value(of: key)))
+    }
+
+    /// Settings → Operators: whether a change lasts one push-to-talk turn.
+    func setOperatorPerTurn(_ key: OperatorKey, _ perTurn: Bool) {
+        update(UntypeUISettingsPatch(perTurnOperators: settings.settingPerTurn(key, perTurn)))
+    }
+
+    /// After a delivered push-to-talk turn, operators set to "this turn only"
+    /// switch off again (before the next session is warmed with them).
+    private func resetPerTurnOperators() {
+        guard let patch = settings.perTurnResetPatch() else {
+            return
         }
+        let names = OperatorKey.allCases.filter { settings.isPerTurn($0) && settings.value(of: $0) }.map(\.rawValue)
+        appendEvent("diagnostic.info: [untype] per-turn operators switched off: \(names.joined(separator: ", "))")
         update(patch)
+    }
+
+    /// Starts a new Ask conversation (the Follow-up history is dropped).
+    func startNewAskConversation() {
+        askConversation.clear()
+        appendEvent("diagnostic.info: [untype] new Ask conversation")
+    }
+
+    var askConversationLength: Int {
+        askConversation.exchanges.count
     }
 
     func clearTranscriptTimeline() {
@@ -853,6 +913,8 @@ final class UntypeUIModel: ObservableObject {
         sessionOwner = owner
         appendEvent("session.state: starting")
         let currentSettings = settings
+        let turnContextStore = turnContext
+        let askConversationStore = askConversation
         let modelBox = WeakUntypeUIModelBox(self)
         sessionTask = Task.detached { [modelBox] in
             do {
@@ -912,7 +974,9 @@ final class UntypeUIModel: ObservableObject {
                         dispatchToUI { [modelBox] in
                             modelBox.model?.overlay?.show(phase: "finalizing")
                         }
-                    }
+                    },
+                    turnContext: turnContextStore,
+                    askConversation: askConversationStore
                 )
                 dispatchToUI { [modelBox] in
                     modelBox.model?.runtime = runtime
@@ -987,6 +1051,9 @@ final class UntypeUIModel: ObservableObject {
                 self.isRunning = false
                 self.hotkeyPressed = false
                 self.runtimeStopInFlight = false
+                if reason == "ui-hotkey-release" {
+                    self.resetPerTurnOperators()
+                }
                 if self.hotkeyPressQueued {
                     // A press arrived while this turn was being delivered:
                     // start its turn now (cold start, like a press with no
@@ -1172,13 +1239,9 @@ final class UntypeUIModel: ObservableObject {
         guard runtime != nil else {
             return
         }
-        let changes: [(OperatorKey, Bool, Bool)] = [
-            (.refine, previous.refine, next.refine),
-            (.translate, previous.translate, next.translate),
-            (.clipboard, previous.clipboard, next.clipboard),
-            (.input, previous.focusedInput, next.focusedInput),
-            (.ask, previous.ask, next.ask)
-        ]
+        let changes: [(OperatorKey, Bool, Bool)] = OperatorKey.allCases.map {
+            ($0, previous.value(of: $0), next.value(of: $0))
+        }
         for (key, old, new) in changes where old != new {
             let currentRuntime = runtime
             Task.detached { [weak self, currentRuntime] in
@@ -1857,6 +1920,24 @@ private struct UntypeRootView: View {
                 model.toggleOperator(.ask)
             }
             UntypeOperatorChip(
+                letter: "F",
+                label: "Follow-up",
+                isOn: model.settings.followup,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.followup)
+            }
+            UntypeOperatorChip(
+                letter: "S",
+                label: "Selection",
+                isOn: model.settings.selection,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.selection)
+            }
+            UntypeOperatorChip(
                 letter: "C",
                 label: "Clipboard",
                 isOn: model.settings.clipboard,
@@ -2454,15 +2535,18 @@ private final class UntypeOverlayController: ObservableObject {
 
     /// One frame of the trace, `count` points in -1...1. Recording draws the
     /// real microphone signal with automatic gain, so quiet speech still swings
-    /// to full height; processing draws a small travelling ripple.
+    /// to full height; processing (the models refining, translating or
+    /// answering) draws a clearly visible travelling, breathing wave that
+    /// stays until the turn is delivered.
     fileprivate func oscilloscopeTrace(count: Int, at time: TimeInterval) -> [Float] {
         let elapsed = lastTraceUpdate.map { time - $0 } ?? 0
         lastTraceUpdate = time
         guard phase == "recording", let buffer = model?.microphoneWaveform else {
+            let amplitude = 0.28 + 0.10 * sin(Float(time) * 2.4)
             return (0..<count).map { index in
                 let x = Float(index) / Float(max(1, count - 1))
                 let envelope = sin(x * .pi)
-                return 0.10 * envelope * sin(x * 2 * .pi * 9 - Float(time) * 7)
+                return amplitude * envelope * sin(x * 2 * .pi * 4 - Float(time) * 6)
             }
         }
         let samples = buffer.window(count: count, at: time)
@@ -2475,7 +2559,7 @@ private final class UntypeOverlayController: ObservableObject {
         return samples.map { min(1, max(-1, $0 * displayedGain)) }
     }
 
-    /// The operators the user can toggle while holding push-to-talk (R/T/A/C/I
+    /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/C/I
     /// keys), shown under the trace as a reminder.
     fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
         guard let settings = model?.settings else {
@@ -2485,6 +2569,8 @@ private final class UntypeOverlayController: ObservableObject {
             ("R", "Refine", settings.refine),
             ("T", "Translate", settings.translate),
             ("A", "Ask", settings.ask),
+            ("F", "Follow-up", settings.followup),
+            ("S", "Selection", settings.selection),
             ("C", "Clipboard", settings.clipboard),
             ("I", "Focused input", settings.focusedInput)
         ]
@@ -3208,6 +3294,12 @@ private struct UntypeMiniView: View {
                 UntypeOperatorChip(letter: "A", label: "Ask", isOn: model.settings.ask, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.ask)
                 }
+                UntypeOperatorChip(letter: "F", label: "Follow-up", isOn: model.settings.followup, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.followup)
+                }
+                UntypeOperatorChip(letter: "S", label: "Selection", isOn: model.settings.selection, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.selection)
+                }
                 UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.clipboard)
                 }
@@ -3666,6 +3758,10 @@ private extension OperatorKey {
             return .input
         case "A":
             return .ask
+        case "F":
+            return .followup
+        case "S":
+            return .selection
         default:
             return nil
         }

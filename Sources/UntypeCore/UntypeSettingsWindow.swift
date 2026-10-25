@@ -188,11 +188,25 @@ private struct UntypeSettingsGeneralView: View {
                 // Operators — always editable
                 inspectorGroup("Operators") {
                     VStack(alignment: .leading, spacing: 6) {
-                        inspectorToggleRow("Refine", isOn: binding(\.refine))
-                        inspectorToggleRow("Translate", isOn: binding(\.translate))
-                        inspectorToggleRow("Ask (answer the request)", isOn: binding(\.ask))
-                        inspectorToggleRow("Clipboard", isOn: binding(\.clipboard))
-                        inspectorToggleRow("Focused input", isOn: binding(\.focusedInput))
+                        operatorSettingRow("Refine", .refine)
+                        operatorSettingRow("Translate", .translate)
+                        operatorSettingRow("Ask (answer the request)", .ask)
+                        operatorSettingRow("Follow-up (Ask continues the conversation)", .followup)
+                        operatorSettingRow("Selection (include the selected text)", .selection)
+                        inspectorFieldRow("Selected text is") {
+                            Picker("Selected text is", selection: binding(\.selectionRole)) {
+                                Text("Material — processed and replaced").tag(SelectionRole.material.rawValue)
+                                Text("Context — reference only").tag(SelectionRole.context.rawValue)
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        operatorSettingRow("Clipboard", .clipboard)
+                        operatorSettingRow("Focused input", .input)
+                        Text("“This turn” switches an operator off again after each push-to-talk turn; “Until changed” keeps it as you set it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .disabled(operatorControlsDisabled)
                 }
@@ -349,6 +363,35 @@ private struct UntypeSettingsGeneralView: View {
         )
     }
 
+    /// An operator: how long a change lasts, and its current state.
+    private func operatorSettingRow(_ label: String, _ key: OperatorKey) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 6)
+            Picker("Lasts", selection: Binding(
+                get: { model.settings.isPerTurn(key) },
+                set: { model.setOperatorPerTurn(key, $0) }
+            )) {
+                Text("Until changed").tag(false)
+                Text("This turn").tag(true)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .fixedSize()
+            .help("“This turn”: switched off again after each push-to-talk turn")
+            Toggle("", isOn: Binding(
+                get: { model.settings.value(of: key) },
+                set: { model.update(UntypeUISettings.operatorPatch(key, $0)) }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func inspectorToggleRow(_ label: String, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 10) {
             Text(label)
@@ -497,6 +540,8 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(focusedInput: value as? Bool)
         case \UntypeUISettings.ask:
             return UntypeUISettingsPatch(ask: value as? Bool)
+        case \UntypeUISettings.selectionRole:
+            return UntypeUISettingsPatch(selectionRole: value as? String)
         case \UntypeUISettings.translationPolicy:
             return UntypeUISettingsPatch(translationPolicy: value as? String)
         case \UntypeUISettings.llmEnabled:

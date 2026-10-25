@@ -139,6 +139,10 @@ public enum UntypeEnvTemplate {
     # UNTYPE_INPUT_DEFAULT=
     # Ask: treat the dictated text as a request to the LLM and use its answer.
     # UNTYPE_ASK_DEFAULT=
+    # Follow-up: Ask also sends the conversation so far.
+    # UNTYPE_FOLLOWUP_DEFAULT=
+    # Selection: include the text selected in the active app.
+    # UNTYPE_SELECTION_DEFAULT=
     # Output cap for Ask answers (separate from UNTYPE_LLM_MAX_OUTPUT_TOKENS). Default: 8000.
     # UNTYPE_ASK_MAX_OUTPUT_TOKENS=
 

@@ -11,7 +11,7 @@ public struct UntypeOverlayLayout: Equatable, Sendable {
     public let bottomOffset: CGFloat
 
     public init(
-        width: CGFloat = 180,
+        width: CGFloat = 200,
         height: CGFloat = 84,
         bottomOffset: CGFloat = 46
     ) {

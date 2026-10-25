@@ -70,6 +70,33 @@ Refinement and translation can run on Claude through the Anthropic Messages API,
 - A `refusal` or `max_tokens` stop reason is treated as a failed refinement (the raw transcript is delivered instead of a fragment).
 - Live check: `UNTYPE_LIVE_LLM_TEST=1 UNTYPE_LIVE_LLM_ARGS="--llm-provider azure-anthropic --llm-model claude-opus-5-5" swift test --filter liveLLM` (2026-10-24 on `claude-opus-5-5`: refine ≈2.0 s, translate ≈1.3 s, refine+translate ≈1.4 s).
 
+## Operator Persistence: "This turn" or "Until changed"
+
+Every operator (Refine, Translate, Ask, Follow-up, Selection, Clipboard, Focused input) has a **Lasts** choice in Settings → General → Operators:
+
+- **Until changed**: the operator stays as you set it until you switch it again.
+- **This turn**: the operator is switched off again when a push-to-talk turn has been delivered, so you switch it on for each use. Switch it on in the dropdown before pressing, or with hotkey + its letter while holding.
+
+Defaults: Ask, Follow-up and Selection are "This turn"; the others are "Until changed". The dropdown marks "This turn" operators with **1×**. The choice is stored as `perTurnOperators` in `~/.tool-agents/untype/ui-state.json`. An older file without it loads the defaults. Unknown operator names are rejected with a configuration error.
+
+## Follow-up Operator (Ask continues the conversation)
+
+With **Follow-up** on (key **F**, `--followup-default` / `UNTYPE_FOLLOWUP_DEFAULT`, spoken `<command> followup on`), an Ask request is sent together with the conversation so far: the earlier requests and answers, rendered through `015-ask-conversation-template.txt` (`{history}`). This lets you refine, correct, shorten or extend the previous answer. With Follow-up off, each Ask starts a new conversation. The dropdown's **New conversation** entry also clears it.
+
+- The conversation keeps the last 20 exchanges, in memory only. It is lost when untype quits and is never written to disk.
+- Follow-up applies to Ask only. It has no effect on plain dictation, refine or translate.
+
+## Selection Operator (include the selected text)
+
+With **Selection** on (key **S**, `--selection-default` / `UNTYPE_SELECTION_DEFAULT`), the text selected in the app in front at press time is included in the request.
+
+- **Reading the selection.** untype reads it through Accessibility (`AXSelectedText`), so the Accessibility permission is required. Where the app does not expose it (terminals, some Electron apps), untype sends a ⌘C, reads the clipboard and restores the previous clipboard contents right away. Some editors copy the whole current line when nothing is selected. Live typing waits until the selection has been read.
+- **Selected text is** (Settings → General → Operators, `selectionRole` in `ui-state.json`, default `material`):
+  - **Material.** The selection is what refine/translate process; what you dictate, if anything, follows it. The result replaces the selection. A press with no speech still processes the selection, e.g. select a paragraph with Translate + Selection on and tap the hotkey.
+  - **Context.** Reference only: `013-selection-context-template.txt` (`{selection}`) is appended to the refine/translate input. Only what you dictate is processed, and the result is inserted after the selection: untype presses Right arrow to move the cursor to the end of the selection first.
+- **With Ask.** The selection is put before the request through `014-ask-selection-template.txt` (`{selection}`), e.g. select text and say "make this more formal". In the Material role the answer replaces the selection; in the Context role it goes after it. A press with no speech answers about the selection.
+- The selected text is held in memory for the turn only. The event log records only its length.
+
 ## Ask Operator (request to the model)
 
 ### Purpose
@@ -118,6 +145,9 @@ When a prompt file is missing, `untype` creates it with the documented default c
 | `009-composite-translation-template.txt` | Yes | Built-in composite translation instruction | Translation instruction inserted into the single composite LLM request. Must contain `{target_language}`. `{text}` is also supported and resolves to the original section text. |
 | `010-ask-system.txt` | Yes | Built-in "fulfil the dictated request" prompt | System prompt used when the **Ask** operator is on: the dictated text is a request to the model (an answer, explanation, summary, draft, list, code…) and the model's reply replaces it. The default tells the model to infer the request from a noisy transcript and to return only the requested text, with no preamble, closing remarks or questions back. |
 | `011-ask-user-template.txt` | Yes | `Dictated request:` plus `{text}` | The message sent with each Ask request when Translate is off. Must contain `{text}`. |
+| `013-selection-context-template.txt` | Yes | Reference-only block with `{selection}` | Appended to the refine/translate input when Selection is on and its role is Context. Must contain `{selection}`. |
+| `014-ask-selection-template.txt` | Yes | Selected-text block with `{selection}` | Put before an Ask request when Selection is on. Must contain `{selection}`. |
+| `015-ask-conversation-template.txt` | Yes | Conversation block with `{history}` | Put before an Ask request when Follow-up is on; `{history}` is the earlier `User:` / `Assistant:` exchanges. Must contain `{history}`. |
 | `012-ask-translated-user-template.txt` | Yes | `Dictated request:` plus `{text}` and "Write your reply in {target_language}…" | The message sent with each Ask request when Translate is also on: the reply is written in the translation target language (per the translation policy), in the same single call. Must contain `{target_language}` and `{text}`. |
 
 ### Recommended Storage and Editing
@@ -125,7 +155,7 @@ Keep prompt files in `~/.tool-agents/untype/prompts/`. This folder is user-speci
 
 The native UI edits these files in **Settings → Prompts** (⌘, from the menu-bar dropdown or the main window): one editor per file with Save (⌘S), Revert and Reset to Default (puts the built-in text in the editor; Save applies it). A save is validated with the same rules session start applies (required files non-empty, required placeholders present, provider length limits), so an invalid prompt cannot be written from the editor.
 
-Prompts are **hot-reloaded**: untype polls the twelve files once a second. When one changes — saved from Settings or from any external editor — the Events log shows `prompts.reloaded: <files>` and an idle warm push-to-talk session is restarted at once, so the next turn uses the new prompt. A turn in progress is never interrupted (the warm session restarts after release and reads the files then); a running manual session uses the new prompts from its next start. The editor refreshes on external changes unless it holds unsaved edits.
+Prompts are **hot-reloaded**: untype polls the fifteen files once a second. When one changes — saved from Settings or from any external editor — the Events log shows `prompts.reloaded: <files>` and an idle warm push-to-talk session is restarted at once, so the next turn uses the new prompt. A turn in progress is never interrupted (the warm session restarts after release and reads the files then); a running manual session uses the new prompts from its next start. The editor refreshes on external changes unless it holds unsaved edits.
 
 The repository also contains default prompt templates under `prompts/` for review and traceability. Runtime reads the user config folder, not the repository templates.
 
@@ -136,6 +166,7 @@ The repository also contains default prompt templates under `prompts/` for revie
 - `009-composite-translation-template.txt` must include `{target_language}`.
 - `011-ask-user-template.txt` must include `{text}`.
 - `012-ask-translated-user-template.txt` must include both `{target_language}` and `{text}`.
+- `013-selection-context-template.txt` and `014-ask-selection-template.txt` must include `{selection}`; `015-ask-conversation-template.txt` must include `{history}`.
 - Soniox context must be 10,000 characters or fewer.
 - ElevenLabs `previous_text` must be 50 characters or fewer.
 - ElevenLabs keyterms must be one per line, no more than 50 entries, and no entry may exceed 20 characters.

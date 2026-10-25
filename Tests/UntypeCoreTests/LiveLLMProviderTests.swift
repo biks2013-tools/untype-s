@@ -73,3 +73,49 @@ func liveLLMProviderAnswersDictatedRequests() async throws {
     print("[live] ask+translate \(Int(Date().timeIntervalSince(start) * 1000)) ms:\n\(translated)\n---")
     #expect(!translated.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) })
 }
+
+/// Live check of Follow-up and Selection prompts through the controller.
+@Test(.enabled(if: ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_TEST"] == "1"))
+func liveLLMProviderFollowsUpAndUsesTheSelection() async throws {
+    let extra = (ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_ARGS"] ?? "")
+        .split(separator: " ").map(String.init)
+    let config = try ConfigResolver().resolve(argv: ["--ask-default", "on"] + extra)
+    let asker = try #require(try LLMRefinerFactory.makeAsker(config: config.llm, systemPrompt: config.prompts.askSystemPrompt))
+    let conversation = AskConversation()
+    func turn(_ text: String, _ operators: OperatorState, selection: String? = nil) async throws -> String {
+        let output = MemoryOutput()
+        let controller = VoiceAgentProtocolController(
+            mode: .hybrid,
+            renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+            writer: JsonlProtocolWriter(output: output),
+            markers: config.protocolConfig.markers,
+            initialOperators: operators,
+            translationPolicy: .opposite,
+            asker: asker,
+            askUserPromptTemplate: config.prompts.askUserPromptTemplate,
+            turnContext: UntypeTurnContext(selectedText: selection, selectionRole: .material),
+            askConversation: conversation,
+            selectionContextTemplate: config.prompts.selectionContextTemplate,
+            askSelectionTemplate: config.prompts.askSelectionTemplate,
+            askConversationTemplate: config.prompts.askConversationTemplate
+        )
+        try controller.startSession()
+        try await controller.final(text)
+        _ = try await controller.submitPending()
+        let events = try output.text.split(separator: "\n").map {
+            try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] ?? [:]
+        }
+        return events.last { $0["type"] as? String == "section.processed" }?["output_text"] as? String ?? ""
+    }
+    let ask = OperatorState(refine: false, translate: false, clipboard: false, input: false, ask: true)
+    let first = try await turn("write three short bullet points on why code review matters", ask)
+    print("[live] first:\n\(first)\n---")
+    let followup = OperatorState(refine: false, translate: false, clipboard: false, input: false, ask: true, followup: true)
+    let second = try await turn("now turn that into one sentence", followup)
+    print("[live] follow-up:\n\(second)\n---")
+    #expect(second.lowercased().contains("review"))
+    let selected = OperatorState(refine: false, translate: false, clipboard: false, input: false, ask: true, selection: true)
+    let third = try await turn("make this more formal", selected, selection: "hey guys the build is broken again, pls dont merge anything")
+    print("[live] selection:\n\(third)\n---")
+    #expect(!third.isEmpty)
+}
