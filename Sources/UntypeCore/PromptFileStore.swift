@@ -6,6 +6,7 @@ public struct PromptFileDescriptor: Sendable, Equatable, Identifiable {
         case refinement = "Refinement"
         case translation = "Translation"
         case composite = "Refine + translate (one call)"
+        case ask = "Ask (request to the model)"
         case transcription = "Transcription context"
     }
 
@@ -102,6 +103,36 @@ public struct PromptFileStore: Sendable {
             defaultContent: UntypePromptDefaults.compositeTranslationPromptTemplate,
             required: true,
             placeholders: ["{target_language}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "010-ask-system.txt",
+            title: "Ask — system prompt",
+            group: .ask,
+            summary: "Used when Ask is on: the dictation is a request, and the model's answer replaces it.",
+            defaultContent: UntypePromptDefaults.askSystemPrompt,
+            required: true,
+            placeholders: [],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "011-ask-user-template.txt",
+            title: "Ask — request template",
+            group: .ask,
+            summary: "The message sent with each request when Translate is off.",
+            defaultContent: UntypePromptDefaults.askUserPromptTemplate,
+            required: true,
+            placeholders: ["{text}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "012-ask-translated-user-template.txt",
+            title: "Ask — request template (answer in the target language)",
+            group: .ask,
+            summary: "The message sent with each request when Translate is also on; the answer is written in the translation target language.",
+            defaultContent: UntypePromptDefaults.askTranslatedUserPromptTemplate,
+            required: true,
+            placeholders: ["{target_language}", "{text}"],
             maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
         ),
         PromptFileDescriptor(

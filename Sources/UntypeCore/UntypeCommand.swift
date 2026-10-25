@@ -131,6 +131,7 @@ public struct UntypeCommand {
       --translation-policy <policy>           opposite, to-en, or to-el. Env: UNTYPE_TRANSLATION_POLICY.
       --clipboard-default <on|off>            Initial protocol clipboard operator state. Env: UNTYPE_CLIPBOARD_DEFAULT.
       --input-default <on|off>                Initial protocol focused-input operator state. Env: UNTYPE_INPUT_DEFAULT.
+      --ask-default <on|off>                  Initial protocol ask operator state: the dictated text is a request to the LLM and its answer is the output. Env: UNTYPE_ASK_DEFAULT.
       --protocol-output <path>                JSONL path required for hybrid mode. Env: UNTYPE_PROTOCOL_OUTPUT.
       --refine, --no-refine                   Enable or disable LLM refinement. Env: UNTYPE_REFINE.
       --llm-streaming                         Stream LLM response tokens for progressive rendering (azure-openai/google only; inert otherwise). Default: off. Env: UNTYPE_LLM_STREAMING.

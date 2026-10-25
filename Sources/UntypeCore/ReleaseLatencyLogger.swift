@@ -53,6 +53,14 @@ public final class ReleaseLatencyJsonlLogger: ReleaseLatencyLogWriting, @uncheck
             let directory = url.deletingLastPathComponent()
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            // Keep the previous run's records next to the fresh log: the
+            // relaunch that works around a failure must not erase its record.
+            if let size = (try? fileManager.attributesOfItem(atPath: url.path))?[.size] as? NSNumber, size.intValue > 0 {
+                let previous = URL(fileURLWithPath: url.path + ".previous")
+                try? fileManager.removeItem(at: previous)
+                try fileManager.copyItem(at: url, to: previous)
+                try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: previous.path)
+            }
             try Data().write(to: url, options: .atomic)
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
@@ -181,6 +189,7 @@ public struct ReleaseLatencyDurations: Codable, Equatable, Sendable {
     public var protocolOperatorProcessingMs: Double?
     public var refineMs: Double?
     public var translateMs: Double?
+    public var askMs: Double?
     public var clipboardMs: Double?
     public var focusedInputMs: Double?
 
@@ -192,6 +201,7 @@ public struct ReleaseLatencyDurations: Codable, Equatable, Sendable {
         case protocolOperatorProcessingMs = "protocol_operator_processing_ms"
         case refineMs = "refine_ms"
         case translateMs = "translate_ms"
+        case askMs = "ask_ms"
         case clipboardMs = "clipboard_ms"
         case focusedInputMs = "focused_input_ms"
     }
@@ -204,6 +214,7 @@ public struct ReleaseLatencyDurations: Codable, Equatable, Sendable {
         protocolOperatorProcessingMs: Double? = nil,
         refineMs: Double? = nil,
         translateMs: Double? = nil,
+        askMs: Double? = nil,
         clipboardMs: Double? = nil,
         focusedInputMs: Double? = nil
     ) {
@@ -214,6 +225,7 @@ public struct ReleaseLatencyDurations: Codable, Equatable, Sendable {
         self.protocolOperatorProcessingMs = protocolOperatorProcessingMs
         self.refineMs = refineMs
         self.translateMs = translateMs
+        self.askMs = askMs
         self.clipboardMs = clipboardMs
         self.focusedInputMs = focusedInputMs
     }
@@ -298,6 +310,7 @@ public struct ProtocolSubmissionSummary: Equatable, Sendable {
     public var operatorProcessingMs: Double?
     public var refineMs: Double?
     public var translateMs: Double?
+    public var askMs: Double?
     public var clipboardMs: Double?
     public var focusedInputMs: Double?
     public var focusedInput: ReleaseLatencyFocusedInput?
@@ -307,6 +320,7 @@ public struct ProtocolSubmissionSummary: Equatable, Sendable {
         operatorProcessingMs: Double? = nil,
         refineMs: Double? = nil,
         translateMs: Double? = nil,
+        askMs: Double? = nil,
         clipboardMs: Double? = nil,
         focusedInputMs: Double? = nil,
         focusedInput: ReleaseLatencyFocusedInput? = nil
@@ -315,6 +329,7 @@ public struct ProtocolSubmissionSummary: Equatable, Sendable {
         self.operatorProcessingMs = operatorProcessingMs
         self.refineMs = refineMs
         self.translateMs = translateMs
+        self.askMs = askMs
         self.clipboardMs = clipboardMs
         self.focusedInputMs = focusedInputMs
         self.focusedInput = focusedInput
@@ -325,6 +340,7 @@ public struct ProtocolSubmissionSummary: Equatable, Sendable {
         operatorProcessingMs = sum(operatorProcessingMs, other.operatorProcessingMs)
         refineMs = sum(refineMs, other.refineMs)
         translateMs = sum(translateMs, other.translateMs)
+        askMs = sum(askMs, other.askMs)
         clipboardMs = sum(clipboardMs, other.clipboardMs)
         focusedInputMs = sum(focusedInputMs, other.focusedInputMs)
         if let focusedInput = other.focusedInput {

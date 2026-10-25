@@ -68,6 +68,7 @@ import Testing
     try ReleaseLatencyJsonlLogger.resetOnStartIfNeeded(path: path)
 
     #expect(try String(contentsOfFile: path, encoding: .utf8) == "")
+    #expect(try String(contentsOfFile: path + ".previous", encoding: .utf8) == "old record\n")
 
     let logger = ReleaseLatencyJsonlLogger(path: path)
     try logger.append(sampleReleaseLatencyRecord(turnId: "turn-1"))

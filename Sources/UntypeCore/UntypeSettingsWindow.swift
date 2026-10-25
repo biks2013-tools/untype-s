@@ -190,6 +190,7 @@ private struct UntypeSettingsGeneralView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         inspectorToggleRow("Refine", isOn: binding(\.refine))
                         inspectorToggleRow("Translate", isOn: binding(\.translate))
+                        inspectorToggleRow("Ask (answer the request)", isOn: binding(\.ask))
                         inspectorToggleRow("Clipboard", isOn: binding(\.clipboard))
                         inspectorToggleRow("Focused input", isOn: binding(\.focusedInput))
                     }
@@ -494,6 +495,8 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(clipboard: value as? Bool)
         case \UntypeUISettings.focusedInput:
             return UntypeUISettingsPatch(focusedInput: value as? Bool)
+        case \UntypeUISettings.ask:
+            return UntypeUISettingsPatch(ask: value as? Bool)
         case \UntypeUISettings.translationPolicy:
             return UntypeUISettingsPatch(translationPolicy: value as? String)
         case \UntypeUISettings.llmEnabled:

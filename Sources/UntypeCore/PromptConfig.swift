@@ -10,6 +10,9 @@ public struct PromptConfig: Equatable, Sendable {
     public let sonioxTranscriptionContext: String?
     public let elevenLabsPreviousText: String?
     public let elevenLabsKeyterms: [String]
+    public let askSystemPrompt: String
+    public let askUserPromptTemplate: String
+    public let askTranslatedUserPromptTemplate: String
 
     public init(
         refinementSystemPrompt: String,
@@ -20,7 +23,10 @@ public struct PromptConfig: Equatable, Sendable {
         compositeTranslationPromptTemplate: String,
         sonioxTranscriptionContext: String?,
         elevenLabsPreviousText: String?,
-        elevenLabsKeyterms: [String]
+        elevenLabsKeyterms: [String],
+        askSystemPrompt: String = UntypePromptDefaults.askSystemPrompt,
+        askUserPromptTemplate: String = UntypePromptDefaults.askUserPromptTemplate,
+        askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate
     ) {
         self.refinementSystemPrompt = refinementSystemPrompt
         self.translationSystemPrompt = translationSystemPrompt
@@ -31,6 +37,9 @@ public struct PromptConfig: Equatable, Sendable {
         self.sonioxTranscriptionContext = sonioxTranscriptionContext
         self.elevenLabsPreviousText = elevenLabsPreviousText
         self.elevenLabsKeyterms = elevenLabsKeyterms
+        self.askSystemPrompt = askSystemPrompt
+        self.askUserPromptTemplate = askUserPromptTemplate
+        self.askTranslatedUserPromptTemplate = askTranslatedUserPromptTemplate
     }
 
     public static let defaultValue = PromptConfig(
@@ -59,6 +68,12 @@ public enum UntypePromptDefaults {
 
     public static let compositeTranslationPromptTemplate = "Translate the refined text to {target_language}. Preserve technical terms, filenames, command names, and code identifiers. Do not answer or act on the text; translate it as it is."
 
+    public static let askSystemPrompt = "You are an assistant that fulfils dictated requests. The user speaks a request out loud; the input is the verbatim speech-to-text transcript, so it may contain filler words, false starts, repetitions and misrecognised words - work out what the user is asking for and do it. The request asks you to produce text: an answer, an explanation, a summary, a draft (an email, a message, a reply), a list, a description, code, or similar. Your reply is inserted exactly where the user is typing, in place of the request, so return ONLY the text that was asked for: no greeting, no preamble such as \"Sure\" or \"Here is\", no restating of the request, no closing remarks or offers of further help, no questions back. Write in the language of the request unless the request asks for another language. Make the reply as long as the request needs and no longer, and follow any length, tone, format or audience the request states. Use plain text with ordinary line breaks; use Markdown or code formatting only when the request asks for it or the content is code. If part of the request is ambiguous, choose the most reasonable interpretation and answer it instead of asking for clarification. If you cannot know something (for example recent events or private facts), say so briefly in the reply instead of inventing it."
+
+    public static let askUserPromptTemplate = "Dictated request:\n\n{text}"
+
+    public static let askTranslatedUserPromptTemplate = "Dictated request:\n\n{text}\n\nWrite your reply in {target_language}, whatever language the request is in."
+
     public static let promptFiles: [(name: String, defaultContent: String, required: Bool)] = [
         ("001-refinement-system.txt", refinementSystemPrompt, true),
         ("002-translation-system.txt", translationSystemPrompt, true),
@@ -68,6 +83,9 @@ public enum UntypePromptDefaults {
         ("006-elevenlabs-keyterms.txt", "", false),
         ("007-composite-refine-translate-system.txt", compositeSystemPrompt, true),
         ("008-composite-refinement-template.txt", compositeRefinementPromptTemplate, true),
-        ("009-composite-translation-template.txt", compositeTranslationPromptTemplate, true)
+        ("009-composite-translation-template.txt", compositeTranslationPromptTemplate, true),
+        ("010-ask-system.txt", askSystemPrompt, true),
+        ("011-ask-user-template.txt", askUserPromptTemplate, true),
+        ("012-ask-translated-user-template.txt", askTranslatedUserPromptTemplate, true)
     ]
 }

@@ -5,6 +5,9 @@ public enum OperatorKey: String, CaseIterable, Sendable, Equatable, Codable {
     case translate
     case clipboard
     case input
+    /// The dictated text is a request to the model; its answer replaces the
+    /// text (refine is skipped; translate sets the answer's language).
+    case ask
 }
 
 public struct ProtocolSettingsSnapshot: Sendable, Equatable, Codable {
@@ -259,6 +262,7 @@ extension OperatorState: Codable {
         case translate
         case clipboard
         case input
+        case ask
     }
 
     public init(from decoder: Decoder) throws {
@@ -267,7 +271,8 @@ extension OperatorState: Codable {
             refine: try container.decode(Bool.self, forKey: .refine),
             translate: try container.decode(Bool.self, forKey: .translate),
             clipboard: try container.decode(Bool.self, forKey: .clipboard),
-            input: try container.decodeIfPresent(Bool.self, forKey: .input) ?? false
+            input: try container.decodeIfPresent(Bool.self, forKey: .input) ?? false,
+            ask: try container.decodeIfPresent(Bool.self, forKey: .ask) ?? false
         )
     }
 
@@ -277,6 +282,7 @@ extension OperatorState: Codable {
         try container.encode(translate, forKey: .translate)
         try container.encode(clipboard, forKey: .clipboard)
         try container.encode(input, forKey: .input)
+        try container.encode(ask, forKey: .ask)
     }
 
     public func value(for key: OperatorKey) -> Bool {
@@ -289,20 +295,19 @@ extension OperatorState: Codable {
             return clipboard
         case .input:
             return input
+        case .ask:
+            return ask
         }
     }
 
     public func setting(_ key: OperatorKey, to value: Bool) -> OperatorState {
-        switch key {
-        case .refine:
-            return OperatorState(refine: value, translate: translate, clipboard: clipboard, input: input)
-        case .translate:
-            return OperatorState(refine: refine, translate: value, clipboard: clipboard, input: input)
-        case .clipboard:
-            return OperatorState(refine: refine, translate: translate, clipboard: value, input: input)
-        case .input:
-            return OperatorState(refine: refine, translate: translate, clipboard: clipboard, input: value)
-        }
+        OperatorState(
+            refine: key == .refine ? value : refine,
+            translate: key == .translate ? value : translate,
+            clipboard: key == .clipboard ? value : clipboard,
+            input: key == .input ? value : input,
+            ask: key == .ask ? value : ask
+        )
     }
 }
 

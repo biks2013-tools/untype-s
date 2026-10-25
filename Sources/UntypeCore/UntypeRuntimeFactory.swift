@@ -40,6 +40,10 @@ public enum UntypeRuntimeFactory {
             config: config.llm,
             prompts: config.prompts
         )
+        let asker = try LLMRefinerFactory.makeAsker(
+            config: config.llm,
+            systemPrompt: config.prompts.askSystemPrompt
+        )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery()
         let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
@@ -55,6 +59,9 @@ public enum UntypeRuntimeFactory {
             refiner: refiner,
             translator: translator,
             compositeRefineTranslator: compositeRefineTranslator,
+            asker: asker,
+            askUserPromptTemplate: config.prompts.askUserPromptTemplate,
+            askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
             diagnostics: diagnostics
@@ -134,6 +141,10 @@ public enum UntypeRuntimeFactory {
             config: config.llm,
             prompts: config.prompts
         )
+        let asker = try LLMRefinerFactory.makeAsker(
+            config: config.llm,
+            systemPrompt: config.prompts.askSystemPrompt
+        )
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery(forceInProcess: true)
         let livePasteDelivery = FocusedInputDelivery(method: .pasteKeycode, forceInProcess: true)
@@ -150,6 +161,9 @@ public enum UntypeRuntimeFactory {
             refiner: refiner,
             translator: translator,
             compositeRefineTranslator: compositeRefineTranslator,
+            asker: asker,
+            askUserPromptTemplate: config.prompts.askUserPromptTemplate,
+            askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 await focusedInputPreparation()

@@ -299,6 +299,16 @@ public struct ConfigResolver: Sendable {
             flagName: "--input-default",
             envName: "UNTYPE_INPUT_DEFAULT"
         ) ?? false
+        let askDefault = try parseBoolean(
+            resolveString(
+                flagValue: parsed.value(for: "--ask-default"),
+                chain: chain,
+                envKey: "UNTYPE_ASK_DEFAULT",
+                defaultValue: "off"
+            ),
+            flagName: "--ask-default",
+            envName: "UNTYPE_ASK_DEFAULT"
+        ) ?? false
 
         let translationPolicyRaw = resolveString(
             flagValue: parsed.value(for: "--translation-policy"),
@@ -331,7 +341,8 @@ public struct ConfigResolver: Sendable {
                 refine: refineDefault,
                 translate: translateDefault,
                 clipboard: clipboardDefault,
-                input: inputDefault
+                input: inputDefault,
+                ask: askDefault
             ),
             translationPolicy: translationPolicy,
             protocolOutput: protocolOutput?.isEmpty == true ? nil : protocolOutput,
@@ -340,6 +351,7 @@ public struct ConfigResolver: Sendable {
                 translate: configuredSource(parsed.value(for: "--translate-default"), chain: chain, envKey: "UNTYPE_TRANSLATE_DEFAULT"),
                 clipboard: configuredSource(parsed.value(for: "--clipboard-default"), chain: chain, envKey: "UNTYPE_CLIPBOARD_DEFAULT"),
                 input: configuredSource(parsed.value(for: "--input-default"), chain: chain, envKey: "UNTYPE_INPUT_DEFAULT"),
+                ask: configuredSource(parsed.value(for: "--ask-default"), chain: chain, envKey: "UNTYPE_ASK_DEFAULT"),
                 translationPolicy: configuredSource(parsed.value(for: "--translation-policy"), chain: chain, envKey: "UNTYPE_TRANSLATION_POLICY")
             )
         )
@@ -497,6 +509,26 @@ public struct ConfigResolver: Sendable {
                 "Prompt file \(displayPath(directory.appendingPathComponent("009-composite-translation-template.txt"))) must contain the {target_language} placeholder."
             )
         }
+        let askTemplate = try requiredPrompt(
+            values["011-ask-user-template.txt"],
+            name: "011-ask-user-template.txt",
+            path: directory.appendingPathComponent("011-ask-user-template.txt")
+        )
+        guard askTemplate.contains("{text}") else {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(directory.appendingPathComponent("011-ask-user-template.txt"))) must contain the {text} placeholder."
+            )
+        }
+        let askTranslatedTemplate = try requiredPrompt(
+            values["012-ask-translated-user-template.txt"],
+            name: "012-ask-translated-user-template.txt",
+            path: directory.appendingPathComponent("012-ask-translated-user-template.txt")
+        )
+        guard askTranslatedTemplate.contains("{target_language}"), askTranslatedTemplate.contains("{text}") else {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(directory.appendingPathComponent("012-ask-translated-user-template.txt"))) must contain {target_language} and {text} placeholders."
+            )
+        }
 
         let sonioxContext = optionalPrompt(values["004-soniox-transcription-context.txt"])
         let elevenLabsPreviousText = optionalPrompt(values["005-elevenlabs-previous-text.txt"])
@@ -548,7 +580,14 @@ public struct ConfigResolver: Sendable {
             compositeTranslationPromptTemplate: compositeTranslationTemplate,
             sonioxTranscriptionContext: sonioxContext,
             elevenLabsPreviousText: elevenLabsPreviousText,
-            elevenLabsKeyterms: elevenLabsKeyterms
+            elevenLabsKeyterms: elevenLabsKeyterms,
+            askSystemPrompt: try requiredPrompt(
+                values["010-ask-system.txt"],
+                name: "010-ask-system.txt",
+                path: directory.appendingPathComponent("010-ask-system.txt")
+            ),
+            askUserPromptTemplate: askTemplate,
+            askTranslatedUserPromptTemplate: askTranslatedTemplate
         )
     }
 
@@ -1044,7 +1083,7 @@ struct ParsedArguments: Sendable {
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
-                "--translation-policy", "--clipboard-default", "--input-default", "--protocol-output",
+                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--protocol-output",
                 "--llm-provider", "--llm-model", "--llm-max-output-tokens", "--llm-reasoning-effort",
                 "--release-latency-log-path":
                 let value: String

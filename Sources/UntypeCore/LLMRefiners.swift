@@ -1090,6 +1090,14 @@ public enum LLMRefinerFactory {
         return try make(config: translationConfig)
     }
 
+    /// The LLM that answers a dictated request (the ask operator).
+    public static func makeAsker(
+        config: LLMConfig,
+        systemPrompt: String = UntypePromptDefaults.askSystemPrompt
+    ) throws -> TextRefining? {
+        try makeTranslator(config: config, systemPrompt: systemPrompt)
+    }
+
     public static func makeCompositeRefineTranslator(
         config: LLMConfig,
         prompts: PromptConfig
