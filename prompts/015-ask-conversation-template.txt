@@ -1,0 +1,5 @@
+Earlier in this conversation (oldest first):
+<conversation>
+{history}
+</conversation>
+The new request continues this conversation: it may correct, refine, shorten, extend or add to your previous answer. If it asks to change the previous answer, return the complete revised text; if it asks for something additional, return only the new text.

@@ -98,7 +98,13 @@ public func applyPersistedProtocolSettings(
             : protocolConfig.initialOperators.input,
         ask: protocolConfig.settingSources.ask == .default
             ? persisted.operators.ask
-            : protocolConfig.initialOperators.ask
+            : protocolConfig.initialOperators.ask,
+        followup: protocolConfig.settingSources.followup == .default
+            ? persisted.operators.followup
+            : protocolConfig.initialOperators.followup,
+        selection: protocolConfig.settingSources.selection == .default
+            ? persisted.operators.selection
+            : protocolConfig.initialOperators.selection
     )
 
     let translationPolicy = protocolConfig.settingSources.translationPolicy == .default

@@ -158,7 +158,9 @@ private extension OperatorState {
             "translate": translate,
             "clipboard": clipboard,
             "input": input,
-            "ask": ask
+            "ask": ask,
+            "followup": followup,
+            "selection": selection
         ]
     }
 }

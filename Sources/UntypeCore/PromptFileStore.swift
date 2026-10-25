@@ -7,6 +7,7 @@ public struct PromptFileDescriptor: Sendable, Equatable, Identifiable {
         case translation = "Translation"
         case composite = "Refine + translate (one call)"
         case ask = "Ask (request to the model)"
+        case selection = "Selected text"
         case transcription = "Transcription context"
     }
 
@@ -133,6 +134,36 @@ public struct PromptFileStore: Sendable {
             defaultContent: UntypePromptDefaults.askTranslatedUserPromptTemplate,
             required: true,
             placeholders: ["{target_language}", "{text}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "015-ask-conversation-template.txt",
+            title: "Ask — conversation so far (Follow-up)",
+            group: .ask,
+            summary: "Put before the request when Follow-up is on; {history} is the earlier requests and answers.",
+            defaultContent: UntypePromptDefaults.askConversationTemplate,
+            required: true,
+            placeholders: ["{history}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "014-ask-selection-template.txt",
+            title: "Ask — selected text",
+            group: .selection,
+            summary: "Put before an Ask request when Selection is on; {selection} is the selected text.",
+            defaultContent: UntypePromptDefaults.askSelectionTemplate,
+            required: true,
+            placeholders: ["{selection}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "013-selection-context-template.txt",
+            title: "Refine / translate — selection as context",
+            group: .selection,
+            summary: "Appended to the refine or translate input when Selection is on and its role is Context.",
+            defaultContent: UntypePromptDefaults.selectionContextTemplate,
+            required: true,
+            placeholders: ["{selection}"],
             maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
         ),
         PromptFileDescriptor(

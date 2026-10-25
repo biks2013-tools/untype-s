@@ -15,6 +15,15 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Ask operator: the dictated text is a request to the LLM, whose answer
     /// replaces it.
     public var ask: Bool
+    /// Follow-up operator: Ask also sends the conversation so far.
+    public var followup: Bool
+    /// Selection operator: include the text selected in the active app.
+    public var selection: Bool
+    /// `material` or `context` (see `SelectionRole`).
+    public var selectionRole: String
+    /// Operators (by `OperatorKey` raw value) that switch off again after
+    /// each push-to-talk turn; the others stay as set until changed.
+    public var perTurnOperators: [String]
     public var translationPolicy: String
     public var llmEnabled: Bool
     public var llmProvider: String
@@ -55,6 +64,10 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         clipboard: false,
         focusedInput: false,
         ask: false,
+        followup: false,
+        selection: false,
+        selectionRole: SelectionRole.material.rawValue,
+        perTurnOperators: UntypeUISettings.defaultPerTurnOperators,
         translationPolicy: TranslationPolicy.opposite.rawValue,
         llmEnabled: true,
         llmProvider: LLMProvider.azureOpenAI.rawValue,
@@ -113,6 +126,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         next.selectedMonitorTab = selectedMonitorTab
         next.selectedEventsFilter = try normalizeEventsFilter(selectedEventsFilter)
         next.appearance = try normalizeAppearance(appearance)
+        next.selectionRole = try normalizeSelectionRole(selectionRole)
+        next.perTurnOperators = try normalizePerTurnOperators(perTurnOperators)
         next.apiKeyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
         next.apiKeyStatus = nonEmptyStatus(apiKeyStatus, fallback: "unknown")
         next.expiryStatus = nonEmptyStatus(expiryStatus, fallback: "not set")
@@ -160,6 +175,18 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let ask = patch.ask {
             next.ask = ask
+        }
+        if let followup = patch.followup {
+            next.followup = followup
+        }
+        if let selection = patch.selection {
+            next.selection = selection
+        }
+        if let selectionRole = patch.selectionRole {
+            next.selectionRole = selectionRole
+        }
+        if let perTurnOperators = patch.perTurnOperators {
+            next.perTurnOperators = perTurnOperators
         }
         if let translationPolicy = patch.translationPolicy {
             next.translationPolicy = translationPolicy
@@ -226,6 +253,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--clipboard-default", normalized.clipboard ? "on" : "off",
             "--input-default", normalized.focusedInput ? "on" : "off",
             "--ask-default", normalized.ask ? "on" : "off",
+            "--followup-default", normalized.followup ? "on" : "off",
+            "--selection-default", normalized.selection ? "on" : "off",
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
             normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
@@ -285,6 +314,10 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var clipboard: Bool?
     public var focusedInput: Bool?
     public var ask: Bool?
+    public var followup: Bool?
+    public var selection: Bool?
+    public var selectionRole: String?
+    public var perTurnOperators: [String]?
     public var translationPolicy: String?
     public var llmEnabled: Bool?
     public var llmProvider: String?
@@ -315,6 +348,10 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         clipboard: Bool? = nil,
         focusedInput: Bool? = nil,
         ask: Bool? = nil,
+        followup: Bool? = nil,
+        selection: Bool? = nil,
+        selectionRole: String? = nil,
+        perTurnOperators: [String]? = nil,
         translationPolicy: String? = nil,
         llmEnabled: Bool? = nil,
         llmProvider: String? = nil,
@@ -344,6 +381,10 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.clipboard = clipboard
         self.focusedInput = focusedInput
         self.ask = ask
+        self.followup = followup
+        self.selection = selection
+        self.selectionRole = selectionRole
+        self.perTurnOperators = perTurnOperators
         self.translationPolicy = translationPolicy
         self.llmEnabled = llmEnabled
         self.llmProvider = llmProvider
@@ -578,6 +619,10 @@ public enum UntypeUISettingsStore {
             clipboard: operators.clipboard,
             focusedInput: operators.input,
             ask: operators.ask,
+            followup: operators.followup,
+            selection: operators.selection,
+            selectionRole: current.selectionRole,
+            perTurnOperators: current.perTurnOperators,
             translationPolicy: protocolConfig.translationPolicy.rawValue,
             llmEnabled: config.llm.enabled,
             llmProvider: config.llm.provider.rawValue,
@@ -643,6 +688,10 @@ private struct PersistedUISettings: Codable {
     let clipboard: Bool
     let focusedInput: Bool
     let ask: Bool?
+    let followup: Bool?
+    let selection: Bool?
+    let selectionRole: String?
+    let perTurnOperators: [String]?
     let translationPolicy: String
     let llmEnabled: Bool
     let llmProvider: String
@@ -673,6 +722,10 @@ private struct PersistedUISettings: Codable {
         case clipboard
         case focusedInput
         case ask
+        case followup
+        case selection
+        case selectionRole
+        case perTurnOperators
         case translationPolicy
         case llmEnabled
         case llmProvider
@@ -704,6 +757,10 @@ private struct PersistedUISettings: Codable {
         self.clipboard = settings.clipboard
         self.focusedInput = settings.focusedInput
         self.ask = settings.ask
+        self.followup = settings.followup
+        self.selection = settings.selection
+        self.selectionRole = settings.selectionRole
+        self.perTurnOperators = settings.perTurnOperators
         self.translationPolicy = settings.translationPolicy
         self.llmEnabled = settings.llmEnabled
         self.llmProvider = settings.llmProvider
@@ -738,6 +795,10 @@ private struct PersistedUISettings: Codable {
                 clipboard: clipboard,
                 focusedInput: focusedInput,
                 ask: ask ?? defaults.ask,
+                followup: followup ?? defaults.followup,
+                selection: selection ?? defaults.selection,
+                selectionRole: selectionRole ?? defaults.selectionRole,
+                perTurnOperators: perTurnOperators ?? defaults.perTurnOperators,
                 translationPolicy: translationPolicy,
                 llmEnabled: llmEnabled,
                 llmProvider: llmProvider,
@@ -929,6 +990,88 @@ private func normalizeEventsFilter(_ value: String) throws -> String {
         return normalized
     }
     throw UntypeError.invalidConfiguration("selectedEventsFilter must be one of \(allowed.sorted().joined(separator: ", ")). Got: \(value).")
+}
+
+extension UntypeUISettings {
+    public static let defaultPerTurnOperators = [
+        OperatorKey.ask.rawValue,
+        OperatorKey.followup.rawValue,
+        OperatorKey.selection.rawValue
+    ]
+
+    public func isPerTurn(_ key: OperatorKey) -> Bool {
+        perTurnOperators.contains(key.rawValue)
+    }
+
+    public var selectionRoleValue: SelectionRole {
+        SelectionRole(rawValue: selectionRole) ?? .material
+    }
+
+    public func value(of key: OperatorKey) -> Bool {
+        switch key {
+        case .refine: return refine
+        case .translate: return translate
+        case .clipboard: return clipboard
+        case .input: return focusedInput
+        case .ask: return ask
+        case .followup: return followup
+        case .selection: return selection
+        }
+    }
+
+    /// The patch that switches off every per-turn operator that is on, or nil.
+    public func perTurnResetPatch() -> UntypeUISettingsPatch? {
+        let reset = OperatorKey.allCases.filter { isPerTurn($0) && value(of: $0) }
+        guard !reset.isEmpty else {
+            return nil
+        }
+        return UntypeUISettingsPatch(
+            refine: reset.contains(.refine) ? false : nil,
+            translate: reset.contains(.translate) ? false : nil,
+            clipboard: reset.contains(.clipboard) ? false : nil,
+            focusedInput: reset.contains(.input) ? false : nil,
+            ask: reset.contains(.ask) ? false : nil,
+            followup: reset.contains(.followup) ? false : nil,
+            selection: reset.contains(.selection) ? false : nil
+        )
+    }
+
+    public static func operatorPatch(_ key: OperatorKey, _ value: Bool) -> UntypeUISettingsPatch {
+        switch key {
+        case .refine: return UntypeUISettingsPatch(refine: value)
+        case .translate: return UntypeUISettingsPatch(translate: value)
+        case .clipboard: return UntypeUISettingsPatch(clipboard: value)
+        case .input: return UntypeUISettingsPatch(focusedInput: value)
+        case .ask: return UntypeUISettingsPatch(ask: value)
+        case .followup: return UntypeUISettingsPatch(followup: value)
+        case .selection: return UntypeUISettingsPatch(selection: value)
+        }
+    }
+
+    public func settingPerTurn(_ key: OperatorKey, _ perTurn: Bool) -> [String] {
+        var keys = Set(perTurnOperators)
+        if perTurn {
+            keys.insert(key.rawValue)
+        } else {
+            keys.remove(key.rawValue)
+        }
+        return OperatorKey.allCases.map(\.rawValue).filter { keys.contains($0) }
+    }
+}
+
+private func normalizeSelectionRole(_ value: String) throws -> String {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard SelectionRole(rawValue: normalized) != nil else {
+        throw UntypeError.invalidConfiguration("Unsupported selection role: \(value). Expected material or context.")
+    }
+    return normalized
+}
+
+private func normalizePerTurnOperators(_ values: [String]) throws -> [String] {
+    for value in values where OperatorKey(rawValue: value) == nil {
+        throw UntypeError.invalidConfiguration("Unknown operator in perTurnOperators: \(value).")
+    }
+    return OperatorKey.allCases.map(\.rawValue).filter { values.contains($0) }
 }
 
 private func normalizeAppearance(_ value: String) throws -> String {

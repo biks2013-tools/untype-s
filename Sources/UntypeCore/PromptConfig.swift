@@ -13,6 +13,9 @@ public struct PromptConfig: Equatable, Sendable {
     public let askSystemPrompt: String
     public let askUserPromptTemplate: String
     public let askTranslatedUserPromptTemplate: String
+    public let selectionContextTemplate: String
+    public let askSelectionTemplate: String
+    public let askConversationTemplate: String
 
     public init(
         refinementSystemPrompt: String,
@@ -26,7 +29,10 @@ public struct PromptConfig: Equatable, Sendable {
         elevenLabsKeyterms: [String],
         askSystemPrompt: String = UntypePromptDefaults.askSystemPrompt,
         askUserPromptTemplate: String = UntypePromptDefaults.askUserPromptTemplate,
-        askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate
+        askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate,
+        selectionContextTemplate: String = UntypePromptDefaults.selectionContextTemplate,
+        askSelectionTemplate: String = UntypePromptDefaults.askSelectionTemplate,
+        askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate
     ) {
         self.refinementSystemPrompt = refinementSystemPrompt
         self.translationSystemPrompt = translationSystemPrompt
@@ -40,6 +46,9 @@ public struct PromptConfig: Equatable, Sendable {
         self.askSystemPrompt = askSystemPrompt
         self.askUserPromptTemplate = askUserPromptTemplate
         self.askTranslatedUserPromptTemplate = askTranslatedUserPromptTemplate
+        self.selectionContextTemplate = selectionContextTemplate
+        self.askSelectionTemplate = askSelectionTemplate
+        self.askConversationTemplate = askConversationTemplate
     }
 
     public static let defaultValue = PromptConfig(
@@ -74,6 +83,12 @@ public enum UntypePromptDefaults {
 
     public static let askTranslatedUserPromptTemplate = "Dictated request:\n\n{text}\n\nWrite your reply in {target_language}, whatever language the request is in."
 
+    public static let selectionContextTemplate = "Reference only - text the user has selected in the active app. Use it only to resolve names, terminology and style; do not process, translate, answer or repeat it:\n<selected_text>\n{selection}\n</selected_text>"
+
+    public static let askSelectionTemplate = "Text the user has selected in the active app (the request may refer to it as \"this\", \"the selected text\" or similar):\n<selected_text>\n{selection}\n</selected_text>"
+
+    public static let askConversationTemplate = "Earlier in this conversation (oldest first):\n<conversation>\n{history}\n</conversation>\nThe new request continues this conversation: it may correct, refine, shorten, extend or add to your previous answer. If it asks to change the previous answer, return the complete revised text; if it asks for something additional, return only the new text."
+
     public static let promptFiles: [(name: String, defaultContent: String, required: Bool)] = [
         ("001-refinement-system.txt", refinementSystemPrompt, true),
         ("002-translation-system.txt", translationSystemPrompt, true),
@@ -86,6 +101,9 @@ public enum UntypePromptDefaults {
         ("009-composite-translation-template.txt", compositeTranslationPromptTemplate, true),
         ("010-ask-system.txt", askSystemPrompt, true),
         ("011-ask-user-template.txt", askUserPromptTemplate, true),
-        ("012-ask-translated-user-template.txt", askTranslatedUserPromptTemplate, true)
+        ("012-ask-translated-user-template.txt", askTranslatedUserPromptTemplate, true),
+        ("013-selection-context-template.txt", selectionContextTemplate, true),
+        ("014-ask-selection-template.txt", askSelectionTemplate, true),
+        ("015-ask-conversation-template.txt", askConversationTemplate, true)
     ]
 }

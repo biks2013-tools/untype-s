@@ -309,6 +309,26 @@ public struct ConfigResolver: Sendable {
             flagName: "--ask-default",
             envName: "UNTYPE_ASK_DEFAULT"
         ) ?? false
+        let followupDefault = try parseBoolean(
+            resolveString(
+                flagValue: parsed.value(for: "--followup-default"),
+                chain: chain,
+                envKey: "UNTYPE_FOLLOWUP_DEFAULT",
+                defaultValue: "off"
+            ),
+            flagName: "--followup-default",
+            envName: "UNTYPE_FOLLOWUP_DEFAULT"
+        ) ?? false
+        let selectionDefault = try parseBoolean(
+            resolveString(
+                flagValue: parsed.value(for: "--selection-default"),
+                chain: chain,
+                envKey: "UNTYPE_SELECTION_DEFAULT",
+                defaultValue: "off"
+            ),
+            flagName: "--selection-default",
+            envName: "UNTYPE_SELECTION_DEFAULT"
+        ) ?? false
 
         let translationPolicyRaw = resolveString(
             flagValue: parsed.value(for: "--translation-policy"),
@@ -342,7 +362,9 @@ public struct ConfigResolver: Sendable {
                 translate: translateDefault,
                 clipboard: clipboardDefault,
                 input: inputDefault,
-                ask: askDefault
+                ask: askDefault,
+                followup: followupDefault,
+                selection: selectionDefault
             ),
             translationPolicy: translationPolicy,
             protocolOutput: protocolOutput?.isEmpty == true ? nil : protocolOutput,
@@ -352,6 +374,8 @@ public struct ConfigResolver: Sendable {
                 clipboard: configuredSource(parsed.value(for: "--clipboard-default"), chain: chain, envKey: "UNTYPE_CLIPBOARD_DEFAULT"),
                 input: configuredSource(parsed.value(for: "--input-default"), chain: chain, envKey: "UNTYPE_INPUT_DEFAULT"),
                 ask: configuredSource(parsed.value(for: "--ask-default"), chain: chain, envKey: "UNTYPE_ASK_DEFAULT"),
+                followup: configuredSource(parsed.value(for: "--followup-default"), chain: chain, envKey: "UNTYPE_FOLLOWUP_DEFAULT"),
+                selection: configuredSource(parsed.value(for: "--selection-default"), chain: chain, envKey: "UNTYPE_SELECTION_DEFAULT"),
                 translationPolicy: configuredSource(parsed.value(for: "--translation-policy"), chain: chain, envKey: "UNTYPE_TRANSLATION_POLICY")
             )
         )
@@ -531,6 +555,9 @@ public struct ConfigResolver: Sendable {
                 "Prompt file \(displayPath(directory.appendingPathComponent("012-ask-translated-user-template.txt"))) must contain {target_language} and {text} placeholders."
             )
         }
+        let selectionContextTemplate = try placeholderPrompt(values, "013-selection-context-template.txt", requires: ["{selection}"], directory: directory)
+        let askSelectionTemplate = try placeholderPrompt(values, "014-ask-selection-template.txt", requires: ["{selection}"], directory: directory)
+        let askConversationTemplate = try placeholderPrompt(values, "015-ask-conversation-template.txt", requires: ["{history}"], directory: directory)
 
         let sonioxContext = optionalPrompt(values["004-soniox-transcription-context.txt"])
         let elevenLabsPreviousText = optionalPrompt(values["005-elevenlabs-previous-text.txt"])
@@ -589,8 +616,27 @@ public struct ConfigResolver: Sendable {
                 path: directory.appendingPathComponent("010-ask-system.txt")
             ),
             askUserPromptTemplate: askTemplate,
-            askTranslatedUserPromptTemplate: askTranslatedTemplate
+            askTranslatedUserPromptTemplate: askTranslatedTemplate,
+            selectionContextTemplate: selectionContextTemplate,
+            askSelectionTemplate: askSelectionTemplate,
+            askConversationTemplate: askConversationTemplate
         )
+    }
+
+    private func placeholderPrompt(
+        _ values: [String: String],
+        _ name: String,
+        requires placeholders: [String],
+        directory: URL
+    ) throws -> String {
+        let path = directory.appendingPathComponent(name)
+        let value = try requiredPrompt(values[name], name: name, path: path)
+        for placeholder in placeholders where !value.contains(placeholder) {
+            throw UntypeError.invalidConfiguration(
+                "Prompt file \(displayPath(path)) must contain the \(placeholder) placeholder."
+            )
+        }
+        return value
     }
 
     private func promptDirectory() -> URL {
@@ -1100,7 +1146,7 @@ struct ParsedArguments: Sendable {
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
-                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--protocol-output",
+                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--followup-default", "--selection-default", "--protocol-output",
                 "--llm-provider", "--llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
                 "--release-latency-log-path":
                 let value: String

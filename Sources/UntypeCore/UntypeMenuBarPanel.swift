@@ -35,6 +35,8 @@ struct UntypeMenuBarPanel: View {
                     .keyboardShortcut("1", modifiers: [.command])
                 actionRow("History", systemImage: "clock.arrow.circlepath", shortcut: "⌘2", action: openHistory)
                     .keyboardShortcut("2", modifiers: [.command])
+                actionRow("New conversation", systemImage: "bubble.left.and.bubble.right", shortcut: "", action: model.startNewAskConversation)
+                    .help("Forget the Ask conversation that Follow-up sends along")
                 actionRow("Settings…", systemImage: "gearshape", shortcut: "⌘,", action: openSettings)
                     .keyboardShortcut(",", modifiers: [.command])
                 Divider()
@@ -158,8 +160,8 @@ struct UntypeMenuBarPanel: View {
     private var operatorsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader("Operators", trailing: "hotkey + key")
-            operatorRow("Refine", key: "R", isOn: model.settings.refine) { model.toggleOperator(.refine) }
-            operatorRow("Translate", key: "T", isOn: model.settings.translate) { model.toggleOperator(.translate) }
+            operatorRow("Refine", key: "R", isOn: model.settings.refine, perTurn: model.settings.isPerTurn(.refine)) { model.toggleOperator(.refine) }
+            operatorRow("Translate", key: "T", isOn: model.settings.translate, perTurn: model.settings.isPerTurn(.translate)) { model.toggleOperator(.translate) }
             if model.settings.translate {
                 HStack(spacing: 8) {
                     Text("to")
@@ -176,13 +178,15 @@ struct UntypeMenuBarPanel: View {
                     .disabled(!model.canReshapeSession)
                 }
             }
-            operatorRow("Ask the model", key: "A", isOn: model.settings.ask) { model.toggleOperator(.ask) }
-            operatorRow("Clipboard", key: "C", isOn: model.settings.clipboard) { model.toggleOperator(.clipboard) }
-            operatorRow("Type into focused input", key: "I", isOn: model.settings.focusedInput) { model.toggleOperator(.input) }
+            operatorRow("Ask the model", key: "A", isOn: model.settings.ask, perTurn: model.settings.isPerTurn(.ask)) { model.toggleOperator(.ask) }
+            operatorRow("Follow-up (continue the conversation)", key: "F", isOn: model.settings.followup, perTurn: model.settings.isPerTurn(.followup)) { model.toggleOperator(.followup) }
+            operatorRow("Include selected text", key: "S", isOn: model.settings.selection, perTurn: model.settings.isPerTurn(.selection)) { model.toggleOperator(.selection) }
+            operatorRow("Clipboard", key: "C", isOn: model.settings.clipboard, perTurn: model.settings.isPerTurn(.clipboard)) { model.toggleOperator(.clipboard) }
+            operatorRow("Type into focused input", key: "I", isOn: model.settings.focusedInput, perTurn: model.settings.isPerTurn(.input)) { model.toggleOperator(.input) }
         }
     }
 
-    private func operatorRow(_ title: String, key: String, isOn: Bool, toggle: @escaping () -> Void) -> some View {
+    private func operatorRow(_ title: String, key: String, isOn: Bool, perTurn: Bool, toggle: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
             Text(key)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -194,6 +198,12 @@ struct UntypeMenuBarPanel: View {
                 )
             Text(title)
                 .font(.system(size: 12))
+            if perTurn {
+                Text("1×")
+                    .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .help("This turn only: switched off again after each push-to-talk turn")
+            }
             Spacer(minLength: 6)
             Toggle(title, isOn: Binding(get: { isOn }, set: { if $0 != isOn { toggle() } }))
                 .toggleStyle(.switch)
@@ -210,7 +220,7 @@ struct UntypeMenuBarPanel: View {
             sectionHeader("Hotkeys", trailing: nil)
             hotkeyLine(model.settings.hotkey,
                        model.settings.hotkeyHoldToTalk ? "hold to record, release to submit" : "press to start, press again to submit")
-            hotkeyLine("+ R T A C I", "switch an operator mid-turn")
+            hotkeyLine("+ R T A F S C I", "switch an operator mid-turn")
             if !model.settings.hotkeyEnabled {
                 Text("The hotkey is off — switch it on above.")
                     .font(.caption)

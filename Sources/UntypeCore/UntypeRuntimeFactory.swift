@@ -62,6 +62,10 @@ public enum UntypeRuntimeFactory {
             asker: asker,
             askUserPromptTemplate: config.prompts.askUserPromptTemplate,
             askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
+            askConversation: AskConversation(),
+            selectionContextTemplate: config.prompts.selectionContextTemplate,
+            askSelectionTemplate: config.prompts.askSelectionTemplate,
+            askConversationTemplate: config.prompts.askConversationTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
             diagnostics: diagnostics
@@ -117,7 +121,9 @@ public enum UntypeRuntimeFactory {
         eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void,
         focusedInputPreparation: @escaping @Sendable () async -> Void = {},
         focusedInputReconciliation: @escaping @Sendable (_ text: String) async -> LiveInputReconciliation = { _ in .notLive },
-        streamingProgress: (@Sendable (String) -> Void)? = nil
+        streamingProgress: (@Sendable (String) -> Void)? = nil,
+        turnContext: UntypeTurnContext? = nil,
+        askConversation: AskConversation = AskConversation()
     ) throws -> UntypeRuntimeSession {
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
         let controllerDiagnostics = ProtocolControllerDiagnostics { line, warning in
@@ -164,6 +170,11 @@ public enum UntypeRuntimeFactory {
             asker: asker,
             askUserPromptTemplate: config.prompts.askUserPromptTemplate,
             askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
+            turnContext: turnContext,
+            askConversation: askConversation,
+            selectionContextTemplate: config.prompts.selectionContextTemplate,
+            askSelectionTemplate: config.prompts.askSelectionTemplate,
+            askConversationTemplate: config.prompts.askConversationTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 await focusedInputPreparation()

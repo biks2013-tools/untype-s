@@ -172,6 +172,14 @@ The current Swift LLM layer preserves the source project's two implemented provi
 
 - **Ask operator (FR-37, plan-036).** `OperatorKey.ask` makes a section a request to the model instead of text to process. `UntypeRuntimeFactory` builds an asker with `LLMRefinerFactory.makeAsker` (the selected provider with system prompt `010-ask-system.txt`). When `ask` is active, `VoiceAgentProtocolController.processSection` sends the raw section through template `011-ask-user-template.txt`, or through `012-ask-translated-user-template.txt` with `{target_language}` when `translate` is also active. The answer becomes the output text. Refine, composite and translate calls are skipped, so it is always one LLM call. The JSONL `section.processed` event keeps `raw_text` (the request) and `output_text` (the answer), and the source/target languages are recorded only when translate shaped the answer. Failure is fail-open like the other operators: the dictated text is delivered with an `ask operator failed` warning.
 
+- **Follow-up and Selection (FR-40/41, plan-037).** Runtimes are recreated every turn, so two UI-owned, lock-protected stores are injected through `UntypeRuntimeFactory.makeForUI` into every controller. `AskConversation` holds the Ask exchanges. `UntypeTurnContext` holds the selected text captured at press and its `SelectionRole`.
+  - **Ask:** `processSection` builds the request from the conversation block (015, only with `followup`), then the selection block (014, only with `selection`), then the request template (011/012). Without `followup` it clears the conversation, and every successful answer is appended to it.
+  - **Refine/translate, material:** the processed input is the selection followed by the dictation.
+  - **Refine/translate, context:** the reference block (013) is appended to the refine input, the rendered translation prompt or the composite input.
+  - **Silent press:** `submitWithoutDictation()` is called from the runtime's three no-text release branches. It processes a selection alone when Ask, or material with refine/translate, is active.
+  - **Capture:** `SelectedTextReader` reads AX at every press (side-effect free). It sends ⌘C with pasteboard restore only when Selection is on and AX is unsupported. `LiveFocusedInputTyper.hold()/resume()` keeps live typing from replacing the selection before it is read.
+- **Operator persistence (FR-39).** `perTurnOperators` lists the operators reset by `UntypeUIModel.resetPerTurnOperators()` in the `ui-hotkey-release` stop completion. This happens before the next warm session (or a queued press) starts, so that session already has them off.
+
 Runtime LLM failures remain fail-open at the protocol controller boundary: refinement or translation errors do not terminate the transcription session, and verbose diagnostics include the failure kind. Startup LLM configuration failures remain fatal configuration errors with exit code `2`.
 
 ## Soniox Provider Adapter
