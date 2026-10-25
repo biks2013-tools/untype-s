@@ -70,6 +70,16 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+### 2026-10-25 - FIXED (build 26): Ask answers truncated, and a press during delivery was lost
+- **Ask `max_tokens` (seen 09:43:45Z).**
+  - Cause: the Ask call inherited `UNTYPE_LLM_MAX_OUTPUT_TOKENS=1000` (set for refine/translate) and the 15 s LLM timeout. The same request answered in 28.9 s live.
+  - Fix: `LLMConfig.askMaxOutputTokens` (`--ask-max-output-tokens` / `UNTYPE_ASK_MAX_OUTPUT_TOKENS`, default 8000) and `askRequestTimeoutMs` (120 s), applied by `LLMRefinerFactory.makeAsker`.
+- **Lost press (seen 09:28:35Z).**
+  - Cause: a press while the previous turn's runtime was stopping reused that runtime's closed `HotkeySessionControl`. The stop completion then reset `hotkeyPressed`, so the release was ignored and nothing was recorded.
+  - Fix: `runtimeStopInFlight` / `hotkeyPressQueued` in `UntypeUIModel`. The press is queued, and when the stop completes it starts a cold turn (`startHotkeySession(source: "queued-press")`) instead of re-warming. A release before that drops it, with a warning.
+  - The earlier turn's runtime and live typing are never touched.
+
+
 ### 2026-10-25 - FIXED (build 25): push-to-talk went dead after the provider closed the idle warm session
 - **Symptom:** after a long idle period the hotkey shows the recording overlay but nothing is transcribed; only quitting and relaunching untype brings it back. Seen twice on 2026-10-25, around 03:49 and 10:14 local time.
 - **Evidence (macOS unified log, `/usr/bin/log show --predicate 'processImagePath CONTAINS "untype.app"'`):**

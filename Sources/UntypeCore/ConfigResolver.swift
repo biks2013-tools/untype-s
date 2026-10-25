@@ -425,6 +425,7 @@ public struct ConfigResolver: Sendable {
         )
         let llmMaxOutputTokens = try resolveLLMMaxOutputTokens(parsed: parsed, chain: chain)
         let llmReasoningEffort = try resolveLLMReasoningEffort(parsed: parsed, chain: chain)
+        let askMaxOutputTokens = try resolveAskMaxOutputTokens(parsed: parsed, chain: chain)
         let llm = LLMConfig(
             enabled: refine,
             provider: llmProvider,
@@ -435,7 +436,8 @@ public struct ConfigResolver: Sendable {
             verbose: verbose,
             maxOutputTokens: llmMaxOutputTokens,
             reasoningEffort: llmReasoningEffort,
-            streamingEnabled: llmStreaming
+            streamingEnabled: llmStreaming,
+            askMaxOutputTokens: askMaxOutputTokens
         )
 
         return ResolvedConfig(
@@ -732,6 +734,21 @@ public struct ConfigResolver: Sendable {
         guard let value = Int(raw), value > 0 else {
             throw UntypeError.invalidConfiguration(
                 "--llm-max-output-tokens / UNTYPE_LLM_MAX_OUTPUT_TOKENS must be a positive integer. Got: '\(raw)'."
+            )
+        }
+        return value
+    }
+
+    private func resolveAskMaxOutputTokens(parsed: ParsedArguments, chain: EnvChain) throws -> Int {
+        let raw = resolveString(
+            flagValue: parsed.value(for: "--ask-max-output-tokens"),
+            chain: chain,
+            envKey: "UNTYPE_ASK_MAX_OUTPUT_TOKENS",
+            defaultValue: String(LLMConfig.defaultAskMaxOutputTokens)
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(raw), value > 0 else {
+            throw UntypeError.invalidConfiguration(
+                "--ask-max-output-tokens / UNTYPE_ASK_MAX_OUTPUT_TOKENS must be a positive integer. Got: '\(raw)'."
             )
         }
         return value
@@ -1084,7 +1101,7 @@ struct ParsedArguments: Sendable {
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
                 "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--protocol-output",
-                "--llm-provider", "--llm-model", "--llm-max-output-tokens", "--llm-reasoning-effort",
+                "--llm-provider", "--llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
                 "--release-latency-log-path":
                 let value: String
                 if let inline = split.value {

@@ -180,3 +180,22 @@ private func askProtocolEvents(_ text: String) throws -> [[String: Any]] {
         return object as? [String: Any] ?? [:]
     }
 }
+
+@Test func askHasItsOwnOutputCapAndTimeout() throws {
+    let temp = AskTemporaryDirectory()
+    let shell = ["UNTYPE_LLM_MAX_OUTPUT_TOKENS": "1000"]
+    let defaults = try ConfigResolver(cwd: temp.url, home: temp.url, shell: shell, validateLLMProviderConfig: false)
+        .resolve(argv: ["--api-key", "test-key"])
+    #expect(defaults.llm.maxOutputTokens == 1000)
+    #expect(defaults.llm.askMaxOutputTokens == LLMConfig.defaultAskMaxOutputTokens)
+    #expect(defaults.llm.askRequestTimeoutMs == LLMConfig.defaultAskRequestTimeoutMs)
+
+    let custom = try ConfigResolver(cwd: temp.url, home: temp.url, shell: ["UNTYPE_ASK_MAX_OUTPUT_TOKENS": "12000"], validateLLMProviderConfig: false)
+        .resolve(argv: ["--api-key", "test-key"])
+    #expect(custom.llm.askMaxOutputTokens == 12000)
+
+    #expect(throws: UntypeError.self) {
+        try ConfigResolver(cwd: temp.url, home: temp.url, shell: [:], validateLLMProviderConfig: false)
+            .resolve(argv: ["--api-key", "test-key", "--ask-max-output-tokens", "0"])
+    }
+}

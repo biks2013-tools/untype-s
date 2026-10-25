@@ -1095,7 +1095,21 @@ public enum LLMRefinerFactory {
         config: LLMConfig,
         systemPrompt: String = UntypePromptDefaults.askSystemPrompt
     ) throws -> TextRefining? {
-        try makeTranslator(config: config, systemPrompt: systemPrompt)
+        guard config.enabled else {
+            return nil
+        }
+        return try make(config: LLMConfig(
+            enabled: config.enabled,
+            provider: config.provider,
+            model: config.model,
+            systemPrompt: systemPrompt,
+            requestTimeoutMs: config.askRequestTimeoutMs,
+            providerConfig: config.providerConfig,
+            verbose: config.verbose,
+            maxOutputTokens: config.askMaxOutputTokens,
+            reasoningEffort: config.reasoningEffort,
+            streamingEnabled: config.streamingEnabled
+        ))
     }
 
     public static func makeCompositeRefineTranslator(

@@ -361,6 +361,12 @@ final class UntypeUIModel: ObservableObject {
     private var warmSessionRecycleTask: Task<Void, Never>?
     private var restartWarmSessionAfterStop = false
     private var warmSessionRecycleInFlight = false
+    /// The UI is stopping the runtime (release, warm recycle); a press now
+    /// cannot use it.
+    private var runtimeStopInFlight = false
+    /// A press that arrived while `runtimeStopInFlight`: it starts its turn
+    /// as soon as the previous one is delivered, instead of being lost.
+    private var hotkeyPressQueued = false
     private var lastAudioEventCategory: String?
     private var lastAudioEventLoggedAt = Date.distantPast
     private var workspaceActivationObserver: NSObjectProtocol?
@@ -654,6 +660,16 @@ final class UntypeUIModel: ObservableObject {
             appendEvent("diagnostic.warning: [untype] push-to-talk ignored while a manual session is running")
             return
         }
+        if runtimeStopInFlight, sessionOwner == .hotkey {
+            // The previous turn is still being delivered (or the warm session
+            // recycled). Its runtime and live typing must stay untouched, so
+            // the new turn starts when that stop completes.
+            hotkeyPressQueued = true
+            hotkeyPressed = true
+            clearWarmSessionRecycleTimer()
+            appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) queued until the previous turn is delivered (\(source))")
+            return
+        }
         hotkeyPressed = true
         captureState = "recording"
         latestTranscript = ""
@@ -681,6 +697,12 @@ final class UntypeUIModel: ObservableObject {
     }
 
     func stopHotkeySession(source: String = "hotkey") {
+        if hotkeyPressQueued {
+            hotkeyPressQueued = false
+            hotkeyPressed = false
+            appendEvent("diagnostic.warning: [untype] \(hotkeyModeLabel) released before the previous turn was delivered; nothing was recorded (\(source))")
+            return
+        }
         guard hotkeyPressed else {
             return
         }
@@ -936,6 +958,7 @@ final class UntypeUIModel: ObservableObject {
         }
         clearWarmSessionRecycleTimer()
         sessionState = "stopping"
+        runtimeStopInFlight = true
         Task.detached { [weak self] in
             if let releaseMarker, let runtime = runtime as? TranscriptionSessionRuntime {
                 await runtime.stop(reason: reason, submitPending: submitPending, releaseMarker: releaseMarker)
@@ -963,6 +986,16 @@ final class UntypeUIModel: ObservableObject {
                 self.captureState = "idle"
                 self.isRunning = false
                 self.hotkeyPressed = false
+                self.runtimeStopInFlight = false
+                if self.hotkeyPressQueued {
+                    // A press arrived while this turn was being delivered:
+                    // start its turn now (cold start, like a press with no
+                    // warm session) instead of re-warming an idle one.
+                    self.hotkeyPressQueued = false
+                    self.restartWarmSessionAfterStop = false
+                    self.startHotkeySession(source: "queued-press")
+                    return
+                }
                 self.overlay?.hideAfterDelay()
                 if self.restartWarmSessionAfterStop {
                     self.restartWarmSessionAfterStop = false
@@ -1015,6 +1048,7 @@ final class UntypeUIModel: ObservableObject {
     }
 
     private func stopHotkeyWarmSession(restartAfterStop: Bool) {
+        hotkeyPressQueued = false
         hotkeyPressed = false
         hotkeySessionControl?.close()
         clearWarmSessionRecycleTimer()
