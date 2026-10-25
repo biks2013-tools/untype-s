@@ -52,7 +52,8 @@ func liveLLMProviderAnswersDictatedRequests() async throws {
 
     let requests = [
         "ehm write a a short reply to Maria thanking her for the report and uh proposing we meet on Tuesday",
-        "γράψε μου σε δύο προτάσεις τι είναι το mutex"
+        "γράψε μου σε δύο προτάσεις τι είναι το mutex",
+        "Θέλω να μου προσθέσεις μερικά στοιχεία που να δείχνουν πώς τράπεζες μεγάλες τράπεζες στο εξωτερικό, εε, έχουν χρησιμοποιήσει, χρησιμοποιούν σήμερα την τεχνητή νοημοσύνη σε σενάρια εξυπηρετήσεων πελατών τους, αλλά και σε σενάρια που αφορούν την εσωτερική λειτουργία τους."
     ]
     for request in requests {
         let start = Date()

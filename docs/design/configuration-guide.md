@@ -86,7 +86,10 @@ With **Ask** on, what you dictate is not text to clean up but a request to the L
 - Refine is skipped while Ask is on (the model reads the raw dictation; a cleanup call would only add latency).
 - Translate on as well: the same single call uses `012-ask-translated-user-template.txt`, so the reply is written in the target language chosen by the translation policy (`opposite`, `to-en`, `to-el`).
 - Requires the LLM to be enabled (`--refine` / Settings → LLM). Otherwise the warning "Ask operator is enabled, but no LLM is configured." appears and the dictated text is delivered unchanged. The same fail-open applies when the request fails (the warning reads "ask operator failed: …").
-- It uses the configured LLM provider, model, reasoning effort and max output tokens. Raise `UNTYPE_LLM_MAX_OUTPUT_TOKENS` if long answers are cut off (Claude defaults to 4096 tokens).
+- It uses the configured LLM provider, model and reasoning effort, but its **own limits**, because an answer is a full text rather than a rewrite of the dictation:
+  - Output cap `--ask-max-output-tokens` / `UNTYPE_ASK_MAX_OUTPUT_TOKENS` (default `8000`, positive integer). `UNTYPE_LLM_MAX_OUTPUT_TOKENS` keeps capping refine/translate only.
+  - Request timeout 120 s, fixed (refine/translate keep 15 s). A long answer can take 30 s or more.
+  - An answer that still exceeds the cap fails with "LLM output was truncated (stop_reason max_tokens)", and the dictated text is delivered. Raise the cap in that case.
 - The latency log records the call as `durations_ms.ask_ms`.
 
 ## Prompt Configuration

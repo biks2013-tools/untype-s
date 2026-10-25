@@ -64,6 +64,12 @@ public struct LLMConfig: Equatable, Sendable {
     /// Optional toggle with a documented default of `false` (one-shot path);
     /// silently inert for providers other than `azure-openai` / `google`.
     public let streamingEnabled: Bool
+    /// Output cap for the Ask operator, whose answers are full texts rather
+    /// than a rewrite of the dictation (`--ask-max-output-tokens`).
+    public let askMaxOutputTokens: Int
+    /// Request timeout for the Ask operator; long answers take far longer
+    /// than a refine or translate call.
+    public let askRequestTimeoutMs: Int
 
     public init(
         enabled: Bool,
@@ -75,7 +81,9 @@ public struct LLMConfig: Equatable, Sendable {
         verbose: Bool,
         maxOutputTokens: Int? = nil,
         reasoningEffort: String? = nil,
-        streamingEnabled: Bool = false
+        streamingEnabled: Bool = false,
+        askMaxOutputTokens: Int = LLMConfig.defaultAskMaxOutputTokens,
+        askRequestTimeoutMs: Int = LLMConfig.defaultAskRequestTimeoutMs
     ) {
         self.enabled = enabled
         self.provider = provider
@@ -87,7 +95,12 @@ public struct LLMConfig: Equatable, Sendable {
         self.maxOutputTokens = maxOutputTokens
         self.reasoningEffort = reasoningEffort
         self.streamingEnabled = streamingEnabled
+        self.askMaxOutputTokens = askMaxOutputTokens
+        self.askRequestTimeoutMs = askRequestTimeoutMs
     }
+
+    public static let defaultAskMaxOutputTokens = 8_000
+    public static let defaultAskRequestTimeoutMs = 120_000
 }
 
 public struct MarkerConfig: Equatable, Sendable {

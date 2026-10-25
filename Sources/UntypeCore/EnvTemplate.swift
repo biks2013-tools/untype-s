@@ -139,6 +139,8 @@ public enum UntypeEnvTemplate {
     # UNTYPE_INPUT_DEFAULT=
     # Ask: treat the dictated text as a request to the LLM and use its answer.
     # UNTYPE_ASK_DEFAULT=
+    # Output cap for Ask answers (separate from UNTYPE_LLM_MAX_OUTPUT_TOKENS). Default: 8000.
+    # UNTYPE_ASK_MAX_OUTPUT_TOKENS=
 
     # Translation policy: opposite, to-en, or to-el. Default: opposite.
     # UNTYPE_TRANSLATION_POLICY=

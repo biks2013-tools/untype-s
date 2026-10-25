@@ -131,6 +131,7 @@ public struct UntypeCommand {
       --translation-policy <policy>           opposite, to-en, or to-el. Env: UNTYPE_TRANSLATION_POLICY.
       --clipboard-default <on|off>            Initial protocol clipboard operator state. Env: UNTYPE_CLIPBOARD_DEFAULT.
       --input-default <on|off>                Initial protocol focused-input operator state. Env: UNTYPE_INPUT_DEFAULT.
+      --ask-max-output-tokens <n>             Output cap for Ask answers (separate from --llm-max-output-tokens). Default: 8000. Env: UNTYPE_ASK_MAX_OUTPUT_TOKENS.
       --ask-default <on|off>                  Initial protocol ask operator state: the dictated text is a request to the LLM and its answer is the output. Env: UNTYPE_ASK_DEFAULT.
       --protocol-output <path>                JSONL path required for hybrid mode. Env: UNTYPE_PROTOCOL_OUTPUT.
       --refine, --no-refine                   Enable or disable LLM refinement. Env: UNTYPE_REFINE.
