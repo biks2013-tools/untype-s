@@ -348,6 +348,13 @@ public struct ConfigResolver: Sendable {
                 "--protocol-output / UNTYPE_PROTOCOL_OUTPUT is required when --interaction-mode=hybrid."
             )
         }
+        let voiceCommandsEnabled = try parsed.switchValue(for: "--voice-commands")
+            ?? parseBoolean(
+                chain.get("UNTYPE_VOICE_COMMANDS")?.value,
+                flagName: "--voice-commands",
+                envName: "UNTYPE_VOICE_COMMANDS"
+            )
+            ?? true
         let protocolConfig = ProtocolRuntimeConfig(
             interactionMode: interactionMode,
             markers: MarkerConfig(
@@ -355,7 +362,8 @@ public struct ConfigResolver: Sendable {
                 sectionEndPhrase: sectionEndPhrase,
                 sectionEndAliases: [guardPhrase],
                 sectionCancelPhrase: sectionCancelPhrase,
-                literalNextPhrase: literalNextPhrase
+                literalNextPhrase: literalNextPhrase,
+                voiceCommandsEnabled: voiceCommandsEnabled
             ),
             initialOperators: OperatorState(
                 refine: refineDefault,
@@ -1129,6 +1137,12 @@ struct ParsedArguments: Sendable {
                 index += 1
             case "--no-quick-close":
                 switches["--quick-close"] = false
+                index += 1
+            case "--voice-commands":
+                switches["--voice-commands"] = true
+                index += 1
+            case "--no-voice-commands":
+                switches["--voice-commands"] = false
                 index += 1
             case "--llm-streaming":
                 switches["--llm-streaming"] = true

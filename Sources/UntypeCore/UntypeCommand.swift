@@ -122,6 +122,8 @@ public struct UntypeCommand {
       --output-mode <mode>                    overwrite, append, or final-only. Env: UNTYPE_OUTPUT_MODE.
       --guard-phrase <phrase>                 Phrase that closes the current turn. Env: UNTYPE_GUARD_PHRASE.
       --interaction-mode <mode>               dictation, agent-protocol, or hybrid. Env: UNTYPE_INTERACTION_MODE.
+      --voice-commands                        Recognise spoken commands and markers. Default: on. Env: UNTYPE_VOICE_COMMANDS.
+      --no-voice-commands                     Ignore spoken commands: everything spoken is dictated text.
       --command-phrase <phrase>               Spoken marker for state commands. Env: UNTYPE_COMMAND_PHRASE.
       --section-end-phrase <phrase>           Spoken marker that submits the current section. Env: UNTYPE_SECTION_END_PHRASE.
       --section-cancel-phrase <phrase>        Spoken marker that cancels the current section. Env: UNTYPE_SECTION_CANCEL_PHRASE.

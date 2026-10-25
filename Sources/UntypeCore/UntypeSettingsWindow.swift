@@ -182,6 +182,14 @@ private struct UntypeSettingsGeneralView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .disabled(sessionShapingDisabled)
+                        inspectorToggleRow("Voice commands", isOn: binding(\.voiceCommands))
+                            .disabled(sessionShapingDisabled)
+                        Text(model.settings.voiceCommands
+                            ? "Spoken commands such as “command translate on” or “command send” are recognised."
+                            : "Spoken commands are ignored: everything you say is dictated text. Use the hotkey letters or the menu to change operators.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -550,6 +558,8 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(llmProvider: value as? String)
         case \UntypeUISettings.llmModel:
             return UntypeUISettingsPatch(llmModel: value as? String)
+        case \UntypeUISettings.voiceCommands:
+            return UntypeUISettingsPatch(voiceCommands: value as? Bool)
         case \UntypeUISettings.hotkeyEnabled:
             return UntypeUISettingsPatch(hotkeyEnabled: value as? Bool)
         case \UntypeUISettings.hotkeyHoldToTalk:

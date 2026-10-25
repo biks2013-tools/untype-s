@@ -29,6 +29,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var llmProvider: String
     public var llmModel: String
     public var llmStreaming: Bool
+    /// Spoken commands (`command …`, `command send`, `command cancel`,
+    /// `literal phrase`, the guard phrase). Off: everything spoken is text.
+    public var voiceCommands: Bool
     public var apiKeyName: String
     public var apiKeyStatus: String
     public var expiryStatus: String
@@ -73,6 +76,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         llmProvider: LLMProvider.azureOpenAI.rawValue,
         llmModel: "gpt-5.4",
         llmStreaming: false,
+        voiceCommands: true,
         apiKeyName: "SONIOX_API_KEY",
         apiKeyStatus: "unknown",
         expiryStatus: "not set",
@@ -203,6 +207,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let llmStreaming = patch.llmStreaming {
             next.llmStreaming = llmStreaming
         }
+        if let voiceCommands = patch.voiceCommands {
+            next.voiceCommands = voiceCommands
+        }
         if let hotkeyEnabled = patch.hotkeyEnabled {
             next.hotkeyEnabled = hotkeyEnabled
         }
@@ -258,6 +265,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
             normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
+            normalized.voiceCommands ? "--voice-commands" : "--no-voice-commands",
             "--llm-provider", normalized.llmProvider,
             "--llm-model", normalized.llmModel
         ]
@@ -323,6 +331,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var llmProvider: String?
     public var llmModel: String?
     public var llmStreaming: Bool?
+    public var voiceCommands: Bool?
     public var hotkeyEnabled: Bool?
     public var hotkeyHoldToTalk: Bool?
     public var hotkey: String?
@@ -357,6 +366,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         llmProvider: String? = nil,
         llmModel: String? = nil,
         llmStreaming: Bool? = nil,
+        voiceCommands: Bool? = nil,
         hotkeyEnabled: Bool? = nil,
         hotkeyHoldToTalk: Bool? = nil,
         hotkey: String? = nil,
@@ -390,6 +400,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.llmProvider = llmProvider
         self.llmModel = llmModel
         self.llmStreaming = llmStreaming
+        self.voiceCommands = voiceCommands
         self.hotkeyEnabled = hotkeyEnabled
         self.hotkeyHoldToTalk = hotkeyHoldToTalk
         self.hotkey = hotkey
@@ -628,6 +639,7 @@ public enum UntypeUISettingsStore {
             llmProvider: config.llm.provider.rawValue,
             llmModel: config.llm.model,
             llmStreaming: config.llm.streamingEnabled,
+            voiceCommands: protocolConfig.markers.voiceCommandsEnabled,
             apiKeyName: config.apiKeyEnvName,
             apiKeyStatus: "configured",
             expiryStatus: config.apiKeyExpiresAt ?? "not set",
@@ -697,6 +709,7 @@ private struct PersistedUISettings: Codable {
     let llmProvider: String
     let llmModel: String
     let llmStreaming: Bool?
+    let voiceCommands: Bool?
     let hotkeyEnabled: Bool
     let hotkeyHoldToTalk: Bool?
     let hotkey: String
@@ -731,6 +744,7 @@ private struct PersistedUISettings: Codable {
         case llmProvider
         case llmModel
         case llmStreaming
+        case voiceCommands
         case hotkeyEnabled
         case hotkeyHoldToTalk
         case hotkey
@@ -766,6 +780,7 @@ private struct PersistedUISettings: Codable {
         self.llmProvider = settings.llmProvider
         self.llmModel = settings.llmModel
         self.llmStreaming = settings.llmStreaming
+        self.voiceCommands = settings.voiceCommands
         self.hotkeyEnabled = settings.hotkeyEnabled
         self.hotkeyHoldToTalk = settings.hotkeyHoldToTalk
         self.hotkey = settings.hotkey
@@ -804,6 +819,7 @@ private struct PersistedUISettings: Codable {
                 llmProvider: llmProvider,
                 llmModel: llmModel,
                 llmStreaming: llmStreaming ?? defaults.llmStreaming,
+                voiceCommands: voiceCommands ?? defaults.voiceCommands,
                 hotkeyEnabled: hotkeyEnabled,
                 hotkeyHoldToTalk: hotkeyHoldToTalk ?? defaults.hotkeyHoldToTalk,
                 hotkey: hotkey,
