@@ -119,3 +119,41 @@ func liveLLMProviderFollowsUpAndUsesTheSelection() async throws {
     print("[live] selection:\n\(third)\n---")
     #expect(!third.isEmpty)
 }
+
+/// Live check of the Alternative operator: a section with refine + translate
+/// goes through the alternative LLM's clients built by the runtime factory.
+/// Needs `--alt-llm-provider` / `--alt-llm-model` in `UNTYPE_LIVE_LLM_ARGS`.
+@Test(.enabled(if: ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_TEST"] == "1"))
+func liveAlternativeLLMRefinesAndTranslatesASection() async throws {
+    let extra = (ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_ARGS"] ?? "")
+        .split(separator: " ").map(String.init)
+    let config = try ConfigResolver().resolve(argv: ["--refine-default", "on"] + extra)
+    let alternativeConfig = try #require(config.alternativeLLM, "set --alt-llm-provider and --alt-llm-model")
+    print("[live] primary=\(config.llm.provider.rawValue)/\(config.llm.model) alternative=\(alternativeConfig.provider.rawValue)/\(alternativeConfig.model)")
+    let alternative = try #require(try UntypeRuntimeFactory.makeAlternativeLLMClients(config: config))
+
+    let output = MemoryOutput()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: output),
+        markers: config.protocolConfig.markers,
+        initialOperators: OperatorState(refine: true, translate: true, clipboard: false, input: false, alternative: true),
+        translationPolicy: .toGreek,
+        translationUserPromptTemplate: config.prompts.translationUserPromptTemplate,
+        alternativeLLM: alternative,
+        diagnostics: ProtocolControllerDiagnostics(write: { line, _ in print("[live] diagnostic: \(line)") }),
+        visibleOperatorDiagnostics: true
+    )
+    try controller.startSession()
+    let start = Date()
+    try await controller.final("ehm so the the meeting is uh moved to tomorrow morning")
+    _ = try await controller.submitPending()
+
+    let processed = try output.text.split(separator: "\n")
+        .compactMap { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        .first { $0["type"] as? String == "section.processed" }
+    let text = processed?["output_text"] as? String ?? ""
+    print("[live] alternative refine+translate \(Int(Date().timeIntervalSince(start) * 1000)) ms: \(text)")
+    #expect(text.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) })
+}

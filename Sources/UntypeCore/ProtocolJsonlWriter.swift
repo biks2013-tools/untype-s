@@ -160,7 +160,8 @@ private extension OperatorState {
             "input": input,
             "ask": ask,
             "followup": followup,
-            "selection": selection
+            "selection": selection,
+            "alternative": alternative
         ]
     }
 }

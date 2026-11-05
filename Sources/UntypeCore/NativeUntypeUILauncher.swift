@@ -367,6 +367,8 @@ final class UntypeUIModel: ObservableObject {
     /// A press that arrived while `runtimeStopInFlight`: it starts its turn
     /// as soon as the previous one is delivered, instead of being lost.
     private var hotkeyPressQueued = false
+    /// A selection-hotkey run is reading or processing the selection.
+    private var selectionHotkeyInFlight = false
     private var lastAudioEventCategory: String?
     private var lastAudioEventLoggedAt = Date.distantPast
     private var workspaceActivationObserver: NSObjectProtocol?
@@ -689,6 +691,109 @@ final class UntypeUIModel: ObservableObject {
             return
         }
         stopHotkeySession(source: source)
+    }
+
+    /// Selection hotkey pressed: the text selected in the app in front goes
+    /// through the active refine/translate/Ask operators and the result
+    /// replaces it. No recording; push-to-talk state is never touched.
+    func handleSelectionHotkey(source: String = "selection-hotkey") {
+        guard settings.selectionHotkeyEnabled else {
+            return
+        }
+        guard !selectionHotkeyInFlight else {
+            appendEvent("diagnostic.info: [untype] selection hotkey ignored: the previous selection is still being processed")
+            return
+        }
+        guard !hotkeyPressed, !runtimeStopInFlight, sessionOwner != .manual else {
+            appendEvent("diagnostic.warning: [untype] selection hotkey ignored while a dictation turn is in progress")
+            return
+        }
+        guard let operators = SelectionHotkeyPlan.operators(for: settings) else {
+            appendEvent("diagnostic.warning: [untype] selection hotkey: turn on Refine (R), Translate (T) or Ask (A) first")
+            overlay?.showNotice("Turn on R, T or A first")
+            return
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        guard let target = frontmost, isExternalFocusedInputApplication(target) else {
+            appendEvent("diagnostic.warning: [untype] selection hotkey: select text in another app first")
+            overlay?.showNotice("Select text in another app first")
+            return
+        }
+        selectionHotkeyInFlight = true
+        appendEvent("diagnostic.info: [untype] selection hotkey (\(source))")
+        overlay?.show(phase: "finalizing")
+        let currentSettings = settings
+        let askConversationStore = askConversation
+        let modelBox = WeakUntypeUIModelBox(self)
+        Task { @MainActor [weak self] in
+            let selected: String?
+            let method: String
+            switch SelectedTextReader.readAccessibility() {
+            case .selected(let text):
+                selected = text
+                method = "accessibility"
+            case .nothingSelected:
+                selected = nil
+                method = "accessibility"
+            case .unsupported:
+                selected = await SelectedTextReader.readByCopying()
+                method = "copy"
+            }
+            guard let self else {
+                return
+            }
+            guard let selected else {
+                self.appendEvent("diagnostic.warning: [untype] selection hotkey: no selected text found (\(method))")
+                self.selectionHotkeyInFlight = false
+                self.overlay?.showNotice("No selected text found")
+                return
+            }
+            self.appendEvent("diagnostic.info: [untype] selected text captured (\(selected.count) characters, \(method), selection hotkey)")
+            Task.detached { [modelBox] in
+                do {
+                    let config = try ConfigResolver(requireProtocolOutputForHybrid: false)
+                        .resolve(argv: try currentSettings.sessionArguments())
+                    _ = try await UntypeRuntimeFactory.runSelectionHotkey(
+                        config: config,
+                        operators: operators,
+                        selectedText: selected,
+                        askConversation: askConversationStore,
+                        protocolOutput: UIEventTextOutput { line in
+                            dispatchToUI { [modelBox] in
+                                modelBox.model?.appendEvent("protocol.event: \(line.trimmingCharacters(in: .whitespacesAndNewlines))")
+                            }
+                        },
+                        diagnostics: { line, warning in
+                            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                            dispatchToUI { [modelBox] in
+                                modelBox.model?.appendEvent("\(warning ? "diagnostic.warning" : "diagnostic.info"): \(text)")
+                            }
+                        },
+                        focusedInputPreparation: {
+                            await MainActor.run {
+                                if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
+                                    target.activate(options: [.activateAllWindows])
+                                }
+                            }
+                        }
+                    )
+                } catch {
+                    dispatchToUI { [modelBox] in
+                        modelBox.model?.appendEvent("session.error: \(uiDiagnosticLine(error))")
+                    }
+                }
+                dispatchToUI { [modelBox] in
+                    modelBox.model?.finishSelectionHotkey()
+                }
+            }
+        }
+    }
+
+    private func finishSelectionHotkey() {
+        selectionHotkeyInFlight = false
+        if !hotkeyPressed, !runtimeStopInFlight {
+            overlay?.hideAfterDelay()
+        }
     }
 
     var hotkeyModeLabel: String {
@@ -1364,6 +1469,8 @@ final class UntypeUIModel: ObservableObject {
             previous.llmProvider == next.llmProvider &&
             previous.llmModel == next.llmModel &&
             previous.voiceCommands == next.voiceCommands &&
+            previous.altLlmProvider == next.altLlmProvider &&
+            previous.altLlmModel == next.altLlmModel &&
             previous.hotkeyEnabled == next.hotkeyEnabled &&
             previous.hotkey == next.hotkey
     }
@@ -1939,6 +2046,15 @@ private struct UntypeRootView: View {
                 model.toggleOperator(.selection)
             }
             UntypeOperatorChip(
+                letter: "L",
+                label: "Alt LLM",
+                isOn: model.settings.alternative,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.alternative)
+            }
+            UntypeOperatorChip(
                 letter: "C",
                 label: "Clipboard",
                 isOn: model.settings.clipboard,
@@ -2434,6 +2550,9 @@ private final class UntypeOverlayController: ObservableObject {
     private var hideTask: Task<Void, Never>?
     private let layout = UntypeOverlayLayout()
     @Published private var phase = "idle"
+    /// A short message shown in place of the waveform (selection hotkey
+    /// refusals); nil during push-to-talk.
+    @Published private(set) var notice: String?
     @Published private var operatorVersion = 0
     private var displayedGain: Float = 1
     private var lastTraceUpdate: TimeInterval?
@@ -2447,6 +2566,7 @@ private final class UntypeOverlayController: ObservableObject {
     func show(phase: String) {
         hideTask?.cancel()
         self.phase = phase
+        notice = nil
         guard panel?.isVisible != true else {
             return
         }
@@ -2474,10 +2594,17 @@ private final class UntypeOverlayController: ObservableObject {
         operatorVersion += 1
     }
 
-    func hideAfterDelay() {
+    /// Shows the pill with `text` (and the operator chips) for a moment.
+    func showNotice(_ text: String) {
+        show(phase: "notice")
+        notice = text
+        hideAfterDelay(nanoseconds: 2_500_000_000)
+    }
+
+    func hideAfterDelay(nanoseconds: UInt64 = 1_200_000_000) {
         hideTask?.cancel()
         hideTask = Task.detached { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
             dispatchToUI { [weak self] in
                 self?.hideNow()
             }
@@ -2487,6 +2614,7 @@ private final class UntypeOverlayController: ObservableObject {
     func hideNow() {
         hideTask?.cancel()
         phase = "idle"
+        notice = nil
         panel?.orderOut(nil)
     }
 
@@ -2572,6 +2700,7 @@ private final class UntypeOverlayController: ObservableObject {
             ("A", "Ask", settings.ask),
             ("F", "Follow-up", settings.followup),
             ("S", "Selection", settings.selection),
+            ("L", "Alt LLM", settings.alternative),
             ("C", "Clipboard", settings.clipboard),
             ("I", "Focused input", settings.focusedInput)
         ]
@@ -2593,15 +2722,27 @@ private struct UntypeOverlayView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
-                let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
-                let trace = controller.oscilloscopeTrace(count: count, at: ProcessInfo.processInfo.systemUptime)
-                Canvas { canvas, size in
-                    drawTrace(trace, in: &canvas, size: size)
+            if let notice = controller.notice {
+                Text(notice)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule(style: .continuous).fill(Color.black.opacity(0.7)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
+                    let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
+                    let trace = controller.oscilloscopeTrace(count: count, at: ProcessInfo.processInfo.systemUptime)
+                    Canvas { canvas, size in
+                        drawTrace(trace, in: &canvas, size: size)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityHidden(true)
 
             HStack(spacing: 6) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in
@@ -2692,7 +2833,8 @@ struct UntypeCredentialsEditorView: View {
         Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required for refinement with the google provider."),
         Field(key: "ANTHROPIC_FOUNDRY_API_KEY", label: "Claude on Azure Foundry key", secret: true, hint: "Foundry resource key; required with the azure-anthropic provider."),
         Field(key: "ANTHROPIC_FOUNDRY_RESOURCE", label: "Foundry resource name", secret: false, hint: "e.g. my-resource (https://my-resource.services.ai.azure.com)"),
-        Field(key: "ANTHROPIC_API_KEY", label: "Anthropic API key", secret: true, hint: "Required with the anthropic provider (api.anthropic.com).")
+        Field(key: "ANTHROPIC_API_KEY", label: "Anthropic API key", secret: true, hint: "Required with the anthropic provider (api.anthropic.com)."),
+        Field(key: "DEEPSEEK_API_KEY", label: "DeepSeek API key", secret: true, hint: "Required with the deepseek provider (api.deepseek.com).")
     ]
 
     var body: some View {
@@ -3301,6 +3443,9 @@ private struct UntypeMiniView: View {
                 UntypeOperatorChip(letter: "S", label: "Selection", isOn: model.settings.selection, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.selection)
                 }
+                UntypeOperatorChip(letter: "L", label: "Alt LLM", isOn: model.settings.alternative, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.alternative)
+                }
                 UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.clipboard)
                 }
@@ -3326,6 +3471,8 @@ private final class UntypeHotkeyMonitor {
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var descriptor: UntypeHotkeyDescriptor?
+    /// The selection hotkey (no press/release state: one action per press).
+    private var selectionDescriptor: UntypeHotkeyDescriptor?
     private var eventTap: UntypeQuartzHotkeyEventTap?
     private var carbonMonitor: UntypeCarbonHotkeyMonitor?
     private let state = UntypeHotkeySharedState()
@@ -3343,6 +3490,10 @@ private final class UntypeHotkeyMonitor {
         do {
             let descriptor = try UntypeHotkeyDescriptor(settings.hotkey)
             self.descriptor = descriptor
+            let selectionDescriptor = settings.selectionHotkeyEnabled
+                ? try UntypeHotkeyDescriptor(settings.selectionHotkey)
+                : nil
+            self.selectionDescriptor = selectionDescriptor
             state.reset()
             if !AXIsProcessTrusted() {
                 model?.events.append("diagnostic.warning: Accessibility/Input Monitoring may be required for global hotkey release detection.")
@@ -3364,6 +3515,7 @@ private final class UntypeHotkeyMonitor {
             }
             let tap = UntypeQuartzHotkeyEventTap(
                 descriptor: descriptor,
+                selectionDescriptor: selectionDescriptor,
                 state: state,
                 emit: { [weak self] event in
                     dispatchToUI { [weak self] in
@@ -3408,6 +3560,7 @@ private final class UntypeHotkeyMonitor {
         carbonMonitor = nil
         localMonitor = nil
         globalMonitor = nil
+        selectionDescriptor = nil
         state.reset()
     }
 
@@ -3440,6 +3593,12 @@ private final class UntypeHotkeyMonitor {
                 }
                 return true
             }
+            if !state.isPressed(), let selectionDescriptor, selectionDescriptor.matches(event) {
+                if !event.isARepeat {
+                    dispatch(.selectionHotkey(source: source))
+                }
+                return true
+            }
             return false
         }
         if event.type == .keyUp || event.type == .flagsChanged {
@@ -3465,6 +3624,8 @@ private final class UntypeHotkeyMonitor {
             case .toggleOperator(let key, let source):
                 model.appendEvent("diagnostic.info: [untype] protocol operator hotkey \(key.rawValue) (\(source))")
                 model.toggleOperator(key)
+            case .selectionHotkey(let source):
+                model.handleSelectionHotkey(source: source)
             case .warning(let message):
                 model.hotkeyMonitorStatus = "event tap warning"
                 model.events.append("diagnostic.warning: \(message)")
@@ -3579,6 +3740,7 @@ private enum UntypeHotkeyEvent: Sendable {
     case press(source: String)
     case release(source: String)
     case toggleOperator(OperatorKey, source: String)
+    case selectionHotkey(source: String)
     case warning(String)
 }
 
@@ -3642,6 +3804,7 @@ private final class UntypeHotkeySharedState: @unchecked Sendable {
 
 private final class UntypeQuartzHotkeyEventTap {
     private let descriptor: UntypeHotkeyDescriptor
+    private let selectionDescriptor: UntypeHotkeyDescriptor?
     private let state: UntypeHotkeySharedState
     private let emit: @Sendable (UntypeHotkeyEvent) -> Void
     private var eventTap: CFMachPort?
@@ -3649,10 +3812,12 @@ private final class UntypeQuartzHotkeyEventTap {
 
     init(
         descriptor: UntypeHotkeyDescriptor,
+        selectionDescriptor: UntypeHotkeyDescriptor?,
         state: UntypeHotkeySharedState,
         emit: @escaping @Sendable (UntypeHotkeyEvent) -> Void
     ) {
         self.descriptor = descriptor
+        self.selectionDescriptor = selectionDescriptor
         self.state = state
         self.emit = emit
     }
@@ -3722,6 +3887,12 @@ private final class UntypeQuartzHotkeyEventTap {
                 }
                 return true
             }
+            if !state.isPressed(), let selectionDescriptor, selectionDescriptor.matches(event) {
+                if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+                    emit(.selectionHotkey(source: "quartz-event-tap"))
+                }
+                return true
+            }
             return false
         }
         if type == .keyUp || type == .flagsChanged {
@@ -3763,6 +3934,8 @@ private extension OperatorKey {
             return .followup
         case "S":
             return .selection
+        case "L":
+            return .alternative
         default:
             return nil
         }

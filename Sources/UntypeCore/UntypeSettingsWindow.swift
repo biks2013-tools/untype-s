@@ -209,6 +209,7 @@ private struct UntypeSettingsGeneralView: View {
                             .labelsHidden()
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        operatorSettingRow("Alternative LLM (refine, translate and Ask use it)", .alternative)
                         operatorSettingRow("Clipboard", .clipboard)
                         operatorSettingRow("Focused input", .input)
                         Text("“This turn” switches an operator off again after each push-to-talk turn; “Until changed” keeps it as you set it.")
@@ -236,6 +237,31 @@ private struct UntypeSettingsGeneralView: View {
                             TextField("", text: binding(\.llmModel))
                                 .textFieldStyle(.roundedBorder)
                         }
+                    }
+                    .disabled(sessionShapingDisabled)
+                }
+
+                // Alternative LLM
+                inspectorGroup("Alternative LLM") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        inspectorFieldRow("Provider") {
+                            Picker("", selection: binding(\.altLlmProvider)) {
+                                Text("None").tag("")
+                                ForEach(LLMProvider.allCases, id: \.rawValue) { provider in
+                                    Text(provider.rawValue).tag(provider.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        inspectorFieldRow("Model") {
+                            TextField("", text: binding(\.altLlmModel))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        Text(alternativeLLMCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .disabled(sessionShapingDisabled)
                 }
@@ -275,6 +301,26 @@ private struct UntypeSettingsGeneralView: View {
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                }
+
+                // Selection hotkey
+                inspectorGroup("Selection hotkey") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        inspectorToggleRow("Enabled", isOn: binding(\.selectionHotkeyEnabled))
+                        inspectorFieldRow("Hotkey") {
+                            HStack(spacing: 6) {
+                                TextField("", text: binding(\.selectionHotkey))
+                                    .textFieldStyle(.roundedBorder)
+                                UntypeKbd(model.settings.selectionHotkey)
+                            }
+                        }
+                        .disabled(!model.settings.selectionHotkeyEnabled)
+                        Text(selectionHotkeyCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .disabled(sessionShapingDisabled)
                 }
 
                 // Permissions — deep links into System Settings when not OK
@@ -491,6 +537,13 @@ private struct UntypeSettingsGeneralView: View {
         }
     }
 
+    private var selectionHotkeyCaption: String {
+        if !model.settings.hotkeyEnabled {
+            return "Needs the push-to-talk hotkey listener: enable Push to talk."
+        }
+        return "Select text in any app and press the hotkey: the active Refine, Translate or Ask operators process it (with the Alternative LLM when L is on) and the result replaces the selection. No recording."
+    }
+
     private var hotkeyStatus: String {
         if !model.settings.hotkeyEnabled {
             return "Disabled"
@@ -508,6 +561,17 @@ private struct UntypeSettingsGeneralView: View {
                 model.update(UntypeUISettingsPatch(languages: value.split(separator: ",").map { String($0) }))
             }
         )
+    }
+
+    private var alternativeLLMCaption: String {
+        let settings = model.settings
+        if settings.altLlmProvider.isEmpty {
+            return "Not configured. With the Alternative operator (L) on, refine, translate and Ask then do not call any LLM."
+        }
+        if settings.altLlmModel.isEmpty {
+            return "Set the model to use the alternative LLM (for azure-openai, the deployment name)."
+        }
+        return "With the Alternative operator (L) on, refine, translate and Ask use \(settings.altLlmProvider) / \(settings.altLlmModel), with the same prompts and the provider's keys from Set keys…."
     }
 
     private var sampleRateBinding: Binding<Int> {
@@ -558,6 +622,12 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(llmProvider: value as? String)
         case \UntypeUISettings.llmModel:
             return UntypeUISettingsPatch(llmModel: value as? String)
+        case \UntypeUISettings.altLlmProvider:
+            return UntypeUISettingsPatch(altLlmProvider: value as? String)
+        case \UntypeUISettings.altLlmModel:
+            return UntypeUISettingsPatch(altLlmModel: value as? String)
+        case \UntypeUISettings.alternative:
+            return UntypeUISettingsPatch(alternative: value as? Bool)
         case \UntypeUISettings.voiceCommands:
             return UntypeUISettingsPatch(voiceCommands: value as? Bool)
         case \UntypeUISettings.hotkeyEnabled:
@@ -566,6 +636,10 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(hotkeyHoldToTalk: value as? Bool)
         case \UntypeUISettings.hotkey:
             return UntypeUISettingsPatch(hotkey: value as? String)
+        case \UntypeUISettings.selectionHotkeyEnabled:
+            return UntypeUISettingsPatch(selectionHotkeyEnabled: value as? Bool)
+        case \UntypeUISettings.selectionHotkey:
+            return UntypeUISettingsPatch(selectionHotkey: value as? String)
         default:
             return UntypeUISettingsPatch()
         }

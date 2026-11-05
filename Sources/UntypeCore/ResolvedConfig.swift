@@ -29,6 +29,9 @@ public enum LLMProvider: String, Sendable, Equatable, CaseIterable {
     /// `https://{resource}.services.ai.azure.com/anthropic`.
     case azureAnthropic = "azure-anthropic"
     case google
+    /// DeepSeek's own API (OpenAI-compatible Chat Completions at
+    /// `https://api.deepseek.com`).
+    case deepseek
     case azureAIInference = "azure-ai-inference"
     case ollama
     case litellm
@@ -42,6 +45,9 @@ public enum ProviderConfig: Equatable, Sendable {
     /// `baseURL` is the API root without `/v1` (e.g.
     /// `https://example.services.ai.azure.com/anthropic`).
     case anthropic(apiKey: String, baseURL: String)
+    /// OpenAI-compatible Chat Completions (`deepseek`): `{baseURL}/chat/completions`
+    /// with a bearer key; the model goes in the request body.
+    case openAICompatible(apiKey: String, baseURL: String)
     case unimplemented(provider: LLMProvider)
 }
 
@@ -137,6 +143,7 @@ public struct OperatorState: Equatable, Sendable {
     public let ask: Bool
     public let followup: Bool
     public let selection: Bool
+    public let alternative: Bool
 
     public init(
         refine: Bool,
@@ -145,7 +152,8 @@ public struct OperatorState: Equatable, Sendable {
         input: Bool,
         ask: Bool = false,
         followup: Bool = false,
-        selection: Bool = false
+        selection: Bool = false,
+        alternative: Bool = false
     ) {
         self.refine = refine
         self.translate = translate
@@ -154,6 +162,7 @@ public struct OperatorState: Equatable, Sendable {
         self.ask = ask
         self.followup = followup
         self.selection = selection
+        self.alternative = alternative
     }
 }
 
@@ -170,6 +179,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
     public let ask: ProtocolSettingSource
     public let followup: ProtocolSettingSource
     public let selection: ProtocolSettingSource
+    public let alternative: ProtocolSettingSource
     public let translationPolicy: ProtocolSettingSource
 
     public init(
@@ -180,6 +190,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         ask: ProtocolSettingSource = .default,
         followup: ProtocolSettingSource = .default,
         selection: ProtocolSettingSource = .default,
+        alternative: ProtocolSettingSource = .default,
         translationPolicy: ProtocolSettingSource
     ) {
         self.refine = refine
@@ -189,6 +200,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         self.ask = ask
         self.followup = followup
         self.selection = selection
+        self.alternative = alternative
         self.translationPolicy = translationPolicy
     }
 }
@@ -234,6 +246,8 @@ public struct ResolvedConfig: Equatable, Sendable {
     public let guardPhrase: String
     public let protocolConfig: ProtocolRuntimeConfig
     public let llm: LLMConfig
+    /// The Alternative operator's LLM; nil when not configured.
+    public let alternativeLLM: LLMConfig?
     public let prompts: PromptConfig
     public let releaseLatencyLogging: ReleaseLatencyLoggingConfig
     public let verbose: Bool

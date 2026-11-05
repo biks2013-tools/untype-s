@@ -896,3 +896,85 @@ private func foundryClaudeConfig(
             .refine("raw") { _ in }
     }
 }
+
+@Test func deepseekRefinerPostsOpenAICompatibleChatCompletion() async throws {
+    let http = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "choices": [["message": ["content": " Clean text. ", "reasoning_content": "thinking"]]]
+        ]))
+    ])
+    let config = LLMConfig(
+        enabled: true,
+        provider: .deepseek,
+        model: "deepseek-flash",
+        systemPrompt: "Clean this transcript.",
+        requestTimeoutMs: 15_000,
+        providerConfig: .openAICompatible(apiKey: "ds-key", baseURL: "https://api.deepseek.com/"),
+        verbose: false,
+        maxOutputTokens: 900,
+        reasoningEffort: "low"
+    )
+    let refiner = try AzureOpenAIRefiner(config: config, httpClient: http)
+
+    #expect(try await refiner.refine("raw text") == "Clean text.")
+    let request = try #require(http.requests.first)
+    #expect(request.url?.absoluteString == "https://api.deepseek.com/chat/completions")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ds-key")
+    #expect(request.value(forHTTPHeaderField: "api-key") == nil)
+    let body = try requestJSONObject(request)
+    #expect(body["model"] as? String == "deepseek-flash")
+    #expect(body["max_tokens"] as? Int == 900)
+    #expect(body["max_completion_tokens"] == nil)
+    #expect(body["reasoning_effort"] == nil)
+}
+
+@Test func deepseekRewritesTurnThinkingOffAndReportTruncation() async throws {
+    let config = LLMConfig(
+        enabled: true,
+        provider: .deepseek,
+        model: "deepseek-flash",
+        systemPrompt: "Clean this transcript.",
+        requestTimeoutMs: 15_000,
+        providerConfig: .openAICompatible(apiKey: "ds-key", baseURL: "https://api.deepseek.com"),
+        verbose: false,
+        maxOutputTokens: 1000
+    )
+    let rewriteHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData(["choices": [["message": ["content": "Clean."]]]]))
+    ])
+    _ = try await AzureOpenAIRefiner(config: config, thinking: false, httpClient: rewriteHTTP).refine("raw")
+    let rewriteBody = try requestJSONObject(try #require(rewriteHTTP.requests.first))
+    #expect((rewriteBody["thinking"] as? [String: String]) == ["type": "disabled"])
+
+    let askHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData(["choices": [["message": ["content": "Answer."]]]]))
+    ])
+    _ = try await AzureOpenAIRefiner(config: config, httpClient: askHTTP).refine("raw")
+    #expect(try requestJSONObject(try #require(askHTTP.requests.first))["thinking"] == nil)
+
+    let truncatedHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "choices": [["message": ["content": "", "reasoning_content": "long"], "finish_reason": "length"]]
+        ]))
+    ])
+    do {
+        _ = try await AzureOpenAIRefiner(config: config, httpClient: truncatedHTTP).refine("raw")
+        Issue.record("expected a truncation error")
+    } catch let error as LLMRefinementError {
+        #expect(error.message.contains("truncated"))
+    }
+}
+
+@Test func deepseekProviderNeedsItsKeyAndDefaultsTheBaseURL() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("untype-deepseek-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    let argv = ["--api-key", "k", "--no-refine", "--alt-llm-provider", "deepseek", "--alt-llm-model", "deepseek-flash"]
+
+    #expect(throws: UntypeError.self) {
+        _ = try ConfigResolver(cwd: home, home: home, shell: [:]).resolve(argv: argv)
+    }
+    let config = try ConfigResolver(cwd: home, home: home, shell: ["DEEPSEEK_API_KEY": "ds-key"]).resolve(argv: argv)
+    #expect(config.alternativeLLM?.providerConfig == .openAICompatible(apiKey: "ds-key", baseURL: "https://api.deepseek.com"))
+    let custom = try ConfigResolver(cwd: home, home: home, shell: ["DEEPSEEK_API_KEY": "ds-key", "DEEPSEEK_API_BASE": "https://proxy.example/v1"]).resolve(argv: argv)
+    #expect(custom.alternativeLLM?.providerConfig == .openAICompatible(apiKey: "ds-key", baseURL: "https://proxy.example/v1"))
+}

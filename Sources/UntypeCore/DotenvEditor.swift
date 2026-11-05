@@ -18,7 +18,8 @@ public enum DotenvEditor {
         "GOOGLE_API_KEY",
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_FOUNDRY_API_KEY",
-        "ANTHROPIC_FOUNDRY_RESOURCE"
+        "ANTHROPIC_FOUNDRY_RESOURCE",
+        "DEEPSEEK_API_KEY"
     ]
 
     public static func userEnvURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {

@@ -19,6 +19,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var followup: Bool
     /// Selection operator: include the text selected in the active app.
     public var selection: Bool
+    /// Alternative operator: refine, translate and Ask use the alternative LLM.
+    public var alternative: Bool
     /// `material` or `context` (see `SelectionRole`).
     public var selectionRole: String
     /// Operators (by `OperatorKey` raw value) that switch off again after
@@ -32,6 +34,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Spoken commands (`command …`, `command send`, `command cancel`,
     /// `literal phrase`, the guard phrase). Off: everything spoken is text.
     public var voiceCommands: Bool
+    /// The alternative LLM (empty: not configured in the UI).
+    public var altLlmProvider: String
+    public var altLlmModel: String
     public var apiKeyName: String
     public var apiKeyStatus: String
     public var expiryStatus: String
@@ -45,6 +50,11 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// stop and submit). Requires `hotkeyEnabled` either way.
     public var hotkeyHoldToTalk: Bool
     public var hotkey: String
+    /// Selection hotkey: processes the text selected in the active app with
+    /// the active refine/translate/Ask operators and replaces it (no
+    /// recording). Independent of push-to-talk.
+    public var selectionHotkeyEnabled: Bool
+    public var selectionHotkey: String
     public var windowWidth: Double
     public var windowHeight: Double
     public var monitorSidebarExpanded: Bool
@@ -69,6 +79,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         ask: false,
         followup: false,
         selection: false,
+        alternative: false,
         selectionRole: SelectionRole.material.rawValue,
         perTurnOperators: UntypeUISettings.defaultPerTurnOperators,
         translationPolicy: TranslationPolicy.opposite.rawValue,
@@ -77,6 +88,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         llmModel: "gpt-5.4",
         llmStreaming: false,
         voiceCommands: true,
+        altLlmProvider: "",
+        altLlmModel: "",
         apiKeyName: "SONIOX_API_KEY",
         apiKeyStatus: "unknown",
         expiryStatus: "not set",
@@ -87,6 +100,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         hotkeyEnabled: false,
         hotkeyHoldToTalk: true,
         hotkey: "Control+`",
+        selectionHotkeyEnabled: true,
+        selectionHotkey: UntypeUISettings.defaultSelectionHotkey,
         windowWidth: 1180,
         windowHeight: 760,
         monitorSidebarExpanded: true,
@@ -97,6 +112,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         appearance: "system"
     )
 
+    public static let defaultSelectionHotkey = "Control+Option+`"
+
     public func normalized() throws -> UntypeUISettings {
         let provider = try normalizeProvider(provider)
         let languages = try normalizeLanguages(languages)
@@ -106,6 +123,10 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         let model = try normalizeNonEmpty(model, field: "model")
         let llmModel = try normalizeNonEmpty(llmModel, field: "llmModel")
         let hotkey = try normalizeHotkey(hotkey)
+        let selectionHotkey = try normalizeHotkey(selectionHotkey)
+        if selectionHotkeyEnabled, hotkeyIdentity(selectionHotkey) == hotkeyIdentity(hotkey) {
+            throw UntypeError.invalidConfiguration("selectionHotkey must differ from the push-to-talk hotkey (\(hotkey)).")
+        }
         let selectedMonitorTab = try normalizeMonitorTab(selectedMonitorTab)
         guard (8_000...48_000).contains(sampleRate) else {
             throw UntypeError.invalidConfiguration("sampleRate must be an integer between 8000 and 48000. Got: \(sampleRate).")
@@ -127,11 +148,15 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         next.llmProvider = llmProvider
         next.llmModel = llmModel
         next.hotkey = hotkey
+        next.selectionHotkey = selectionHotkey
         next.selectedMonitorTab = selectedMonitorTab
         next.selectedEventsFilter = try normalizeEventsFilter(selectedEventsFilter)
         next.appearance = try normalizeAppearance(appearance)
         next.selectionRole = try normalizeSelectionRole(selectionRole)
         next.perTurnOperators = try normalizePerTurnOperators(perTurnOperators)
+        let altProvider = altLlmProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+        next.altLlmProvider = altProvider.isEmpty ? "" : try normalizeLLMProvider(altProvider)
+        next.altLlmModel = altLlmModel.trimmingCharacters(in: .whitespacesAndNewlines)
         next.apiKeyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
         next.apiKeyStatus = nonEmptyStatus(apiKeyStatus, fallback: "unknown")
         next.expiryStatus = nonEmptyStatus(expiryStatus, fallback: "not set")
@@ -186,6 +211,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let selection = patch.selection {
             next.selection = selection
         }
+        if let alternative = patch.alternative {
+            next.alternative = alternative
+        }
         if let selectionRole = patch.selectionRole {
             next.selectionRole = selectionRole
         }
@@ -210,6 +238,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let voiceCommands = patch.voiceCommands {
             next.voiceCommands = voiceCommands
         }
+        if let altLlmProvider = patch.altLlmProvider {
+            next.altLlmProvider = altLlmProvider
+        }
+        if let altLlmModel = patch.altLlmModel {
+            next.altLlmModel = altLlmModel
+        }
         if let hotkeyEnabled = patch.hotkeyEnabled {
             next.hotkeyEnabled = hotkeyEnabled
         }
@@ -218,6 +252,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let hotkey = patch.hotkey {
             next.hotkey = hotkey
+        }
+        if let selectionHotkeyEnabled = patch.selectionHotkeyEnabled {
+            next.selectionHotkeyEnabled = selectionHotkeyEnabled
+        }
+        if let selectionHotkey = patch.selectionHotkey {
+            next.selectionHotkey = selectionHotkey
         }
         if let windowWidth = patch.windowWidth {
             next.windowWidth = windowWidth
@@ -262,6 +302,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--ask-default", normalized.ask ? "on" : "off",
             "--followup-default", normalized.followup ? "on" : "off",
             "--selection-default", normalized.selection ? "on" : "off",
+            "--alternative-default", normalized.alternative ? "on" : "off",
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
             normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
@@ -269,6 +310,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--llm-provider", normalized.llmProvider,
             "--llm-model", normalized.llmModel
         ]
+        if !normalized.altLlmProvider.isEmpty, !normalized.altLlmModel.isEmpty {
+            args += ["--alt-llm-provider", normalized.altLlmProvider, "--alt-llm-model", normalized.altLlmModel]
+        }
         for language in normalized.languages {
             args += ["--language", language]
         }
@@ -324,6 +368,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var ask: Bool?
     public var followup: Bool?
     public var selection: Bool?
+    public var alternative: Bool?
     public var selectionRole: String?
     public var perTurnOperators: [String]?
     public var translationPolicy: String?
@@ -332,9 +377,13 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var llmModel: String?
     public var llmStreaming: Bool?
     public var voiceCommands: Bool?
+    public var altLlmProvider: String?
+    public var altLlmModel: String?
     public var hotkeyEnabled: Bool?
     public var hotkeyHoldToTalk: Bool?
     public var hotkey: String?
+    public var selectionHotkeyEnabled: Bool?
+    public var selectionHotkey: String?
     public var windowWidth: Double?
     public var windowHeight: Double?
     public var monitorSidebarExpanded: Bool?
@@ -359,6 +408,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         ask: Bool? = nil,
         followup: Bool? = nil,
         selection: Bool? = nil,
+        alternative: Bool? = nil,
         selectionRole: String? = nil,
         perTurnOperators: [String]? = nil,
         translationPolicy: String? = nil,
@@ -367,9 +417,13 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         llmModel: String? = nil,
         llmStreaming: Bool? = nil,
         voiceCommands: Bool? = nil,
+        altLlmProvider: String? = nil,
+        altLlmModel: String? = nil,
         hotkeyEnabled: Bool? = nil,
         hotkeyHoldToTalk: Bool? = nil,
         hotkey: String? = nil,
+        selectionHotkeyEnabled: Bool? = nil,
+        selectionHotkey: String? = nil,
         windowWidth: Double? = nil,
         windowHeight: Double? = nil,
         monitorSidebarExpanded: Bool? = nil,
@@ -393,6 +447,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.ask = ask
         self.followup = followup
         self.selection = selection
+        self.alternative = alternative
         self.selectionRole = selectionRole
         self.perTurnOperators = perTurnOperators
         self.translationPolicy = translationPolicy
@@ -401,9 +456,13 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.llmModel = llmModel
         self.llmStreaming = llmStreaming
         self.voiceCommands = voiceCommands
+        self.altLlmProvider = altLlmProvider
+        self.altLlmModel = altLlmModel
         self.hotkeyEnabled = hotkeyEnabled
         self.hotkeyHoldToTalk = hotkeyHoldToTalk
         self.hotkey = hotkey
+        self.selectionHotkeyEnabled = selectionHotkeyEnabled
+        self.selectionHotkey = selectionHotkey
         self.windowWidth = windowWidth
         self.windowHeight = windowHeight
         self.monitorSidebarExpanded = monitorSidebarExpanded
@@ -426,6 +485,8 @@ extension UntypeUISettings {
         next: UntypeUISettings
     ) -> Bool {
         previous.hotkey != next.hotkey || previous.hotkeyEnabled != next.hotkeyEnabled
+            || previous.selectionHotkey != next.selectionHotkey
+            || previous.selectionHotkeyEnabled != next.selectionHotkeyEnabled
     }
 }
 
@@ -632,6 +693,7 @@ public enum UntypeUISettingsStore {
             ask: operators.ask,
             followup: operators.followup,
             selection: operators.selection,
+            alternative: operators.alternative,
             selectionRole: current.selectionRole,
             perTurnOperators: current.perTurnOperators,
             translationPolicy: protocolConfig.translationPolicy.rawValue,
@@ -640,6 +702,8 @@ public enum UntypeUISettingsStore {
             llmModel: config.llm.model,
             llmStreaming: config.llm.streamingEnabled,
             voiceCommands: protocolConfig.markers.voiceCommandsEnabled,
+            altLlmProvider: config.alternativeLLM?.provider.rawValue ?? current.altLlmProvider,
+            altLlmModel: config.alternativeLLM?.model ?? current.altLlmModel,
             apiKeyName: config.apiKeyEnvName,
             apiKeyStatus: "configured",
             expiryStatus: config.apiKeyExpiresAt ?? "not set",
@@ -650,6 +714,8 @@ public enum UntypeUISettingsStore {
             hotkeyEnabled: current.hotkeyEnabled,
             hotkeyHoldToTalk: current.hotkeyHoldToTalk,
             hotkey: current.hotkey,
+            selectionHotkeyEnabled: current.selectionHotkeyEnabled,
+            selectionHotkey: current.selectionHotkey,
             windowWidth: current.windowWidth,
             windowHeight: current.windowHeight,
             monitorSidebarExpanded: current.monitorSidebarExpanded,
@@ -702,6 +768,7 @@ private struct PersistedUISettings: Codable {
     let ask: Bool?
     let followup: Bool?
     let selection: Bool?
+    let alternative: Bool?
     let selectionRole: String?
     let perTurnOperators: [String]?
     let translationPolicy: String
@@ -710,9 +777,13 @@ private struct PersistedUISettings: Codable {
     let llmModel: String
     let llmStreaming: Bool?
     let voiceCommands: Bool?
+    let altLlmProvider: String?
+    let altLlmModel: String?
     let hotkeyEnabled: Bool
     let hotkeyHoldToTalk: Bool?
     let hotkey: String
+    let selectionHotkeyEnabled: Bool?
+    let selectionHotkey: String?
     let windowWidth: Double?
     let windowHeight: Double?
     let monitorSidebarExpanded: Bool?
@@ -737,6 +808,7 @@ private struct PersistedUISettings: Codable {
         case ask
         case followup
         case selection
+        case alternative
         case selectionRole
         case perTurnOperators
         case translationPolicy
@@ -745,9 +817,13 @@ private struct PersistedUISettings: Codable {
         case llmModel
         case llmStreaming
         case voiceCommands
+        case altLlmProvider
+        case altLlmModel
         case hotkeyEnabled
         case hotkeyHoldToTalk
         case hotkey
+        case selectionHotkeyEnabled
+        case selectionHotkey
         case windowWidth
         case windowHeight
         case monitorSidebarExpanded
@@ -773,6 +849,7 @@ private struct PersistedUISettings: Codable {
         self.ask = settings.ask
         self.followup = settings.followup
         self.selection = settings.selection
+        self.alternative = settings.alternative
         self.selectionRole = settings.selectionRole
         self.perTurnOperators = settings.perTurnOperators
         self.translationPolicy = settings.translationPolicy
@@ -781,9 +858,13 @@ private struct PersistedUISettings: Codable {
         self.llmModel = settings.llmModel
         self.llmStreaming = settings.llmStreaming
         self.voiceCommands = settings.voiceCommands
+        self.altLlmProvider = settings.altLlmProvider
+        self.altLlmModel = settings.altLlmModel
         self.hotkeyEnabled = settings.hotkeyEnabled
         self.hotkeyHoldToTalk = settings.hotkeyHoldToTalk
         self.hotkey = settings.hotkey
+        self.selectionHotkeyEnabled = settings.selectionHotkeyEnabled
+        self.selectionHotkey = settings.selectionHotkey
         self.windowWidth = settings.windowWidth
         self.windowHeight = settings.windowHeight
         self.monitorSidebarExpanded = settings.monitorSidebarExpanded
@@ -812,6 +893,7 @@ private struct PersistedUISettings: Codable {
                 ask: ask ?? defaults.ask,
                 followup: followup ?? defaults.followup,
                 selection: selection ?? defaults.selection,
+                alternative: alternative ?? defaults.alternative,
                 selectionRole: selectionRole ?? defaults.selectionRole,
                 perTurnOperators: perTurnOperators ?? defaults.perTurnOperators,
                 translationPolicy: translationPolicy,
@@ -820,9 +902,13 @@ private struct PersistedUISettings: Codable {
                 llmModel: llmModel,
                 llmStreaming: llmStreaming ?? defaults.llmStreaming,
                 voiceCommands: voiceCommands ?? defaults.voiceCommands,
+                altLlmProvider: altLlmProvider ?? defaults.altLlmProvider,
+                altLlmModel: altLlmModel ?? defaults.altLlmModel,
                 hotkeyEnabled: hotkeyEnabled,
                 hotkeyHoldToTalk: hotkeyHoldToTalk ?? defaults.hotkeyHoldToTalk,
                 hotkey: hotkey,
+                selectionHotkeyEnabled: selectionHotkeyEnabled ?? defaults.selectionHotkeyEnabled,
+                selectionHotkey: selectionHotkey ?? defaults.selectionHotkey,
                 windowWidth: windowWidth ?? defaults.windowWidth,
                 windowHeight: windowHeight ?? defaults.windowHeight,
                 monitorSidebarExpanded: monitorSidebarExpanded ?? defaults.monitorSidebarExpanded,
@@ -940,6 +1026,13 @@ private func normalizeHotkey(_ value: String) throws -> String {
     return (modifiers + [key]).joined(separator: "+")
 }
 
+/// Order-independent form of a normalized hotkey, for collision checks.
+private func hotkeyIdentity(_ normalized: String) -> String {
+    var parts = normalized.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
+    let key = parts.removeLast()
+    return (parts.sorted() + [key]).joined(separator: "+")
+}
+
 private func normalizeHotkeyKey(_ value: String) throws -> String {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     let lower = trimmed.lowercased()
@@ -1032,6 +1125,7 @@ extension UntypeUISettings {
         case .ask: return ask
         case .followup: return followup
         case .selection: return selection
+        case .alternative: return alternative
         }
     }
 
@@ -1048,7 +1142,8 @@ extension UntypeUISettings {
             focusedInput: reset.contains(.input) ? false : nil,
             ask: reset.contains(.ask) ? false : nil,
             followup: reset.contains(.followup) ? false : nil,
-            selection: reset.contains(.selection) ? false : nil
+            selection: reset.contains(.selection) ? false : nil,
+            alternative: reset.contains(.alternative) ? false : nil
         )
     }
 
@@ -1061,6 +1156,7 @@ extension UntypeUISettings {
         case .ask: return UntypeUISettingsPatch(ask: value)
         case .followup: return UntypeUISettingsPatch(followup: value)
         case .selection: return UntypeUISettingsPatch(selection: value)
+        case .alternative: return UntypeUISettingsPatch(alternative: value)
         }
     }
 

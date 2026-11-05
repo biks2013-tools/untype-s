@@ -70,6 +70,8 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+- **2026-11-05 — DeepSeek alternative returned empty refine/translate (fixed, build 33).** `deepseek-flash` thinks before answering and its reasoning tokens count against `max_tokens` (1000, inherited from the primary); long selections/dictations exhausted it and the reply had no content. Fix: thinking disabled for DeepSeek rewrite calls (refine, translate, combined); Ask keeps thinking; `finish_reason: length` now reported as truncation.
+
 ### 2026-10-25 - Build 28 released, published, and on Homebrew (v0.1.0-b28)
 - Voice commands on/off setting (plan-038, FR-42). Packaged with `--build 28 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary`; suite 281/281 inside the pipeline. App and disk image (`--dmg-only`): notarization `Accepted`, stapled, `source=Notarized Developer ID`; image and zip contain build 28. Tested by the user on build 28; the latest latency records show `focused_input.ok=true`.
 - Commit `dcd5914`, tag `v0.1.0-b28`. GitHub Release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b28 with `untype-0.1.0.dmg` (SHA-256 `fcfa3ab7f83d51c69ecc71664b2c80cc8c381decae93dc31f86edb60e91c6287`), `untype-0.1.0-notarized.zip`, `SHA256SUMS`; unauthenticated download verified byte-identical. Homebrew tap `0.1.0,28` (cask commit `f628c58`, tap head `78581f1`); `brew style` clean. `brew audit` / `livecheck` were again skipped: the tap is not trusted on this Mac (see the build 27 entry).

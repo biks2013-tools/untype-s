@@ -12,6 +12,9 @@ public enum OperatorKey: String, CaseIterable, Sendable, Equatable, Codable {
     case followup
     /// The text selected in the active app is included in the request.
     case selection
+    /// Refine, translate and Ask use the alternative LLM instead of the
+    /// primary one.
+    case alternative
 }
 
 public struct ProtocolSettingsSnapshot: Sendable, Equatable, Codable {
@@ -278,6 +281,7 @@ extension OperatorState: Codable {
         case ask
         case followup
         case selection
+        case alternative
     }
 
     public init(from decoder: Decoder) throws {
@@ -289,7 +293,8 @@ extension OperatorState: Codable {
             input: try container.decodeIfPresent(Bool.self, forKey: .input) ?? false,
             ask: try container.decodeIfPresent(Bool.self, forKey: .ask) ?? false,
             followup: try container.decodeIfPresent(Bool.self, forKey: .followup) ?? false,
-            selection: try container.decodeIfPresent(Bool.self, forKey: .selection) ?? false
+            selection: try container.decodeIfPresent(Bool.self, forKey: .selection) ?? false,
+            alternative: try container.decodeIfPresent(Bool.self, forKey: .alternative) ?? false
         )
     }
 
@@ -302,6 +307,7 @@ extension OperatorState: Codable {
         try container.encode(ask, forKey: .ask)
         try container.encode(followup, forKey: .followup)
         try container.encode(selection, forKey: .selection)
+        try container.encode(alternative, forKey: .alternative)
     }
 
     public func value(for key: OperatorKey) -> Bool {
@@ -320,6 +326,8 @@ extension OperatorState: Codable {
             return followup
         case .selection:
             return selection
+        case .alternative:
+            return alternative
         }
     }
 
@@ -331,7 +339,8 @@ extension OperatorState: Codable {
             input: key == .input ? value : input,
             ask: key == .ask ? value : ask,
             followup: key == .followup ? value : followup,
-            selection: key == .selection ? value : selection
+            selection: key == .selection ? value : selection,
+            alternative: key == .alternative ? value : alternative
         )
     }
 }

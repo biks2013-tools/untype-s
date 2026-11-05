@@ -104,7 +104,10 @@ public func applyPersistedProtocolSettings(
             : protocolConfig.initialOperators.followup,
         selection: protocolConfig.settingSources.selection == .default
             ? persisted.operators.selection
-            : protocolConfig.initialOperators.selection
+            : protocolConfig.initialOperators.selection,
+        alternative: protocolConfig.settingSources.alternative == .default
+            ? persisted.operators.alternative
+            : protocolConfig.initialOperators.alternative
     )
 
     let translationPolicy = protocolConfig.settingSources.translationPolicy == .default

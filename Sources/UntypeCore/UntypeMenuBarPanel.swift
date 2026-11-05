@@ -181,6 +181,7 @@ struct UntypeMenuBarPanel: View {
             operatorRow("Ask the model", key: "A", isOn: model.settings.ask, perTurn: model.settings.isPerTurn(.ask)) { model.toggleOperator(.ask) }
             operatorRow("Follow-up (continue the conversation)", key: "F", isOn: model.settings.followup, perTurn: model.settings.isPerTurn(.followup)) { model.toggleOperator(.followup) }
             operatorRow("Include selected text", key: "S", isOn: model.settings.selection, perTurn: model.settings.isPerTurn(.selection)) { model.toggleOperator(.selection) }
+            operatorRow("Use the alternative LLM", key: "L", isOn: model.settings.alternative, perTurn: model.settings.isPerTurn(.alternative)) { model.toggleOperator(.alternative) }
             operatorRow("Clipboard", key: "C", isOn: model.settings.clipboard, perTurn: model.settings.isPerTurn(.clipboard)) { model.toggleOperator(.clipboard) }
             operatorRow("Type into focused input", key: "I", isOn: model.settings.focusedInput, perTurn: model.settings.isPerTurn(.input)) { model.toggleOperator(.input) }
         }
@@ -220,7 +221,10 @@ struct UntypeMenuBarPanel: View {
             sectionHeader("Hotkeys", trailing: nil)
             hotkeyLine(model.settings.hotkey,
                        model.settings.hotkeyHoldToTalk ? "hold to record, release to submit" : "press to start, press again to submit")
-            hotkeyLine("+ R T A F S C I", "switch an operator mid-turn")
+            hotkeyLine("+ R T A F S L C I", "switch an operator mid-turn")
+            if model.settings.selectionHotkeyEnabled {
+                hotkeyLine(model.settings.selectionHotkey, "process the selected text and replace it")
+            }
             if !model.settings.hotkeyEnabled {
                 Text("The hotkey is off — switch it on above.")
                     .font(.caption)

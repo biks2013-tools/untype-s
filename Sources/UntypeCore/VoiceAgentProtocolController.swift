@@ -25,6 +25,27 @@ public struct EndProtocolSessionOptions: Sendable, Equatable {
     }
 }
 
+/// The LLM clients of one model: the primary LLM, or the alternative LLM
+/// used while the Alternative operator is on.
+public struct ProtocolLLMClients {
+    public let refiner: TextRefining?
+    public let translator: TextRefining?
+    public let compositeRefineTranslator: CompositeRefineTranslating?
+    public let asker: TextRefining?
+
+    public init(
+        refiner: TextRefining?,
+        translator: TextRefining?,
+        compositeRefineTranslator: CompositeRefineTranslating?,
+        asker: TextRefining?
+    ) {
+        self.refiner = refiner
+        self.translator = translator
+        self.compositeRefineTranslator = compositeRefineTranslator
+        self.asker = asker
+    }
+}
+
 public final class VoiceAgentProtocolController {
     public typealias TextDelivery = (_ text: String) async throws -> Void
     public typealias FocusedInputTextDelivery = (_ text: String) async throws -> FocusedInputDeliveryResult
@@ -40,6 +61,7 @@ public final class VoiceAgentProtocolController {
     private let translator: TextRefining?
     private let compositeRefineTranslator: CompositeRefineTranslating?
     private let asker: TextRefining?
+    private let alternativeLLM: ProtocolLLMClients?
     private let askUserPromptTemplate: String
     private let askTranslatedUserPromptTemplate: String
     private let turnContext: UntypeTurnContext?
@@ -70,6 +92,7 @@ public final class VoiceAgentProtocolController {
         translator: TextRefining? = nil,
         compositeRefineTranslator: CompositeRefineTranslating? = nil,
         asker: TextRefining? = nil,
+        alternativeLLM: ProtocolLLMClients? = nil,
         askUserPromptTemplate: String = UntypePromptDefaults.askUserPromptTemplate,
         askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate,
         turnContext: UntypeTurnContext? = nil,
@@ -94,6 +117,7 @@ public final class VoiceAgentProtocolController {
         self.translator = translator
         self.compositeRefineTranslator = compositeRefineTranslator
         self.asker = asker
+        self.alternativeLLM = alternativeLLM
         self.askUserPromptTemplate = askUserPromptTemplate
         self.askTranslatedUserPromptTemplate = askTranslatedUserPromptTemplate
         self.turnContext = turnContext
@@ -252,6 +276,10 @@ public final class VoiceAgentProtocolController {
         translator?.dispose()
         compositeRefineTranslator?.dispose()
         asker?.dispose()
+        alternativeLLM?.refiner?.dispose()
+        alternativeLLM?.translator?.dispose()
+        alternativeLLM?.compositeRefineTranslator?.dispose()
+        alternativeLLM?.asker?.dispose()
         renderer.dispose()
     }
 
@@ -326,6 +354,20 @@ public final class VoiceAgentProtocolController {
         var sourceLanguage: ProtocolLanguage?
         var targetLanguage: ProtocolLanguage?
         var summary = ProtocolSubmissionSummary(sectionsProcessed: 1)
+        // Alternative: every LLM call of this section goes to the
+        // alternative LLM. Not configured: no LLM call at all (never the
+        // primary LLM), with one warning.
+        let useAlternative = operators.contains(.alternative)
+        let llmOperatorsOn = operators.contains(.ask) || operators.contains(.refine) || operators.contains(.translate)
+        let alternativeMissing = useAlternative && alternativeLLM == nil
+        if alternativeMissing, llmOperatorsOn {
+            warn("Alternative LLM operator is enabled, but no alternative LLM is configured (Settings → Alternative LLM, or UNTYPE_ALT_LLM_PROVIDER and UNTYPE_ALT_LLM_MODEL). The text was not processed by an LLM.")
+        }
+        let warnMissingLLM: (String) -> Void = alternativeMissing ? { _ in } : { [weak self] message in self?.warn(message) }
+        let refiner = useAlternative ? alternativeLLM?.refiner : self.refiner
+        let translator = useAlternative ? alternativeLLM?.translator : self.translator
+        let compositeRefineTranslator = useAlternative ? alternativeLLM?.compositeRefineTranslator : self.compositeRefineTranslator
+        let asker = useAlternative ? alternativeLLM?.asker : self.asker
         // Ask: the section is a request to the model and its answer becomes
         // the output. Refine is moot (the model reads the raw dictation);
         // translate only chooses the answer's language.
@@ -338,7 +380,7 @@ public final class VoiceAgentProtocolController {
 
         if shouldAsk {
             if asker == nil {
-                warn("Ask operator is enabled, but no LLM is configured.")
+                warnMissingLLM("Ask operator is enabled, but no LLM is configured.")
             } else {
                 operatorDiagnostic(.ask, stage: "started")
                 let request = rawText.isEmpty ? "(no spoken request: respond to the selected text)" : rawText
@@ -408,7 +450,7 @@ public final class VoiceAgentProtocolController {
             }
         } else if operators.contains(.refine) {
             if refiner == nil {
-                warn("Refine operator is enabled, but no LLM refiner is configured.")
+                warnMissingLLM("Refine operator is enabled, but no LLM refiner is configured.")
             } else {
                 operatorDiagnostic(.refine, stage: "started")
                 do {
@@ -429,7 +471,7 @@ public final class VoiceAgentProtocolController {
 
         if !shouldAsk && !shouldCompositeProcess && operators.contains(.translate) {
             if translator == nil {
-                warn("Translate operator is enabled, but no LLM translator is configured.")
+                warnMissingLLM("Translate operator is enabled, but no LLM translator is configured.")
             } else {
                 operatorDiagnostic(.translate, stage: "started")
                 sourceLanguage = detectProtocolLanguage(current)
@@ -615,6 +657,7 @@ private func formatStatusSummary(_ report: ProtocolStatusReport) -> String {
         "ask=\(report.operators.ask ? "on" : "off")",
         "followup=\(report.operators.followup ? "on" : "off")",
         "selection=\(report.operators.selection ? "on" : "off")",
+        "alternative=\(report.operators.alternative ? "on" : "off")",
         "translation_policy=\(report.translationPolicy.rawValue)",
         "pending_section=\(report.pendingSection ? "yes" : "no")"
     ].joined(separator: ", ")

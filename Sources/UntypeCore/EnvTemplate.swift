@@ -76,6 +76,13 @@ public enum UntypeEnvTemplate {
     # LLM model or deployment name. Default: gpt-5.4.
     # UNTYPE_LLM_MODEL=
 
+    # Alternative LLM, used instead of the primary one while the Alternative
+    # operator (L) is on: same prompts, limits and streaming; credentials from the
+    # provider's variables below. Unset: no alternative LLM. Set both or neither.
+    # For azure-openai the model is the deployment name.
+    # UNTYPE_ALT_LLM_PROVIDER=
+    # UNTYPE_ALT_LLM_MODEL=
+
     # Azure OpenAI (required when UNTYPE_LLM_PROVIDER is azure-openai and refinement is on).
     # AZURE_OPENAI_API_KEY=
     # AZURE_OPENAI_ENDPOINT=
@@ -96,6 +103,11 @@ public enum UntypeEnvTemplate {
     # ANTHROPIC_FOUNDRY_API_KEY=
     # ANTHROPIC_FOUNDRY_RESOURCE=
     # ANTHROPIC_FOUNDRY_BASE_URL=
+
+    # DeepSeek API (required when the provider is deepseek). The model is the
+    # DeepSeek model name, e.g. deepseek-flash. Base URL default: https://api.deepseek.com
+    # DEEPSEEK_API_KEY=
+    # DEEPSEEK_API_BASE=
 
     # Cap on LLM output tokens. Omitted from requests when unset.
     # UNTYPE_LLM_MAX_OUTPUT_TOKENS=
@@ -148,6 +160,8 @@ public enum UntypeEnvTemplate {
     # UNTYPE_FOLLOWUP_DEFAULT=
     # Selection: include the text selected in the active app.
     # UNTYPE_SELECTION_DEFAULT=
+    # Alternative: refine, translate and Ask use the alternative LLM.
+    # UNTYPE_ALTERNATIVE_DEFAULT=
     # Output cap for Ask answers (separate from UNTYPE_LLM_MAX_OUTPUT_TOKENS). Default: 8000.
     # UNTYPE_ASK_MAX_OUTPUT_TOKENS=
 

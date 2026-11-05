@@ -135,6 +135,7 @@ public struct UntypeCommand {
       --input-default <on|off>                Initial protocol focused-input operator state. Env: UNTYPE_INPUT_DEFAULT.
       --followup-default <on|off>             Initial follow-up operator state: Ask also sends the conversation so far. Env: UNTYPE_FOLLOWUP_DEFAULT.
       --selection-default <on|off>            Initial selection operator state: include the text selected in the active app (native UI). Env: UNTYPE_SELECTION_DEFAULT.
+      --alternative-default <on|off>          Initial alternative operator state: refine, translate and Ask use the alternative LLM. Env: UNTYPE_ALTERNATIVE_DEFAULT.
       --ask-max-output-tokens <n>             Output cap for Ask answers (separate from --llm-max-output-tokens). Default: 8000. Env: UNTYPE_ASK_MAX_OUTPUT_TOKENS.
       --ask-default <on|off>                  Initial protocol ask operator state: the dictated text is a request to the LLM and its answer is the output. Env: UNTYPE_ASK_DEFAULT.
       --protocol-output <path>                JSONL path required for hybrid mode. Env: UNTYPE_PROTOCOL_OUTPUT.
@@ -143,6 +144,8 @@ public struct UntypeCommand {
       --no-llm-streaming                      Disable LLM response-token streaming (one-shot path).
       --llm-provider <name>                   azure-openai, openai, anthropic, google, azure-ai-inference, ollama, litellm, or openai-compat. Env: UNTYPE_LLM_PROVIDER.
       --llm-model <name>                      LLM model/deployment name. Env: UNTYPE_LLM_MODEL.
+      --alt-llm-provider <provider>           Alternative LLM provider (Alternative operator). Env: UNTYPE_ALT_LLM_PROVIDER.
+      --alt-llm-model <name>                  Alternative LLM model (azure-openai: deployment name); required with --alt-llm-provider. Env: UNTYPE_ALT_LLM_MODEL.
       --llm-max-output-tokens <n>             Cap LLM output tokens (max_completion_tokens / maxOutputTokens). Omitted when unset. Env: UNTYPE_LLM_MAX_OUTPUT_TOKENS.
       --llm-reasoning-effort <level>          none, minimal, low, medium, or high for reasoning-capable models. Omitted when unset; non-none levels drop the temperature parameter. Env: UNTYPE_LLM_REASONING_EFFORT.
       -v, --verbose                           Emit diagnostic logs to stderr. Env: UNTYPE_VERBOSE.
