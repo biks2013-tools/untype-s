@@ -38,6 +38,37 @@ enum SelectedTextReader {
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .nothingSelected : .selected(text)
     }
 
+    /// The element and range of the current Accessibility selection, so the
+    /// selection can be replaced later even if focus has moved (Push-to-Act
+    /// shows a pop-up in between). nil when the focused element does not
+    /// report both `AXSelectedText` (equal to `text`) and `AXSelectedTextRange`.
+    static func captureAnchor(expectedText text: String) -> SelectionAnchor? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.25)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused,
+              CFGetTypeID(focused) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+        let element = unsafeBitCast(focused, to: AXUIElement.self)
+        var selected: CFTypeRef?
+        var rangeValue: CFTypeRef?
+        var range = CFRange()
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success,
+              selected as? String == text,
+              AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let rangeValue,
+              CFGetTypeID(rangeValue) == AXValueGetTypeID(),
+              AXValueGetValue(unsafeBitCast(rangeValue, to: AXValue.self), .cfRange, &range),
+              range.length > 0
+        else {
+            return nil
+        }
+        return SelectionAnchor(element: element, range: range, text: text)
+    }
+
     /// Copies the selection with a synthetic ⌘C, reads it, and puts the
     /// previous pasteboard contents back. nil when the app copied nothing.
     static func readByCopying(timeout: Duration = .milliseconds(300)) async -> String? {
@@ -91,5 +122,78 @@ enum SelectedTextReader {
             event.setIntegerValueField(.eventSourceUserData, value: untypeSyntheticKeyboardEventMarker)
             event.post(tap: .cghidEventTap)
         }
+    }
+}
+
+/// A selection captured through Accessibility: its element, range and text.
+/// `replace(with:)` writes into that element directly, independent of which
+/// window has the keyboard focus at delivery time.
+final class SelectionAnchor: @unchecked Sendable {
+    private let element: AXUIElement
+    private let range: CFRange
+    private let text: String
+
+    init(element: AXUIElement, range: CFRange, text: String) {
+        self.element = element
+        self.range = range
+        self.text = text
+    }
+
+    /// Re-selects the captured range and replaces it with `replacement`.
+    /// Returns nil (nothing written) when the element is gone, the range no
+    /// longer holds the captured text, or the control ignored the write;
+    /// the caller then falls back to ordinary focused-input delivery.
+    func replace(with replacement: String) -> FocusedInputDeliveryResult? {
+        AXUIElementSetMessagingTimeout(element, 1.0)
+        var range = self.range
+        guard let rangeValue = AXValueCreate(.cfRange, &range),
+              AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue) == .success
+        else {
+            return nil
+        }
+        var selected: CFTypeRef?
+        var settable = DarwinBoolean(false)
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success,
+              selected as? String == text,
+              AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
+              settable.boolValue
+        else {
+            return nil
+        }
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, replacement as CFString) == .success else {
+            return nil
+        }
+        // A control that accepts the write but changes nothing still holds
+        // the captured text at the range: report failure so the caller falls
+        // back. Any other state means the replacement landed (never write twice).
+        if let value = stringValue(), let original = substring(value, location: self.range.location, length: text.utf16.count),
+           original == text, replacement != text {
+            return nil
+        }
+        return .success(
+            method: "ax-selection",
+            targetRole: stringAttribute(kAXRoleAttribute),
+            targetSubrole: stringAttribute(kAXSubroleAttribute)
+        )
+    }
+
+    private func stringValue() -> String? {
+        stringAttribute(kAXValueAttribute)
+    }
+
+    private func stringAttribute(_ name: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private func substring(_ value: String, location: Int, length: Int) -> String? {
+        let string = value as NSString
+        guard location >= 0, location + length <= string.length else {
+            return nil
+        }
+        return string.substring(with: NSRange(location: location, length: length))
     }
 }

@@ -223,7 +223,7 @@ struct UntypeMenuBarPanel: View {
                        model.settings.hotkeyHoldToTalk ? "hold to record, release to submit" : "press to start, press again to submit")
             hotkeyLine("+ R T A F S L C I", "switch an operator mid-turn")
             if model.settings.selectionHotkeyEnabled {
-                hotkeyLine(model.settings.selectionHotkey, "process the selected text and replace it")
+                hotkeyLine(model.settings.selectionHotkey, "Push-to-Act: act on the selected text")
             }
             if !model.settings.hotkeyEnabled {
                 Text("The hotkey is off — switch it on above.")

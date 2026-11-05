@@ -303,8 +303,8 @@ private struct UntypeSettingsGeneralView: View {
                     }
                 }
 
-                // Selection hotkey
-                inspectorGroup("Selection hotkey") {
+                // Push-to-Act (selection hotkey)
+                inspectorGroup("Push-to-Act") {
                     VStack(alignment: .leading, spacing: 8) {
                         inspectorToggleRow("Enabled", isOn: binding(\.selectionHotkeyEnabled))
                         inspectorFieldRow("Hotkey") {
@@ -541,7 +541,7 @@ private struct UntypeSettingsGeneralView: View {
         if !model.settings.hotkeyEnabled {
             return "Needs the push-to-talk hotkey listener: enable Push to talk."
         }
-        return "Select text in any app and press the hotkey: the active Refine, Translate or Ask operators process it (with the Alternative LLM when L is on) and the result replaces the selection. No recording."
+        return "Select text in any app and press the hotkey: a pop-up shows the model (primary or Alternative), the operators and the translation direction, starting from the current ones. Change them for this run only (letters toggle, 1–3 translate to a language and turn Translate on) and press Enter: the result replaces the selection. Esc cancels. No recording."
     }
 
     private var hotkeyStatus: String {

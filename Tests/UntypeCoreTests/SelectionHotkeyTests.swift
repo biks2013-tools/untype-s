@@ -188,3 +188,44 @@ private func selectionController(
     #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: toggled))
     #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: rebound))
 }
+
+@Test func pushToActChoiceStartsFromTheSettingsAndChangesOnlyTheRun() throws {
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        refine: true,
+        alternative: true,
+        translationPolicy: TranslationPolicy.toEnglish.rawValue
+    ))
+    var choice = PushToActChoice(settings: settings, alternativeAvailable: true)
+    #expect(choice.refine && !choice.translate && !choice.ask)
+    #expect(choice.alternative)
+    #expect(choice.translationPolicy == TranslationPolicy.toEnglish)
+
+    let toggled = [choice.toggle(key: "T"), choice.toggle(key: "l"), choice.toggle(key: "r"), choice.toggle(key: "x")]
+    #expect(toggled == [true, true, true, false])
+    choice.cycleTranslationPolicy()
+    let operators = try #require(choice.operators)
+    #expect(!operators.refine && operators.translate && !operators.alternative)
+    #expect(operators.selection && operators.input)
+    #expect(choice.translationPolicy == TranslationPolicy.toGreek)
+    // The saved settings are untouched.
+    #expect(settings.refine && !settings.translate && settings.alternative)
+
+    let translateOff = choice.toggle(key: "t")
+    #expect(translateOff)
+    #expect(!choice.canRun)
+    #expect(choice.operators == nil)
+
+    // Picking a language turns Translate on.
+    choice.selectTranslation(.toGreek)
+    #expect(choice.translate && choice.canRun)
+    #expect(choice.operators?.translate == true)
+}
+
+@Test func pushToActChoiceKeepsTheAlternativeOffWhenNoneIsConfigured() throws {
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(refine: true, alternative: true))
+    var choice = PushToActChoice(settings: settings, alternativeAvailable: false)
+    #expect(!choice.alternative)
+    let alternativeToggled = choice.toggle(key: "l")
+    #expect(!alternativeToggled)
+    #expect(choice.operators?.alternative == false)
+}

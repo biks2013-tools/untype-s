@@ -105,26 +105,27 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 - Provider without a model, model without a provider, or an unknown provider: configuration error.
 - Alternative operator on but no alternative LLM configured: the turn makes **no** LLM call (the primary LLM is never used in its place), the dictated text is delivered unchanged, and one warning says so.
 
-## Selection Hotkey
+## Push-to-Act (Selection Hotkey)
 
-The **selection hotkey** processes text you have already selected, instead of dictated text. It is set in Settings → Selection hotkey and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**). It has no CLI flag or environment variable.
+**Push-to-Act** processes text you have already selected, instead of dictated text. It is set in Settings → General → Push-to-Act and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**); the stored names stay as before. It has no CLI flag or environment variable.
 
 - Select text in any app and press the hotkey. untype reads the selection: Accessibility first, then a synthetic ⌘C (the pasteboard is restored).
-- The selection goes through the operators that are on at that moment:
+- A pop-up opens over the app, starting from the current settings. It shows the selected text and lets you change, **for this run only** (nothing is saved):
+  - **Model**: Primary (the main LLM) or Alternative (the alternative LLM, `L`; shown only when one is configured).
+  - **Operators**: Refine `R`, Translate `T`, Ask `A`, Follow-up `F`, Clipboard `C`.
+  - **Translation**: `1` Greek ↔ English (opposite), `2` → English, `3` → Greek.
+- Picking a translation direction (click or `1`–`3`) also turns **Translate** on: choosing a language means "translate to it". The direction is highlighted only while Translate is on.
+- Click or press the letters/digits to change them; **Enter** runs, **Esc** cancels (so does clicking elsewhere or pressing the push-to-talk hotkey). Enter does nothing while none of R/T/A is on.
+- What the run does:
   - **Refine** and/or **Translate**: the result is the refined and/or translated text.
   - **Ask**: the selection is sent as the selected text with no spoken request, so the model responds to it. Follow-up adds the conversation.
-  - **Alternative (L)**: the alternative LLM is used.
   - **Clipboard**, if on, also copies the result.
-- The result **replaces the selection**, whatever the Focused input and Selection role settings are.
+- The result **replaces the selection**, whatever the Focused input and Selection role settings are. When the app exposes the selection through Accessibility (TextEdit, Notes, most native fields), untype writes the result straight into that selection (`focused_input.method: "ax-selection"`), wherever the focus is by then; otherwise it uses the usual focused-input delivery (`ax-value`, `paste-keycode`, …).
 - No microphone, no recording, no STT.
-- Nothing happens, with a warning in Events, when:
-  - none of R/T/A is on;
-  - nothing is selected;
-  - a push-to-talk turn is recording or being delivered;
-  - a manual session is running.
+- Nothing happens, with a message in the overlay and Events, when nothing is selected or untype itself is in front; it is ignored while a push-to-talk turn is recording or being delivered, or a manual session is running.
 - The hotkey uses the same format as the push-to-talk hotkey (`Control`, `Option`, `Command`, `Shift`, `CommandOrControl` + one key). It must differ from the push-to-talk hotkey, in any modifier order, unless it is disabled.
 - It needs the push-to-talk listener on (Push to talk → Enabled), because it is detected by the same event tap.
-- Each run writes a record to `release-latency.jsonl` with `trigger: "selection-hotkey"`. Check `focused_input.ok` there.
+- Each run writes a record to `release-latency.jsonl` with `trigger: "push-to-act"` (`"selection-hotkey"` up to build 33). Check `focused_input.ok` there.
 
 ## Voice Commands On/Off
 
