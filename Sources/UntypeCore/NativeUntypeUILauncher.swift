@@ -346,6 +346,7 @@ final class UntypeUIModel: ObservableObject {
 
     fileprivate var overlay: UntypeOverlayController?
     fileprivate var hotkeyMonitor: UntypeHotkeyMonitor?
+    private var pushToActPanel: PushToActPanelController?
     let promptStore = PromptFileStore(directory: PromptFileStore.userDirectory())
     private var promptWatcher: PromptFileWatcher?
 
@@ -367,7 +368,7 @@ final class UntypeUIModel: ObservableObject {
     /// A press that arrived while `runtimeStopInFlight`: it starts its turn
     /// as soon as the previous one is delivered, instead of being lost.
     private var hotkeyPressQueued = false
-    /// A selection-hotkey run is reading or processing the selection.
+    /// A Push-to-Act run is reading the selection, showing its pop-up or processing.
     private var selectionHotkeyInFlight = false
     private var lastAudioEventCategory: String?
     private var lastAudioEventLoggedAt = Date.distantPast
@@ -678,6 +679,7 @@ final class UntypeUIModel: ObservableObject {
     /// event stops it. Push-to-listen (toggle) mode starts recording on the
     /// first press and stops it on the next press; releases are ignored.
     func handleHotkeyPress(source: String = "hotkey") {
+        cancelPushToActPanel()
         if !settings.hotkeyHoldToTalk, hotkeyPressed {
             stopHotkeySession(source: source)
             return
@@ -693,45 +695,40 @@ final class UntypeUIModel: ObservableObject {
         stopHotkeySession(source: source)
     }
 
-    /// Selection hotkey pressed: the text selected in the app in front goes
-    /// through the active refine/translate/Ask operators and the result
-    /// replaces it. No recording; push-to-talk state is never touched.
-    func handleSelectionHotkey(source: String = "selection-hotkey") {
+    /// Push-to-Act (selection hotkey) pressed: the text selected in the app
+    /// in front is read, the Push-to-Act pop-up lets the user pick the model,
+    /// operators and translation direction for this run, and Enter processes
+    /// the text and replaces the selection. No recording; push-to-talk state
+    /// is never touched.
+    func handleSelectionHotkey(source: String = "push-to-act") {
         guard settings.selectionHotkeyEnabled else {
             return
         }
         guard !selectionHotkeyInFlight else {
-            appendEvent("diagnostic.info: [untype] selection hotkey ignored: the previous selection is still being processed")
+            appendEvent("diagnostic.info: [untype] push-to-act ignored: the previous one is still open or running")
             return
         }
         guard !hotkeyPressed, !runtimeStopInFlight, sessionOwner != .manual else {
-            appendEvent("diagnostic.warning: [untype] selection hotkey ignored while a dictation turn is in progress")
-            return
-        }
-        guard let operators = SelectionHotkeyPlan.operators(for: settings) else {
-            appendEvent("diagnostic.warning: [untype] selection hotkey: turn on Refine (R), Translate (T) or Ask (A) first")
-            overlay?.showNotice("Turn on R, T or A first")
+            appendEvent("diagnostic.warning: [untype] push-to-act ignored while a dictation turn is in progress")
             return
         }
         let frontmost = NSWorkspace.shared.frontmostApplication
         guard let target = frontmost, isExternalFocusedInputApplication(target) else {
-            appendEvent("diagnostic.warning: [untype] selection hotkey: select text in another app first")
+            appendEvent("diagnostic.warning: [untype] push-to-act: select text in another app first")
             overlay?.showNotice("Select text in another app first")
             return
         }
         selectionHotkeyInFlight = true
-        appendEvent("diagnostic.info: [untype] selection hotkey (\(source))")
-        overlay?.show(phase: "finalizing")
-        let currentSettings = settings
-        let askConversationStore = askConversation
-        let modelBox = WeakUntypeUIModelBox(self)
+        appendEvent("diagnostic.info: [untype] push-to-act (\(source))")
         Task { @MainActor [weak self] in
             let selected: String?
             let method: String
+            var anchor: SelectionAnchor?
             switch SelectedTextReader.readAccessibility() {
             case .selected(let text):
                 selected = text
                 method = "accessibility"
+                anchor = SelectedTextReader.captureAnchor(expectedText: text)
             case .nothingSelected:
                 selected = nil
                 method = "accessibility"
@@ -743,48 +740,116 @@ final class UntypeUIModel: ObservableObject {
                 return
             }
             guard let selected else {
-                self.appendEvent("diagnostic.warning: [untype] selection hotkey: no selected text found (\(method))")
+                self.appendEvent("diagnostic.warning: [untype] push-to-act: no selected text found (\(method))")
                 self.selectionHotkeyInFlight = false
                 self.overlay?.showNotice("No selected text found")
                 return
             }
-            self.appendEvent("diagnostic.info: [untype] selected text captured (\(selected.count) characters, \(method), selection hotkey)")
-            Task.detached { [modelBox] in
-                do {
-                    let config = try ConfigResolver(requireProtocolOutputForHybrid: false)
-                        .resolve(argv: try currentSettings.sessionArguments())
-                    _ = try await UntypeRuntimeFactory.runSelectionHotkey(
-                        config: config,
-                        operators: operators,
-                        selectedText: selected,
-                        askConversation: askConversationStore,
-                        protocolOutput: UIEventTextOutput { line in
-                            dispatchToUI { [modelBox] in
-                                modelBox.model?.appendEvent("protocol.event: \(line.trimmingCharacters(in: .whitespacesAndNewlines))")
-                            }
-                        },
-                        diagnostics: { line, warning in
-                            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                            dispatchToUI { [modelBox] in
-                                modelBox.model?.appendEvent("\(warning ? "diagnostic.warning" : "diagnostic.info"): \(text)")
-                            }
-                        },
-                        focusedInputPreparation: {
-                            await MainActor.run {
-                                if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
-                                    target.activate(options: [.activateAllWindows])
-                                }
-                            }
-                        }
-                    )
-                } catch {
+            self.appendEvent("diagnostic.info: [untype] selected text captured (\(selected.count) characters, \(method), push-to-act, \(target.localizedName ?? "unknown app")\(anchor == nil ? "" : ", anchored"))")
+            self.showPushToActPanel(selectedText: selected, anchor: anchor, target: target)
+        }
+    }
+
+    /// Opens the Push-to-Act pop-up over the app holding the selection.
+    private func showPushToActPanel(selectedText: String, anchor: SelectionAnchor?, target: NSRunningApplication) {
+        let alternativeModel = settings.altLlmProvider.isEmpty || settings.altLlmModel.isEmpty
+            ? nil
+            : settings.altLlmModel
+        let choice = PushToActChoice(settings: settings, alternativeAvailable: alternativeModel != nil)
+        let panel = pushToActPanel ?? PushToActPanelController()
+        pushToActPanel = panel
+        panel.show(
+            choice: choice,
+            selectedText: selectedText,
+            primaryModel: settings.llmModel,
+            alternativeModel: alternativeModel,
+            onRun: { [weak self] choice in
+                self?.runPushToAct(choice: choice, selectedText: selectedText, anchor: anchor, target: target)
+            },
+            onCancel: { [weak self] in
+                self?.appendEvent("diagnostic.info: [untype] push-to-act cancelled")
+                self?.selectionHotkeyInFlight = false
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
+                    target.activate(options: [.activateAllWindows])
+                }
+            }
+        )
+    }
+
+    /// Closes an open Push-to-Act pop-up (a push-to-talk press takes over).
+    private func cancelPushToActPanel() {
+        guard let pushToActPanel, pushToActPanel.isVisible else {
+            return
+        }
+        pushToActPanel.cancel()
+    }
+
+    private func runPushToAct(
+        choice: PushToActChoice,
+        selectedText selected: String,
+        anchor: SelectionAnchor?,
+        target: NSRunningApplication
+    ) {
+        guard let operators = choice.operators else {
+            selectionHotkeyInFlight = false
+            return
+        }
+        appendEvent("diagnostic.info: [untype] push-to-act run (\(choice.alternative ? "alternative" : "primary") LLM, translation \(choice.translationPolicy.rawValue))")
+        overlay?.show(phase: "finalizing")
+        let currentSettings = settings
+        let askConversationStore = askConversation
+        let modelBox = WeakUntypeUIModelBox(self)
+        let translationPolicy = choice.translationPolicy
+        var selectionReplacer: (@Sendable (String) async -> FocusedInputDeliveryResult?)?
+        if let anchor {
+            selectionReplacer = { @Sendable (text: String) async -> FocusedInputDeliveryResult? in
+                let result: FocusedInputDeliveryResult? = await MainActor.run { anchor.replace(with: text) }
+                if result == nil {
                     dispatchToUI { [modelBox] in
-                        modelBox.model?.appendEvent("session.error: \(uiDiagnosticLine(error))")
+                        modelBox.model?.appendEvent("diagnostic.info: [untype] push-to-act: the selection could not be replaced in place; using focused-input delivery")
                     }
                 }
+                return result
+            }
+        }
+        let replacer = selectionReplacer
+        Task.detached { [modelBox] in
+            do {
+                let config = try ConfigResolver(requireProtocolOutputForHybrid: false)
+                    .resolve(argv: try currentSettings.sessionArguments())
+                _ = try await UntypeRuntimeFactory.runSelectionHotkey(
+                    config: config,
+                    operators: operators,
+                    translationPolicy: translationPolicy,
+                    selectedText: selected,
+                    askConversation: askConversationStore,
+                    protocolOutput: UIEventTextOutput { line in
+                        dispatchToUI { [modelBox] in
+                            modelBox.model?.appendEvent("protocol.event: \(line.trimmingCharacters(in: .whitespacesAndNewlines))")
+                        }
+                    },
+                    diagnostics: { line, warning in
+                        let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        dispatchToUI { [modelBox] in
+                            modelBox.model?.appendEvent("\(warning ? "diagnostic.warning" : "diagnostic.info"): \(text)")
+                        }
+                    },
+                    selectionReplacer: replacer,
+                    focusedInputPreparation: {
+                        await MainActor.run {
+                            if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
+                                target.activate(options: [.activateAllWindows])
+                            }
+                        }
+                    }
+                )
+            } catch {
                 dispatchToUI { [modelBox] in
-                    modelBox.model?.finishSelectionHotkey()
+                    modelBox.model?.appendEvent("session.error: \(uiDiagnosticLine(error))")
                 }
+            }
+            dispatchToUI { [modelBox] in
+                modelBox.model?.finishSelectionHotkey()
             }
         }
     }

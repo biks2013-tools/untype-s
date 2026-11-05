@@ -250,17 +250,20 @@ public enum UntypeRuntimeFactory {
         )
     }
 
-    /// One selection-hotkey run: the selected text goes through `operators`
-    /// (see `SelectionHotkeyPlan`) and the result is delivered to the focused
-    /// control, replacing the selection. Writes a release-latency record with
-    /// trigger `selection-hotkey`. nil: nothing was processed.
+    /// One Push-to-Act run: the selected text goes through `operators` (see
+    /// `PushToActChoice`), translating in `translationPolicy` (nil: the
+    /// configured one), and the result is delivered to the focused control,
+    /// replacing the selection. Writes a release-latency record with trigger
+    /// `push-to-act`. nil: nothing was processed.
     public static func runSelectionHotkey(
         config: ResolvedConfig,
         operators: OperatorState,
+        translationPolicy: TranslationPolicy? = nil,
         selectedText: String,
         askConversation: AskConversation,
         protocolOutput: TextOutput,
         diagnostics: @escaping @Sendable (_ line: String, _ warning: Bool) -> Void,
+        selectionReplacer: (@Sendable (String) async -> FocusedInputDeliveryResult?)? = nil,
         focusedInputPreparation: @escaping @Sendable () async -> Void = {},
         streamingProgress: (@Sendable (String) -> Void)? = nil
     ) async throws -> ProtocolSubmissionSummary? {
@@ -277,7 +280,7 @@ public enum UntypeRuntimeFactory {
             writer: try makeUIProtocolWriter(protocolConfig: protocolConfig, output: protocolOutput),
             markers: protocolConfig.markers,
             initialOperators: operators,
-            translationPolicy: protocolConfig.translationPolicy,
+            translationPolicy: translationPolicy ?? protocolConfig.translationPolicy,
             translationUserPromptTemplate: config.prompts.translationUserPromptTemplate,
             verbose: config.verbose,
             refiner: try LLMRefinerFactory.makeRefiner(config: config.llm),
@@ -303,6 +306,11 @@ public enum UntypeRuntimeFactory {
             askConversationTemplate: config.prompts.askConversationTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
+                // The captured selection first (writes into its element,
+                // whatever has the focus); ordinary delivery otherwise.
+                if let selectionReplacer, let result = await selectionReplacer(text) {
+                    return result
+                }
                 await focusedInputPreparation()
                 return try await focusedInputDelivery.deliver(text)
             },
@@ -313,12 +321,12 @@ public enum UntypeRuntimeFactory {
         defer { controller.dispose() }
         try controller.startSession()
         let summary = try await controller.submitWithoutDictation()
-        try await controller.endSession(reason: "selection-hotkey", options: EndProtocolSessionOptions(submitPending: false))
+        try await controller.endSession(reason: "push-to-act", options: EndProtocolSessionOptions(submitPending: false))
         if let releaseLatencyLogger, let summary {
             let record = ReleaseLatencyLogRecord(
-                turnId: "selection-\(UUID().uuidString.lowercased())",
+                turnId: "push-to-act-\(UUID().uuidString.lowercased())",
                 releaseTimestamp: releaseTimestamp,
-                trigger: "selection-hotkey",
+                trigger: "push-to-act",
                 sttProvider: "none",
                 quickClose: false,
                 textSource: "selection",
