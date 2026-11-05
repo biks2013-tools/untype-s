@@ -277,34 +277,54 @@ public final class URLSessionLLMHTTPClient: NSObject, LLMHTTPClient, @unchecked 
     }
 }
 
+/// Chat Completions refiner for Azure OpenAI deployments and for
+/// OpenAI-compatible APIs (`deepseek`).
 public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
-    private let endpoint: String
+    private enum Route {
+        case azure(endpoint: String, deployment: String, apiVersion: String)
+        case openAICompatible(baseURL: String, model: String)
+    }
+
+    private let route: Route
     private let apiKey: String
-    private let deployment: String
-    private let apiVersion: String
+    private let providerLabel: String
     private let systemPrompt: String
     private let requestTimeoutMs: Int
     private let maxOutputTokens: Int?
     private let reasoningEffort: String?
     private let verbose: Bool
     private let streamingEnabled: Bool
+    private let thinking: Bool
     private let httpClient: LLMHTTPClient
     private var disposed = false
 
-    public init(config: LLMConfig, httpClient: LLMHTTPClient = URLSessionLLMHTTPClient()) throws {
-        guard case let .azureOpenAI(apiKey, endpoint, deployment, apiVersion) = config.providerConfig else {
-            throw UntypeError.invalidConfiguration("AzureOpenAIRefiner requires azure-openai provider configuration.")
+    /// `thinking: false` turns DeepSeek's thinking mode off (refine and
+    /// translate are rewrites; the reasoning tokens would count against
+    /// `max_tokens` and can leave the answer empty). Ignored on Azure.
+    public init(
+        config: LLMConfig,
+        thinking: Bool = true,
+        httpClient: LLMHTTPClient = URLSessionLLMHTTPClient()
+    ) throws {
+        switch config.providerConfig {
+        case let .azureOpenAI(apiKey, endpoint, deployment, apiVersion):
+            self.route = .azure(endpoint: endpoint.trimmingTrailingSlashes(), deployment: deployment, apiVersion: apiVersion)
+            self.apiKey = apiKey
+            self.providerLabel = "azure-openai/\(deployment)"
+        case let .openAICompatible(apiKey, baseURL):
+            self.route = .openAICompatible(baseURL: baseURL.trimmingTrailingSlashes(), model: config.model)
+            self.apiKey = apiKey
+            self.providerLabel = "\(config.provider.rawValue)/\(config.model)"
+        default:
+            throw UntypeError.invalidConfiguration("AzureOpenAIRefiner requires azure-openai or OpenAI-compatible provider configuration.")
         }
-        self.endpoint = endpoint.trimmingTrailingSlashes()
-        self.apiKey = apiKey
-        self.deployment = deployment
-        self.apiVersion = apiVersion
         self.systemPrompt = config.systemPrompt
         self.requestTimeoutMs = config.requestTimeoutMs
         self.maxOutputTokens = config.maxOutputTokens
         self.reasoningEffort = config.reasoningEffort
         self.verbose = config.verbose
         self.streamingEnabled = config.streamingEnabled
+        self.thinking = thinking
         self.httpClient = httpClient
     }
 
@@ -315,7 +335,7 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
         let request = try makeRequest(text: text)
         if verbose {
             FileHandle.standardError.writeData(
-                "[untype] llm: refining \(text.count) chars via azure-openai/\(deployment)\n"
+                "[untype] llm: refining \(text.count) chars via \(providerLabel)\n"
             )
         }
         let response = try await perform(request)
@@ -335,7 +355,7 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
         let request = try makeRequest(text: text, stream: true)
         if verbose {
             FileHandle.standardError.writeData(
-                "[untype] llm: streaming \(text.count) chars via azure-openai/\(deployment)\n"
+                "[untype] llm: streaming \(text.count) chars via \(providerLabel)\n"
             )
         }
         let decoder = JSONDecoder()
@@ -390,15 +410,18 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
     }
 
     private func makeRequest(text: String, stream: Bool = false) throws -> URLRequest {
-        let deployment = percentEncodePathComponent(deployment)
-        let apiVersion = percentEncodeQueryValue(apiVersion)
-        let rawUrl = "\(endpoint)/openai/deployments/\(deployment)/chat/completions?api-version=\(apiVersion)"
+        let rawUrl: String
+        switch route {
+        case let .azure(endpoint, deployment, apiVersion):
+            rawUrl = "\(endpoint)/openai/deployments/\(percentEncodePathComponent(deployment))/chat/completions?api-version=\(percentEncodeQueryValue(apiVersion))"
+        case let .openAICompatible(baseURL, _):
+            rawUrl = "\(baseURL)/chat/completions"
+        }
         guard let url = URL(string: rawUrl) else {
-            throw LLMRefinementError("Azure OpenAI URL is invalid: \(rawUrl)", kind: .network)
+            throw LLMRefinementError("Chat Completions URL is invalid: \(rawUrl)", kind: .network)
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "api-key")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = [
             "messages": [
@@ -406,15 +429,29 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
                 ["role": "user", "content": text]
             ]
         ]
+        switch route {
+        case .azure:
+            request.setValue(apiKey, forHTTPHeaderField: "api-key")
+            if let maxOutputTokens {
+                body["max_completion_tokens"] = maxOutputTokens
+            }
+            if let reasoningEffort {
+                body["reasoning_effort"] = reasoningEffort
+            }
+        case let .openAICompatible(_, model):
+            // DeepSeek takes `max_tokens`, which also covers its reasoning tokens.
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            body["model"] = model
+            if let maxOutputTokens {
+                body["max_tokens"] = maxOutputTokens
+            }
+            if !thinking {
+                body["thinking"] = ["type": "disabled"]
+            }
+        }
         if stream {
             // Only switch the response to SSE; no stream_options/usage telemetry in v1.
             body["stream"] = true
-        }
-        if let maxOutputTokens {
-            body["max_completion_tokens"] = maxOutputTokens
-        }
-        if let reasoningEffort {
-            body["reasoning_effort"] = reasoningEffort
         }
         // Reasoning-capable deployments reject sampling parameters unless
         // reasoning is off; send temperature only when no reasoning effort is
@@ -463,6 +500,10 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
             let message = first["message"] as? [String: Any],
             let content = message["content"] as? String
         else {
+            if let first = (json as? [String: Any])?["choices"] as? [[String: Any]],
+               first.first?["finish_reason"] as? String == "length" {
+                throw LLMRefinementError("LLM output was truncated (finish_reason length)", kind: .server)
+            }
             throw LLMRefinementError(
                 "LLM response did not contain a non-empty choices[0].message.content",
                 kind: .shape
@@ -470,6 +511,9 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
         }
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            if first["finish_reason"] as? String == "length" {
+                throw LLMRefinementError("LLM output was truncated (finish_reason length)", kind: .server)
+            }
             throw LLMRefinementError(
                 "LLM response did not contain a non-empty choices[0].message.content",
                 kind: .shape
@@ -1065,7 +1109,7 @@ public final class LLMCompositeRefineTranslator: CompositeRefineTranslating {
 
 public enum LLMRefinerFactory {
     public static func makeRefiner(config: LLMConfig) throws -> TextRefining? {
-        try make(config: config)
+        try make(config: config, thinking: false)
     }
 
     public static func makeTranslator(
@@ -1087,7 +1131,7 @@ public enum LLMRefinerFactory {
             reasoningEffort: config.reasoningEffort,
             streamingEnabled: config.streamingEnabled
         )
-        return try make(config: translationConfig)
+        return try make(config: translationConfig, thinking: false)
     }
 
     /// The LLM that answers a dictated request (the ask operator).
@@ -1109,7 +1153,7 @@ public enum LLMRefinerFactory {
             maxOutputTokens: config.askMaxOutputTokens,
             reasoningEffort: config.reasoningEffort,
             streamingEnabled: config.streamingEnabled
-        ))
+        ), thinking: true)
     }
 
     public static func makeCompositeRefineTranslator(
@@ -1131,7 +1175,7 @@ public enum LLMRefinerFactory {
             reasoningEffort: config.reasoningEffort,
             streamingEnabled: config.streamingEnabled
         )
-        guard let refiner = try make(config: compositeConfig) else {
+        guard let refiner = try make(config: compositeConfig, thinking: false) else {
             return nil
         }
         return LLMCompositeRefineTranslator(
@@ -1141,13 +1185,15 @@ public enum LLMRefinerFactory {
         )
     }
 
-    private static func make(config: LLMConfig) throws -> TextRefining? {
+    /// `thinking`: whether a DeepSeek client keeps thinking mode on (Ask)
+    /// or turns it off (refine, translate, combined call).
+    private static func make(config: LLMConfig, thinking: Bool) throws -> TextRefining? {
         guard config.enabled else {
             return nil
         }
         switch config.providerConfig {
-        case .azureOpenAI:
-            return try AzureOpenAIRefiner(config: config)
+        case .azureOpenAI, .openAICompatible:
+            return try AzureOpenAIRefiner(config: config, thinking: thinking)
         case .google:
             return try GoogleRefiner(config: config)
         case .anthropic:
@@ -1169,7 +1215,7 @@ public enum LLMRefinerFactory {
             return "Provider 'litellm' is not implemented in v1. To enable, set LITELLM_BASE_URL and LITELLM_API_KEY and add the refiner."
         case .openAICompat:
             return "Provider 'openai-compat' is not implemented in v1. To enable, set OPENAI_COMPAT_BASE_URL and OPENAI_COMPAT_API_KEY and add the refiner."
-        case .azureOpenAI, .google, .anthropic, .azureAnthropic:
+        case .azureOpenAI, .google, .anthropic, .azureAnthropic, .deepseek:
             return "Provider '\(provider.rawValue)' is implemented but was resolved as an unimplemented provider."
         }
     }

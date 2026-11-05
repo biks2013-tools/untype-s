@@ -25,6 +25,7 @@ public struct ConfigResolver: Sendable {
     private static let defaultLLMRequestTimeoutMs = 15_000
     private static let defaultAzureAPIVersion = "2024-10-21"
     private static let anthropicAPIBaseURL = "https://api.anthropic.com"
+    private static let deepseekAPIBaseURL = "https://api.deepseek.com"
 
     public init(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -330,6 +331,17 @@ public struct ConfigResolver: Sendable {
             envName: "UNTYPE_SELECTION_DEFAULT"
         ) ?? false
 
+        let alternativeDefault = try parseBoolean(
+            resolveString(
+                flagValue: parsed.value(for: "--alternative-default"),
+                chain: chain,
+                envKey: "UNTYPE_ALTERNATIVE_DEFAULT",
+                defaultValue: "off"
+            ),
+            flagName: "--alternative-default",
+            envName: "UNTYPE_ALTERNATIVE_DEFAULT"
+        ) ?? false
+
         let translationPolicyRaw = resolveString(
             flagValue: parsed.value(for: "--translation-policy"),
             chain: chain,
@@ -372,7 +384,8 @@ public struct ConfigResolver: Sendable {
                 input: inputDefault,
                 ask: askDefault,
                 followup: followupDefault,
-                selection: selectionDefault
+                selection: selectionDefault,
+                alternative: alternativeDefault
             ),
             translationPolicy: translationPolicy,
             protocolOutput: protocolOutput?.isEmpty == true ? nil : protocolOutput,
@@ -384,6 +397,7 @@ public struct ConfigResolver: Sendable {
                 ask: configuredSource(parsed.value(for: "--ask-default"), chain: chain, envKey: "UNTYPE_ASK_DEFAULT"),
                 followup: configuredSource(parsed.value(for: "--followup-default"), chain: chain, envKey: "UNTYPE_FOLLOWUP_DEFAULT"),
                 selection: configuredSource(parsed.value(for: "--selection-default"), chain: chain, envKey: "UNTYPE_SELECTION_DEFAULT"),
+                alternative: configuredSource(parsed.value(for: "--alternative-default"), chain: chain, envKey: "UNTYPE_ALTERNATIVE_DEFAULT"),
                 translationPolicy: configuredSource(parsed.value(for: "--translation-policy"), chain: chain, envKey: "UNTYPE_TRANSLATION_POLICY")
             )
         )
@@ -471,6 +485,12 @@ public struct ConfigResolver: Sendable {
             streamingEnabled: llmStreaming,
             askMaxOutputTokens: askMaxOutputTokens
         )
+        let alternativeLLM = try resolveAlternativeLLM(
+            parsed: parsed,
+            chain: chain,
+            primary: llm,
+            validateRequiredSettings: validateLLMProviderConfig
+        )
 
         return ResolvedConfig(
             sttProvider: provider,
@@ -488,6 +508,7 @@ public struct ConfigResolver: Sendable {
             guardPhrase: guardPhrase,
             protocolConfig: protocolConfig,
             llm: llm,
+            alternativeLLM: alternativeLLM,
             prompts: promptConfig,
             releaseLatencyLogging: ReleaseLatencyLoggingConfig(
                 enabled: releaseLatencyLogEnabled,
@@ -1002,11 +1023,17 @@ public struct ConfigResolver: Sendable {
         provider: LLMProvider,
         model: String,
         chain: EnvChain,
-        validateRequiredSettings: Bool
+        validateRequiredSettings: Bool,
+        deploymentFromModel: Bool = false,
+        enabledBy: String? = nil,
+        disableHint: String = "run with --no-refine to disable LLM refinement"
     ) throws -> ProviderConfig {
+        let enabledBy = enabledBy ?? "--refine on, --llm-provider=\(provider.rawValue)"
         switch provider {
         case .azureOpenAI:
-            let deployment = chain.get("AZURE_OPENAI_DEPLOYMENT")?.value ?? model
+            // The alternative LLM names its deployment with its model;
+            // AZURE_OPENAI_DEPLOYMENT belongs to the primary LLM.
+            let deployment = deploymentFromModel ? model : (chain.get("AZURE_OPENAI_DEPLOYMENT")?.value ?? model)
             let apiVersion = chain.get("AZURE_OPENAI_API_VERSION")?.value ?? Self.defaultAzureAPIVersion
             guard enabled, validateRequiredSettings else {
                 return .azureOpenAI(apiKey: "", endpoint: "", deployment: deployment, apiVersion: apiVersion)
@@ -1022,7 +1049,7 @@ public struct ConfigResolver: Sendable {
             }
             if !missing.isEmpty {
                 throw UntypeError.invalidConfiguration(
-                    "Azure OpenAI is enabled (--refine on, --llm-provider=azure-openai) but the following env vars are not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env - \(missing.joined(separator: ", ")). Set them or run with --no-refine to disable LLM refinement."
+                    "Azure OpenAI is enabled (\(enabledBy)) but the following env vars are not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env - \(missing.joined(separator: ", ")). Set them or \(disableHint)."
                 )
             }
             return .azureOpenAI(apiKey: apiKey!, endpoint: endpoint!, deployment: deployment, apiVersion: apiVersion)
@@ -1032,7 +1059,7 @@ public struct ConfigResolver: Sendable {
             }
             guard let apiKey = chain.get("GOOGLE_API_KEY")?.value else {
                 throw UntypeError.invalidConfiguration(
-                    "Google Gemini is enabled (--refine on, --llm-provider=google) but GOOGLE_API_KEY is not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env. Set it or run with --no-refine to disable LLM refinement."
+                    "Google Gemini is enabled (\(enabledBy)) but GOOGLE_API_KEY is not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env. Set it or \(disableHint)."
                 )
             }
             return .google(apiKey: apiKey)
@@ -1042,7 +1069,7 @@ public struct ConfigResolver: Sendable {
             }
             guard let apiKey = chain.get("ANTHROPIC_API_KEY")?.value else {
                 throw UntypeError.invalidConfiguration(
-                    "Anthropic is enabled (--refine on, --llm-provider=anthropic) but ANTHROPIC_API_KEY is not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env. Set it or run with --no-refine to disable LLM refinement."
+                    "Anthropic is enabled (\(enabledBy)) but ANTHROPIC_API_KEY is not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env. Set it or \(disableHint)."
                 )
             }
             return .anthropic(apiKey: apiKey, baseURL: Self.anthropicAPIBaseURL)
@@ -1062,7 +1089,7 @@ public struct ConfigResolver: Sendable {
             }
             if !missing.isEmpty {
                 throw UntypeError.invalidConfiguration(
-                    "Claude on Azure Foundry is enabled (--refine on, --llm-provider=azure-anthropic) but the following env vars are not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env - \(missing.joined(separator: ", ")). Set them or run with --no-refine to disable LLM refinement."
+                    "Claude on Azure Foundry is enabled (\(enabledBy)) but the following env vars are not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env - \(missing.joined(separator: ", ")). Set them or \(disableHint)."
                 )
             }
             if baseURL != nil, resource != nil {
@@ -1072,9 +1099,78 @@ public struct ConfigResolver: Sendable {
             }
             let root = baseURL ?? "https://\(resource!).services.ai.azure.com/anthropic"
             return .anthropic(apiKey: apiKey!, baseURL: root)
+        case .deepseek:
+            let baseURL = chain.get("DEEPSEEK_API_BASE")?.value ?? Self.deepseekAPIBaseURL
+            guard enabled, validateRequiredSettings else {
+                return .openAICompatible(apiKey: "", baseURL: baseURL)
+            }
+            guard let apiKey = chain.get("DEEPSEEK_API_KEY")?.value else {
+                throw UntypeError.invalidConfiguration(
+                    "DeepSeek is enabled (\(enabledBy)) but DEEPSEEK_API_KEY is not set in any of: CLI flag, ./.env, ~/.tool-agents/untype/.env, shell env. Set it or \(disableHint)."
+                )
+            }
+            return .openAICompatible(apiKey: apiKey, baseURL: baseURL)
         case .openAI, .azureAIInference, .ollama, .litellm, .openAICompat:
             return .unimplemented(provider: provider)
         }
+    }
+
+    /// The alternative LLM (Alternative operator): its own provider and
+    /// model, the primary's prompts, limits and streaming. Not configured
+    /// (nil) when no provider is set; a provider without a model is an error.
+    private func resolveAlternativeLLM(
+        parsed: ParsedArguments,
+        chain: EnvChain,
+        primary: LLMConfig,
+        validateRequiredSettings: Bool
+    ) throws -> LLMConfig? {
+        let providerRaw = (parsed.value(for: "--alt-llm-provider") ?? chain.get("UNTYPE_ALT_LLM_PROVIDER")?.value)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = (parsed.value(for: "--alt-llm-model") ?? chain.get("UNTYPE_ALT_LLM_MODEL")?.value)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let providerRaw, !providerRaw.isEmpty else {
+            if let model, !model.isEmpty {
+                throw UntypeError.invalidConfiguration(
+                    "--alt-llm-model / UNTYPE_ALT_LLM_MODEL is set but --alt-llm-provider / UNTYPE_ALT_LLM_PROVIDER is not. Set both to configure the alternative LLM."
+                )
+            }
+            return nil
+        }
+        guard let provider = LLMProvider(rawValue: providerRaw) else {
+            let values = LLMProvider.allCases.map(\.rawValue).joined(separator: ", ")
+            throw UntypeError.invalidConfiguration(
+                "--alt-llm-provider / UNTYPE_ALT_LLM_PROVIDER must be one of: \(values)."
+            )
+        }
+        guard let model, !model.isEmpty else {
+            throw UntypeError.invalidConfiguration(
+                "--alt-llm-provider / UNTYPE_ALT_LLM_PROVIDER is set but --alt-llm-model / UNTYPE_ALT_LLM_MODEL is not. Set the alternative model (for azure-openai, its deployment name)."
+            )
+        }
+        let providerConfig = try resolveLLMProviderConfig(
+            enabled: true,
+            provider: provider,
+            model: model,
+            chain: chain,
+            validateRequiredSettings: validateRequiredSettings,
+            deploymentFromModel: true,
+            enabledBy: "--alt-llm-provider=\(provider.rawValue)",
+            disableHint: "unset UNTYPE_ALT_LLM_PROVIDER to remove the alternative LLM"
+        )
+        return LLMConfig(
+            enabled: true,
+            provider: provider,
+            model: model,
+            systemPrompt: primary.systemPrompt,
+            requestTimeoutMs: primary.requestTimeoutMs,
+            providerConfig: providerConfig,
+            verbose: primary.verbose,
+            maxOutputTokens: primary.maxOutputTokens,
+            reasoningEffort: primary.reasoningEffort,
+            streamingEnabled: primary.streamingEnabled,
+            askMaxOutputTokens: primary.askMaxOutputTokens,
+            askRequestTimeoutMs: primary.askRequestTimeoutMs
+        )
     }
 
     private func expiryWarnings(envName: String, isoDate: String?) -> [String] {
@@ -1160,8 +1256,8 @@ struct ParsedArguments: Sendable {
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
-                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--followup-default", "--selection-default", "--protocol-output",
-                "--llm-provider", "--llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
+                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--followup-default", "--selection-default", "--alternative-default", "--protocol-output",
+                "--llm-provider", "--llm-model", "--alt-llm-provider", "--alt-llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
                 "--release-latency-log-path":
                 let value: String
                 if let inline = split.value {

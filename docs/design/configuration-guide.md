@@ -70,6 +70,62 @@ Refinement and translation can run on Claude through the Anthropic Messages API,
 - A `refusal` or `max_tokens` stop reason is treated as a failed refinement (the raw transcript is delivered instead of a fragment).
 - Live check: `UNTYPE_LIVE_LLM_TEST=1 UNTYPE_LIVE_LLM_ARGS="--llm-provider azure-anthropic --llm-model claude-opus-5-5" swift test --filter liveLLM` (2026-10-24 on `claude-opus-5-5`: refine ≈2.0 s, translate ≈1.3 s, refine+translate ≈1.4 s).
 
+## Alternative LLM (Alternative operator)
+
+### Purpose
+
+A second LLM, chosen separately from the primary one. While the **Alternative** operator is on (key **L**, `--alternative-default` / `UNTYPE_ALTERNATIVE_DEFAULT`, spoken `<command> alternative on`), every LLM call of a turn (refine, translate, the combined refine+translate call and Ask) goes to the alternative LLM instead of the primary one. The prompts, the output limits (`UNTYPE_LLM_MAX_OUTPUT_TOKENS`, `UNTYPE_ASK_MAX_OUTPUT_TOKENS`), the reasoning effort and streaming are the primary LLM's. With Selection on (Material role), selecting a text and tapping the hotkey has it refined or translated by the alternative model.
+
+### Variables
+
+| Setting | CLI | Env | Default | Meaning |
+|---|---|---|---|---|
+| Provider | `--alt-llm-provider` | `UNTYPE_ALT_LLM_PROVIDER` | none (no alternative LLM) | One of the `UNTYPE_LLM_PROVIDER` values; `azure-openai`, `google`, `anthropic`, `azure-anthropic` and `deepseek` are implemented. |
+| Model | `--alt-llm-model` | `UNTYPE_ALT_LLM_MODEL` | none | The model; for `azure-openai`, the deployment name (`AZURE_OPENAI_DEPLOYMENT` belongs to the primary LLM and is not used). Required when a provider is set. |
+| Operator default | `--alternative-default on\|off` | `UNTYPE_ALTERNATIVE_DEFAULT` | `off` | Initial operator state. |
+
+In the app: Settings → General → **Alternative LLM** (Provider: None or a provider; Model), stored as `altLlmProvider` / `altLlmModel` in `~/.tool-agents/untype/ui-state.json` and passed to the session only when both are set. The operator row in Settings → Operators chooses "This turn" or "Until changed" (default "Until changed").
+
+### Credentials
+
+The provider's standard variables, the same ones the primary LLM uses (`AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT`; `GOOGLE_API_KEY`; `ANTHROPIC_API_KEY`; `ANTHROPIC_FOUNDRY_API_KEY` + `ANTHROPIC_FOUNDRY_RESOURCE`/`_BASE_URL`; `DEEPSEEK_API_KEY`), set with **Set keys…** or in `~/.tool-agents/untype/.env`. A configured alternative provider whose keys are missing is a configuration error at session start, naming the missing variables.
+
+### DeepSeek (`deepseek` provider)
+
+DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completions at `{DEEPSEEK_API_BASE}/chat/completions` with `Authorization: Bearer $DEEPSEEK_API_KEY`.
+
+- `DEEPSEEK_API_KEY` (required): create it at https://platform.deepseek.com/api_keys and store it with **Set keys…** or in `~/.tool-agents/untype/.env`. A key exported only in `~/.zshrc` is not visible to the app when it is started from Finder or at login.
+- `DEEPSEEK_API_BASE` (optional): defaults to `https://api.deepseek.com`.
+- Model: the DeepSeek model name, e.g. `deepseek-flash` (DeepSeek V4.1 Flash, thinking on by default) or `deepseek-v4-pro`. `GET {base}/models` lists the models available to the key.
+- The request carries `model` and `max_tokens` (from `UNTYPE_LLM_MAX_OUTPUT_TOKENS`). `UNTYPE_LLM_REASONING_EFFORT` is not sent, because DeepSeek has no such parameter.
+- It can be the primary provider as well (`UNTYPE_LLM_PROVIDER=deepseek`).
+
+### No fallback
+
+- Provider without a model, model without a provider, or an unknown provider: configuration error.
+- Alternative operator on but no alternative LLM configured: the turn makes **no** LLM call (the primary LLM is never used in its place), the dictated text is delivered unchanged, and one warning says so.
+
+## Selection Hotkey
+
+The **selection hotkey** processes text you have already selected, instead of dictated text. It is set in Settings → Selection hotkey and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**). It has no CLI flag or environment variable.
+
+- Select text in any app and press the hotkey. untype reads the selection: Accessibility first, then a synthetic ⌘C (the pasteboard is restored).
+- The selection goes through the operators that are on at that moment:
+  - **Refine** and/or **Translate**: the result is the refined and/or translated text.
+  - **Ask**: the selection is sent as the selected text with no spoken request, so the model responds to it. Follow-up adds the conversation.
+  - **Alternative (L)**: the alternative LLM is used.
+  - **Clipboard**, if on, also copies the result.
+- The result **replaces the selection**, whatever the Focused input and Selection role settings are.
+- No microphone, no recording, no STT.
+- Nothing happens, with a warning in Events, when:
+  - none of R/T/A is on;
+  - nothing is selected;
+  - a push-to-talk turn is recording or being delivered;
+  - a manual session is running.
+- The hotkey uses the same format as the push-to-talk hotkey (`Control`, `Option`, `Command`, `Shift`, `CommandOrControl` + one key). It must differ from the push-to-talk hotkey, in any modifier order, unless it is disabled.
+- It needs the push-to-talk listener on (Push to talk → Enabled), because it is detected by the same event tap.
+- Each run writes a record to `release-latency.jsonl` with `trigger: "selection-hotkey"`. Check `focused_input.ok` there.
+
 ## Voice Commands On/Off
 
 **Voice commands** (Settings → General → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.

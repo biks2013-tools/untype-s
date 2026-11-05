@@ -12,6 +12,29 @@ extension TranscriptionSessionRuntime: UntypeRuntimeSession {}
 extension TranscriptionSessionRuntime: @unchecked Sendable {}
 
 public enum UntypeRuntimeFactory {
+    /// The alternative LLM's clients with the same prompts as the primary
+    /// LLM; nil when no alternative LLM is configured.
+    static func makeAlternativeLLMClients(config: ResolvedConfig) throws -> ProtocolLLMClients? {
+        guard let llm = config.alternativeLLM else {
+            return nil
+        }
+        return ProtocolLLMClients(
+            refiner: try LLMRefinerFactory.makeRefiner(config: llm),
+            translator: try LLMRefinerFactory.makeTranslator(
+                config: llm,
+                systemPrompt: config.prompts.translationSystemPrompt
+            ),
+            compositeRefineTranslator: try LLMRefinerFactory.makeCompositeRefineTranslator(
+                config: llm,
+                prompts: config.prompts
+            ),
+            asker: try LLMRefinerFactory.makeAsker(
+                config: llm,
+                systemPrompt: config.prompts.askSystemPrompt
+            )
+        )
+    }
+
     public static func make(
         config: ResolvedConfig,
         stdout: TextOutput,
@@ -44,6 +67,7 @@ public enum UntypeRuntimeFactory {
             config: config.llm,
             systemPrompt: config.prompts.askSystemPrompt
         )
+        let alternativeLLM = try makeAlternativeLLMClients(config: config)
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery()
         let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
@@ -60,6 +84,7 @@ public enum UntypeRuntimeFactory {
             translator: translator,
             compositeRefineTranslator: compositeRefineTranslator,
             asker: asker,
+            alternativeLLM: alternativeLLM,
             askUserPromptTemplate: config.prompts.askUserPromptTemplate,
             askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
             askConversation: AskConversation(),
@@ -151,6 +176,7 @@ public enum UntypeRuntimeFactory {
             config: config.llm,
             systemPrompt: config.prompts.askSystemPrompt
         )
+        let alternativeLLM = try makeAlternativeLLMClients(config: config)
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery(forceInProcess: true)
         let livePasteDelivery = FocusedInputDelivery(method: .pasteKeycode, forceInProcess: true)
@@ -168,6 +194,7 @@ public enum UntypeRuntimeFactory {
             translator: translator,
             compositeRefineTranslator: compositeRefineTranslator,
             asker: asker,
+            alternativeLLM: alternativeLLM,
             askUserPromptTemplate: config.prompts.askUserPromptTemplate,
             askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
             turnContext: turnContext,
@@ -221,6 +248,100 @@ public enum UntypeRuntimeFactory {
                 }
             )
         )
+    }
+
+    /// One selection-hotkey run: the selected text goes through `operators`
+    /// (see `SelectionHotkeyPlan`) and the result is delivered to the focused
+    /// control, replacing the selection. Writes a release-latency record with
+    /// trigger `selection-hotkey`. nil: nothing was processed.
+    public static func runSelectionHotkey(
+        config: ResolvedConfig,
+        operators: OperatorState,
+        selectedText: String,
+        askConversation: AskConversation,
+        protocolOutput: TextOutput,
+        diagnostics: @escaping @Sendable (_ line: String, _ warning: Bool) -> Void,
+        focusedInputPreparation: @escaping @Sendable () async -> Void = {},
+        streamingProgress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> ProtocolSubmissionSummary? {
+        let started = DispatchTime.now().uptimeNanoseconds
+        let releaseTimestamp = ISO8601DateFormatter().string(from: Date())
+        let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
+        let alternativeLLM = try makeAlternativeLLMClients(config: config)
+        let clipboardWriter = MacOSClipboardWriter()
+        let focusedInputDelivery = FocusedInputDelivery(forceInProcess: true)
+        let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)
+        let controller = VoiceAgentProtocolController(
+            mode: protocolConfig.interactionMode,
+            renderer: UITranscriptRenderer(emit: { _ in }),
+            writer: try makeUIProtocolWriter(protocolConfig: protocolConfig, output: protocolOutput),
+            markers: protocolConfig.markers,
+            initialOperators: operators,
+            translationPolicy: protocolConfig.translationPolicy,
+            translationUserPromptTemplate: config.prompts.translationUserPromptTemplate,
+            verbose: config.verbose,
+            refiner: try LLMRefinerFactory.makeRefiner(config: config.llm),
+            translator: try LLMRefinerFactory.makeTranslator(
+                config: config.llm,
+                systemPrompt: config.prompts.translationSystemPrompt
+            ),
+            compositeRefineTranslator: try LLMRefinerFactory.makeCompositeRefineTranslator(
+                config: config.llm,
+                prompts: config.prompts
+            ),
+            asker: try LLMRefinerFactory.makeAsker(
+                config: config.llm,
+                systemPrompt: config.prompts.askSystemPrompt
+            ),
+            alternativeLLM: alternativeLLM,
+            askUserPromptTemplate: config.prompts.askUserPromptTemplate,
+            askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
+            turnContext: SelectionHotkeyPlan.turnContext(selectedText: selectedText),
+            askConversation: askConversation,
+            selectionContextTemplate: config.prompts.selectionContextTemplate,
+            askSelectionTemplate: config.prompts.askSelectionTemplate,
+            askConversationTemplate: config.prompts.askConversationTemplate,
+            clipboardWriter: { text in try await clipboardWriter.copy(text) },
+            focusedInputWriter: { text in
+                await focusedInputPreparation()
+                return try await focusedInputDelivery.deliver(text)
+            },
+            diagnostics: ProtocolControllerDiagnostics(write: diagnostics),
+            visibleOperatorDiagnostics: true,
+            streamingProgress: streamingProgress
+        )
+        defer { controller.dispose() }
+        try controller.startSession()
+        let summary = try await controller.submitWithoutDictation()
+        try await controller.endSession(reason: "selection-hotkey", options: EndProtocolSessionOptions(submitPending: false))
+        if let releaseLatencyLogger, let summary {
+            let record = ReleaseLatencyLogRecord(
+                turnId: "selection-\(UUID().uuidString.lowercased())",
+                releaseTimestamp: releaseTimestamp,
+                trigger: "selection-hotkey",
+                sttProvider: "none",
+                quickClose: false,
+                textSource: "selection",
+                outcome: summary.focusedInput?.ok == true ? "delivered" : "focused_input_failed",
+                totalMs: releaseLatencyMilliseconds(from: started),
+                durationsMs: ReleaseLatencyDurations(
+                    protocolOperatorProcessingMs: summary.operatorProcessingMs,
+                    refineMs: summary.refineMs,
+                    translateMs: summary.translateMs,
+                    askMs: summary.askMs,
+                    clipboardMs: summary.clipboardMs,
+                    focusedInputMs: summary.focusedInputMs
+                ),
+                sectionsProcessed: summary.sectionsProcessed,
+                focusedInput: summary.focusedInput ?? .notAttempted()
+            )
+            do {
+                try releaseLatencyLogger.append(record)
+            } catch {
+                diagnostics("[untype] WARNING: failed to write release latency log: \(error.localizedDescription)", true)
+            }
+        }
+        return summary
     }
 
     private static func resolvedProtocolConfig(_ protocolConfig: ProtocolRuntimeConfig) throws -> ProtocolRuntimeConfig {

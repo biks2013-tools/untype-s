@@ -1,0 +1,190 @@
+import Foundation
+import Testing
+@testable import UntypeCore
+
+private let selectionMarkers = MarkerConfig(
+    commandPhrase: "command",
+    sectionEndPhrase: "command send",
+    sectionEndAliases: [],
+    sectionCancelPhrase: "command cancel",
+    literalNextPhrase: "literal phrase"
+)
+
+private final class SelectionMockLLM: TextRefining, @unchecked Sendable {
+    private let reply: String
+    private(set) var calls: [String] = []
+
+    init(_ reply: String) {
+        self.reply = reply
+    }
+
+    func refine(_ text: String) async throws -> String {
+        calls.append(text)
+        return reply
+    }
+}
+
+private final class DeliveredTexts: @unchecked Sendable {
+    private(set) var texts: [String] = []
+
+    func append(_ text: String) {
+        texts.append(text)
+    }
+}
+
+private struct SelectionTemporaryDirectory {
+    let url: URL
+
+    init() {
+        url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("untype-selection-hotkey-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+}
+
+private func selectionController(
+    operators: OperatorState,
+    selectedText: String,
+    primary: ProtocolLLMClients,
+    alternative: ProtocolLLMClients? = nil,
+    delivered: DeliveredTexts
+) -> VoiceAgentProtocolController {
+    VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: MemoryOutput()),
+        markers: selectionMarkers,
+        initialOperators: operators,
+        translationPolicy: .opposite,
+        refiner: primary.refiner,
+        translator: primary.translator,
+        compositeRefineTranslator: primary.compositeRefineTranslator,
+        asker: primary.asker,
+        alternativeLLM: alternative,
+        askUserPromptTemplate: "Request: {text}",
+        turnContext: SelectionHotkeyPlan.turnContext(selectedText: selectedText),
+        askSelectionTemplate: "Selected: {selection}",
+        focusedInputWriter: { text in
+            delivered.append(text)
+            return FocusedInputDeliveryResult.success(method: "test")
+        }
+    )
+}
+
+@Test func selectionHotkeyNeedsRefineTranslateOrAsk() throws {
+    #expect(SelectionHotkeyPlan.operators(for: .default) == nil)
+    let clipboardOnly = try UntypeUISettings.default.merged(UntypeUISettingsPatch(clipboard: true, selection: true))
+    #expect(SelectionHotkeyPlan.operators(for: clipboardOnly) == nil)
+}
+
+@Test func selectionHotkeyOperatorsKeepTheActiveOnesAndReplaceTheSelection() throws {
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        refine: true,
+        translate: true,
+        focusedInput: false,
+        alternative: true,
+        selectionRole: SelectionRole.context.rawValue
+    ))
+    let operators = try #require(SelectionHotkeyPlan.operators(for: settings))
+
+    #expect(operators.refine)
+    #expect(operators.translate)
+    #expect(operators.alternative)
+    #expect(!operators.ask)
+    #expect(operators.selection)
+    #expect(operators.input)
+    #expect(SelectionHotkeyPlan.turnContext(selectedText: "x").selectionRole == .material)
+}
+
+@Test func selectionHotkeyRefinesTheSelectionAndDeliversTheResult() async throws {
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(refine: true))
+    let refiner = SelectionMockLLM("Polished text.")
+    let delivered = DeliveredTexts()
+    let controller = selectionController(
+        operators: try #require(SelectionHotkeyPlan.operators(for: settings)),
+        selectedText: "ehm the the polished text",
+        primary: ProtocolLLMClients(refiner: refiner, translator: nil, compositeRefineTranslator: nil, asker: nil),
+        delivered: delivered
+    )
+
+    try controller.startSession()
+    let summary = try #require(try await controller.submitWithoutDictation())
+
+    #expect(refiner.calls == ["ehm the the polished text"])
+    #expect(delivered.texts == ["Polished text."])
+    #expect(summary.focusedInput?.ok == true)
+}
+
+@Test func selectionHotkeyAsksAboutTheSelectionWithTheAlternativeLLM() async throws {
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(ask: true, alternative: true))
+    let primary = SelectionMockLLM("primary")
+    let alternative = SelectionMockLLM("alternative answer")
+    let delivered = DeliveredTexts()
+    let controller = selectionController(
+        operators: try #require(SelectionHotkeyPlan.operators(for: settings)),
+        selectedText: "summarise me",
+        primary: ProtocolLLMClients(refiner: nil, translator: nil, compositeRefineTranslator: nil, asker: primary),
+        alternative: ProtocolLLMClients(refiner: nil, translator: nil, compositeRefineTranslator: nil, asker: alternative),
+        delivered: delivered
+    )
+
+    try controller.startSession()
+    _ = try await controller.submitWithoutDictation()
+
+    #expect(primary.calls.isEmpty)
+    #expect(alternative.calls.count == 1)
+    #expect(alternative.calls.first?.contains("Selected: summarise me") == true)
+    #expect(delivered.texts == ["alternative answer"])
+}
+
+@Test func selectionHotkeySettingsDefaultOnAndRoundTrip() throws {
+    #expect(UntypeUISettings.default.selectionHotkeyEnabled)
+    #expect(UntypeUISettings.default.selectionHotkey == "Control+Option+`")
+
+    let temp = SelectionTemporaryDirectory()
+    let changed = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        selectionHotkeyEnabled: false,
+        selectionHotkey: "ctrl+shift+space"
+    ))
+    #expect(changed.selectionHotkey == "Control+Shift+Space")
+    try UntypeUISettingsStore.save(changed, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+    #expect(loaded.selectionHotkeyEnabled == false)
+    #expect(loaded.selectionHotkey == "Control+Shift+Space")
+
+    let path = UntypeUISettingsStore.path(home: temp.url)
+    var root = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: path)) as? [String: Any])
+    var settings = try #require(root["settings"] as? [String: Any])
+    settings.removeValue(forKey: "selectionHotkeyEnabled")
+    settings.removeValue(forKey: "selectionHotkey")
+    root["settings"] = settings
+    try JSONSerialization.data(withJSONObject: root).write(to: path)
+    let older = try UntypeUISettingsStore.load(home: temp.url)
+    #expect(older.selectionHotkeyEnabled)
+    #expect(older.selectionHotkey == UntypeUISettings.defaultSelectionHotkey)
+}
+
+@Test func selectionHotkeyMustDifferFromThePushToTalkHotkey() throws {
+    #expect(throws: UntypeError.self) {
+        _ = try UntypeUISettings.default.merged(UntypeUISettingsPatch(selectionHotkey: "Control+`"))
+    }
+    #expect(throws: UntypeError.self) {
+        _ = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkey: "Option+Control+`"))
+    }
+    #expect(throws: UntypeError.self) {
+        _ = try UntypeUISettings.default.merged(UntypeUISettingsPatch(selectionHotkey: "Control+Option"))
+    }
+    let disabled = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        selectionHotkeyEnabled: false,
+        selectionHotkey: "Control+`"
+    ))
+    #expect(disabled.selectionHotkeyEnabled == false)
+}
+
+@Test func selectionHotkeyChangesReconfigureTheHotkeyMonitor() throws {
+    let base = UntypeUISettings.default
+    let toggled = try base.merged(UntypeUISettingsPatch(selectionHotkeyEnabled: false))
+    let rebound = try base.merged(UntypeUISettingsPatch(selectionHotkey: "Control+Shift+`"))
+    #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: toggled))
+    #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: rebound))
+}
