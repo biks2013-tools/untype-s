@@ -18,29 +18,124 @@ public enum SelectionHotkeyPlan {
     }
 }
 
+/// The model of one Push-to-Act run.
+public enum PushToActModel: String, Equatable, Sendable {
+    case primary
+    /// The alternative LLM (`UNTYPE_ALT_LLM_*`), the one the Alternative operator uses.
+    case alternative
+    /// The second alternative LLM (`UNTYPE_ALT2_LLM_*`).
+    case alternative2
+}
+
+/// Push-to-Act's own remembered choices, separate from the push-to-talk /
+/// push-to-listen operators: saved on every Push-to-Act run and restored
+/// the next time the pop-up opens. Stored as `pushToAct` in ui-state.json.
+public struct PushToActPreferences: Codable, Equatable, Sendable {
+    public var refine: Bool
+    public var translate: Bool
+    public var ask: Bool
+    public var followup: Bool
+    public var clipboard: Bool
+    /// `PushToActModel` raw value; an unknown or no-longer-configured model
+    /// opens as the primary.
+    public var model: String
+    /// `TranslationPolicy` raw value.
+    public var translationPolicy: String
+
+    public init(
+        refine: Bool,
+        translate: Bool,
+        ask: Bool,
+        followup: Bool,
+        clipboard: Bool,
+        model: String,
+        translationPolicy: String
+    ) {
+        self.refine = refine
+        self.translate = translate
+        self.ask = ask
+        self.followup = followup
+        self.clipboard = clipboard
+        self.model = model
+        self.translationPolicy = translationPolicy
+    }
+}
+
 /// What one Push-to-Act run does, edited in the pop-up. It starts from the
-/// saved settings and is never written back: changes apply to this run only.
+/// remembered Push-to-Act choices (`settings.pushToAct`); before the first
+/// run, from the push-to-talk operators. The launcher saves it back on Run.
 public struct PushToActChoice: Equatable, Sendable {
     public var refine: Bool
     public var translate: Bool
     public var ask: Bool
     public var followup: Bool
     public var clipboard: Bool
-    /// true: the Alternative LLM runs the action; false: the primary LLM.
-    public var alternative: Bool
+    /// The LLM that runs the action; only a configured one can be picked.
+    public private(set) var model: PushToActModel
     public var translationPolicy: TranslationPolicy
-    /// false when no Alternative LLM is configured; `alternative` then stays off.
+    /// Whether the alternative LLMs are configured.
     public let alternativeAvailable: Bool
+    public let alternative2Available: Bool
 
-    public init(settings: UntypeUISettings, alternativeAvailable: Bool) {
+    public init(settings: UntypeUISettings, alternativeAvailable: Bool, alternative2Available: Bool = false) {
+        self.alternativeAvailable = alternativeAvailable
+        self.alternative2Available = alternative2Available
+        if let saved = settings.pushToAct {
+            refine = saved.refine
+            translate = saved.translate
+            ask = saved.ask
+            followup = saved.followup
+            clipboard = saved.clipboard
+            model = .primary
+            translationPolicy = TranslationPolicy(rawValue: saved.translationPolicy) ?? .opposite
+            if let savedModel = PushToActModel(rawValue: saved.model) {
+                select(savedModel)
+            }
+            return
+        }
         refine = settings.refine
         translate = settings.translate
         ask = settings.ask
         followup = settings.followup
         clipboard = settings.clipboard
-        self.alternativeAvailable = alternativeAvailable
-        alternative = alternativeAvailable && settings.alternative
+        // The Alternative operator's setting picks the first alternative LLM.
+        model = alternativeAvailable && settings.alternative ? .alternative : .primary
         translationPolicy = TranslationPolicy(rawValue: settings.translationPolicy) ?? .opposite
+    }
+
+    /// The choices to remember for the next Push-to-Act run.
+    public var preferences: PushToActPreferences {
+        PushToActPreferences(
+            refine: refine,
+            translate: translate,
+            ask: ask,
+            followup: followup,
+            clipboard: clipboard,
+            model: model.rawValue,
+            translationPolicy: translationPolicy.rawValue
+        )
+    }
+
+    /// true: an alternative LLM runs the action.
+    public var alternative: Bool {
+        model != .primary
+    }
+
+    /// The models that can be picked, in pop-up order.
+    public var availableModels: [PushToActModel] {
+        [.primary]
+            + (alternativeAvailable ? [.alternative] : [])
+            + (alternative2Available ? [.alternative2] : [])
+    }
+
+    /// Picks `model`; false (unchanged) when it is not configured.
+    @discardableResult
+    public mutating func select(_ model: PushToActModel) -> Bool {
+        guard availableModels.contains(model) else {
+            return false
+        }
+        self.model = model
+        return true
     }
 
     /// Whether the run has something to do (refine, translate or Ask on).
@@ -61,11 +156,12 @@ public struct PushToActChoice: Equatable, Sendable {
             ask: ask,
             followup: followup,
             selection: true,
-            alternative: alternative && alternativeAvailable
+            alternative: alternative
         )
     }
 
-    /// Single-key toggles of the pop-up: r, t, a, f, c and l (model).
+    /// Single-key toggles of the pop-up: r, t, a, f, c, and l (next model:
+    /// primary → alternative → alternative 2 → primary, configured ones only).
     /// Returns false for any other key.
     @discardableResult
     public mutating func toggle(key: Character) -> Bool {
@@ -76,10 +172,11 @@ public struct PushToActChoice: Equatable, Sendable {
         case "f": followup.toggle()
         case "c": clipboard.toggle()
         case "l":
-            guard alternativeAvailable else {
+            let models = availableModels
+            guard models.count > 1, let index = models.firstIndex(of: model) else {
                 return false
             }
-            alternative.toggle()
+            model = models[(index + 1) % models.count]
         default:
             return false
         }

@@ -34,9 +34,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Spoken commands (`command …`, `command send`, `command cancel`,
     /// `literal phrase`, the guard phrase). Off: everything spoken is text.
     public var voiceCommands: Bool
-    /// The alternative LLM (empty: not configured in the UI).
+    /// The alternative LLMs (empty: not configured in the UI). The
+    /// Alternative operator (L) uses the first; Push-to-Act can pick either.
     public var altLlmProvider: String
     public var altLlmModel: String
+    public var alt2LlmProvider: String
+    public var alt2LlmModel: String
     public var apiKeyName: String
     public var apiKeyStatus: String
     public var expiryStatus: String
@@ -63,6 +66,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var selectedEventsFilter: String
     public var compactWindow: Bool
     public var appearance: String
+    /// Push-to-Act's remembered choices (nil until the first Push-to-Act run).
+    public var pushToAct: PushToActPreferences? = nil
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
@@ -90,6 +95,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         voiceCommands: true,
         altLlmProvider: "",
         altLlmModel: "",
+        alt2LlmProvider: "",
+        alt2LlmModel: "",
         apiKeyName: "SONIOX_API_KEY",
         apiKeyStatus: "unknown",
         expiryStatus: "not set",
@@ -157,6 +164,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         let altProvider = altLlmProvider.trimmingCharacters(in: .whitespacesAndNewlines)
         next.altLlmProvider = altProvider.isEmpty ? "" : try normalizeLLMProvider(altProvider)
         next.altLlmModel = altLlmModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alt2Provider = alt2LlmProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+        next.alt2LlmProvider = alt2Provider.isEmpty ? "" : try normalizeLLMProvider(alt2Provider)
+        next.alt2LlmModel = alt2LlmModel.trimmingCharacters(in: .whitespacesAndNewlines)
         next.apiKeyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
         next.apiKeyStatus = nonEmptyStatus(apiKeyStatus, fallback: "unknown")
         next.expiryStatus = nonEmptyStatus(expiryStatus, fallback: "not set")
@@ -244,6 +254,15 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let altLlmModel = patch.altLlmModel {
             next.altLlmModel = altLlmModel
         }
+        if let alt2LlmModel = patch.alt2LlmModel {
+            next.alt2LlmModel = alt2LlmModel
+        }
+        if let alt2LlmProvider = patch.alt2LlmProvider {
+            next.alt2LlmProvider = alt2LlmProvider
+        }
+        if let pushToAct = patch.pushToAct {
+            next.pushToAct = pushToAct
+        }
         if let hotkeyEnabled = patch.hotkeyEnabled {
             next.hotkeyEnabled = hotkeyEnabled
         }
@@ -313,6 +332,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if !normalized.altLlmProvider.isEmpty, !normalized.altLlmModel.isEmpty {
             args += ["--alt-llm-provider", normalized.altLlmProvider, "--alt-llm-model", normalized.altLlmModel]
         }
+        if !normalized.alt2LlmProvider.isEmpty, !normalized.alt2LlmModel.isEmpty {
+            args += ["--alt2-llm-provider", normalized.alt2LlmProvider, "--alt2-llm-model", normalized.alt2LlmModel]
+        }
         for language in normalized.languages {
             args += ["--language", language]
         }
@@ -379,6 +401,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var voiceCommands: Bool?
     public var altLlmProvider: String?
     public var altLlmModel: String?
+    public var alt2LlmProvider: String?
+    public var alt2LlmModel: String?
     public var hotkeyEnabled: Bool?
     public var hotkeyHoldToTalk: Bool?
     public var hotkey: String?
@@ -392,6 +416,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var selectedEventsFilter: String?
     public var compactWindow: Bool?
     public var appearance: String?
+    public var pushToAct: PushToActPreferences?
 
     public init(
         provider: String? = nil,
@@ -419,6 +444,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         voiceCommands: Bool? = nil,
         altLlmProvider: String? = nil,
         altLlmModel: String? = nil,
+        alt2LlmProvider: String? = nil,
+        alt2LlmModel: String? = nil,
         hotkeyEnabled: Bool? = nil,
         hotkeyHoldToTalk: Bool? = nil,
         hotkey: String? = nil,
@@ -431,7 +458,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         selectedMonitorTab: String? = nil,
         selectedEventsFilter: String? = nil,
         compactWindow: Bool? = nil,
-        appearance: String? = nil
+        appearance: String? = nil,
+        pushToAct: PushToActPreferences? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -458,6 +486,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.voiceCommands = voiceCommands
         self.altLlmProvider = altLlmProvider
         self.altLlmModel = altLlmModel
+        self.alt2LlmProvider = alt2LlmProvider
+        self.alt2LlmModel = alt2LlmModel
         self.hotkeyEnabled = hotkeyEnabled
         self.hotkeyHoldToTalk = hotkeyHoldToTalk
         self.hotkey = hotkey
@@ -471,6 +501,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.selectedEventsFilter = selectedEventsFilter
         self.compactWindow = compactWindow
         self.appearance = appearance
+        self.pushToAct = pushToAct
     }
 }
 
@@ -704,6 +735,8 @@ public enum UntypeUISettingsStore {
             voiceCommands: protocolConfig.markers.voiceCommandsEnabled,
             altLlmProvider: config.alternativeLLM?.provider.rawValue ?? current.altLlmProvider,
             altLlmModel: config.alternativeLLM?.model ?? current.altLlmModel,
+            alt2LlmProvider: config.alternativeLLM2?.provider.rawValue ?? current.alt2LlmProvider,
+            alt2LlmModel: config.alternativeLLM2?.model ?? current.alt2LlmModel,
             apiKeyName: config.apiKeyEnvName,
             apiKeyStatus: "configured",
             expiryStatus: config.apiKeyExpiresAt ?? "not set",
@@ -723,7 +756,8 @@ public enum UntypeUISettingsStore {
             selectedMonitorTab: current.selectedMonitorTab,
             selectedEventsFilter: current.selectedEventsFilter,
             compactWindow: current.compactWindow,
-            appearance: current.appearance
+            appearance: current.appearance,
+            pushToAct: current.pushToAct
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -779,6 +813,8 @@ private struct PersistedUISettings: Codable {
     let voiceCommands: Bool?
     let altLlmProvider: String?
     let altLlmModel: String?
+    let alt2LlmProvider: String?
+    let alt2LlmModel: String?
     let hotkeyEnabled: Bool
     let hotkeyHoldToTalk: Bool?
     let hotkey: String
@@ -792,6 +828,7 @@ private struct PersistedUISettings: Codable {
     let selectedEventsFilter: String?
     let compactWindow: Bool?
     let appearance: String?
+    let pushToAct: PushToActPreferences?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -819,6 +856,8 @@ private struct PersistedUISettings: Codable {
         case voiceCommands
         case altLlmProvider
         case altLlmModel
+        case alt2LlmProvider
+        case alt2LlmModel
         case hotkeyEnabled
         case hotkeyHoldToTalk
         case hotkey
@@ -832,6 +871,7 @@ private struct PersistedUISettings: Codable {
         case selectedEventsFilter
         case compactWindow
         case appearance
+        case pushToAct
     }
 
     init(settings: UntypeUISettings) {
@@ -860,6 +900,8 @@ private struct PersistedUISettings: Codable {
         self.voiceCommands = settings.voiceCommands
         self.altLlmProvider = settings.altLlmProvider
         self.altLlmModel = settings.altLlmModel
+        self.alt2LlmProvider = settings.alt2LlmProvider
+        self.alt2LlmModel = settings.alt2LlmModel
         self.hotkeyEnabled = settings.hotkeyEnabled
         self.hotkeyHoldToTalk = settings.hotkeyHoldToTalk
         self.hotkey = settings.hotkey
@@ -873,6 +915,7 @@ private struct PersistedUISettings: Codable {
         self.selectedEventsFilter = settings.selectedEventsFilter
         self.compactWindow = settings.compactWindow
         self.appearance = settings.appearance
+        self.pushToAct = settings.pushToAct
     }
 
     func toRuntimeSettings(path: String) throws -> UntypeUISettings {
@@ -904,6 +947,8 @@ private struct PersistedUISettings: Codable {
                 voiceCommands: voiceCommands ?? defaults.voiceCommands,
                 altLlmProvider: altLlmProvider ?? defaults.altLlmProvider,
                 altLlmModel: altLlmModel ?? defaults.altLlmModel,
+                alt2LlmProvider: alt2LlmProvider ?? defaults.alt2LlmProvider,
+                alt2LlmModel: alt2LlmModel ?? defaults.alt2LlmModel,
                 hotkeyEnabled: hotkeyEnabled,
                 hotkeyHoldToTalk: hotkeyHoldToTalk ?? defaults.hotkeyHoldToTalk,
                 hotkey: hotkey,
@@ -916,7 +961,8 @@ private struct PersistedUISettings: Codable {
                 selectedMonitorTab: selectedMonitorTab ?? defaults.selectedMonitorTab,
                 selectedEventsFilter: selectedEventsFilter ?? defaults.selectedEventsFilter,
                 compactWindow: compactWindow ?? defaults.compactWindow,
-                appearance: appearance ?? defaults.appearance
+                appearance: appearance ?? defaults.appearance,
+                pushToAct: pushToAct
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")

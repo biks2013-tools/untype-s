@@ -978,3 +978,52 @@ private func foundryClaudeConfig(
     let custom = try ConfigResolver(cwd: home, home: home, shell: ["DEEPSEEK_API_KEY": "ds-key", "DEEPSEEK_API_BASE": "https://proxy.example/v1"]).resolve(argv: argv)
     #expect(custom.alternativeLLM?.providerConfig == .openAICompatible(apiKey: "ds-key", baseURL: "https://proxy.example/v1"))
 }
+
+@Test func geminiRewritesUseLowThinkingAndReportTruncation() async throws {
+    let reply = jsonData(["candidates": [["content": ["parts": [["text": "Clean."]]], "finishReason": "STOP"]]])
+    let rewriteHTTP = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: reply)])
+    _ = try await GoogleRefiner(config: googleConfig(maxOutputTokens: 400), thinking: false, httpClient: rewriteHTTP).refine("raw")
+    let rewriteRequest = try #require(rewriteHTTP.requests.first)
+    let rewriteConfig = try #require(try requestJSONObject(rewriteRequest)["generationConfig"] as? [String: Any])
+    #expect((rewriteConfig["thinkingConfig"] as? [String: String]) == ["thinkingLevel": "low"])
+
+    let askHTTP = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: reply)])
+    _ = try await GoogleRefiner(config: googleConfig(), httpClient: askHTTP).refine("raw")
+    let askRequest = try #require(askHTTP.requests.first)
+    let askConfig = try #require(try requestJSONObject(askRequest)["generationConfig"] as? [String: Any])
+    #expect(askConfig["thinkingConfig"] == nil)
+
+    // A cut-off answer is an error, never half a sentence.
+    let truncatedHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "candidates": [["content": ["parts": [["text": "Η συνάντηση μεταφέρεται για την Πέμπτη το από"]]], "finishReason": "MAX_TOKENS"]]
+        ]))
+    ])
+    do {
+        _ = try await GoogleRefiner(config: googleConfig(), httpClient: truncatedHTTP).refine("raw")
+        Issue.record("expected a truncation error")
+    } catch let error as LLMRefinementError {
+        #expect(error.message.contains("truncated"))
+    }
+
+    // Thought parts are never part of the answer.
+    let thoughtHTTP = MockLLMHTTPClient(responses: [
+        LLMHTTPResponse(statusCode: 200, body: jsonData([
+            "candidates": [["content": ["parts": [["text": "thinking…", "thought": true], ["text": "Answer."]]], "finishReason": "STOP"]]
+        ]))
+    ])
+    let answer = try await GoogleRefiner(config: googleConfig(), httpClient: thoughtHTTP).refine("raw")
+    #expect(answer == "Answer.")
+
+    let streamHTTP = MockLLMHTTPClient(streamPayloads: [
+        geminiChunk(text: "Half"),
+        #"{"candidates":[{"content":{"parts":[{"text":" a sen"}],"role":"model"},"finishReason":"MAX_TOKENS"}]}"#
+    ])
+    do {
+        _ = try await GoogleRefiner(config: googleConfig(streamingEnabled: true), httpClient: streamHTTP)
+            .refine("raw", onProgress: { _ in })
+        Issue.record("expected a truncation error")
+    } catch let error as LLMRefinementError {
+        #expect(error.message.contains("truncated"))
+    }
+}

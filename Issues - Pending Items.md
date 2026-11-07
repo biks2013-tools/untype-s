@@ -70,6 +70,7 @@ The source project has unit tests but no live provider or UI automation harness.
 
 ## Completed Items
 
+- **2026-11-07 — Gemini rewrites could deliver half a sentence (fixed, build 37).** With `UNTYPE_LLM_MAX_OUTPUT_TOKENS` set, `gemini-3.8-flash` spent most of the cap on thinking (380 of 400 tokens) and stopped with `finishReason: MAX_TOKENS`; the one-shot Gemini parser ignored the finish reason and returned the fragment ("…την Πέμπτη το από"). Fix: rewrites send `thinkingLevel: low` (`thinkingBudget: 0` is rejected by Pro models), `thought` parts are skipped, and `MAX_TOKENS` is reported as truncation in both one-shot and streaming paths (FR-47).
 - **2026-11-05 — DeepSeek alternative returned empty refine/translate (fixed, build 33).** `deepseek-flash` thinks before answering and its reasoning tokens count against `max_tokens` (1000, inherited from the primary); long selections/dictations exhausted it and the reply had no content. Fix: thinking disabled for DeepSeek rewrite calls (refine, translate, combined); Ask keeps thinking; `finish_reason: length` now reported as truncation.
 
 ### 2026-11-06 - Build 36 released, published, and on Homebrew (v0.1.0-b36)

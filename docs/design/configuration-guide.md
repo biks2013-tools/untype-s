@@ -84,11 +84,21 @@ A second LLM, chosen separately from the primary one. While the **Alternative** 
 | Model | `--alt-llm-model` | `UNTYPE_ALT_LLM_MODEL` | none | The model; for `azure-openai`, the deployment name (`AZURE_OPENAI_DEPLOYMENT` belongs to the primary LLM and is not used). Required when a provider is set. |
 | Operator default | `--alternative-default on\|off` | `UNTYPE_ALTERNATIVE_DEFAULT` | `off` | Initial operator state. |
 
-In the app: Settings → General → **Alternative LLM** (Provider: None or a provider; Model), stored as `altLlmProvider` / `altLlmModel` in `~/.tool-agents/untype/ui-state.json` and passed to the session only when both are set. The operator row in Settings → Operators chooses "This turn" or "Until changed" (default "Until changed").
+In the app: Settings → General → **Alternative LLM** (Provider: None or a provider; Model), stored as `altLlmProvider` / `altLlmModel` in `~/.tool-agents/untype/ui-state.json` and passed to the session only when both are set.
+
+**Alternative LLM 2** (build 37): a second alternative slot with the same rules, `--alt2-llm-provider` / `UNTYPE_ALT2_LLM_PROVIDER` and `--alt2-llm-model` / `UNTYPE_ALT2_LLM_MODEL` (default: none), Settings → General → **Alternative LLM 2**, stored as `alt2LlmProvider` / `alt2LlmModel`. Only the Push-to-Act pop-up uses it (Model: Primary · Alternative · Alternative 2; **L** cycles the configured ones). The Alternative operator in dictation always uses the first slot. Example: `deepseek` / `deepseek-flash` in the first slot and `google` / `gemini-3.8-flash` in the second. The operator row in Settings → Operators chooses "This turn" or "Until changed" (default "Until changed").
 
 ### Credentials
 
 The provider's standard variables, the same ones the primary LLM uses (`AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT`; `GOOGLE_API_KEY`; `ANTHROPIC_API_KEY`; `ANTHROPIC_FOUNDRY_API_KEY` + `ANTHROPIC_FOUNDRY_RESOURCE`/`_BASE_URL`; `DEEPSEEK_API_KEY`), set with **Set keys…** or in `~/.tool-agents/untype/.env`. A configured alternative provider whose keys are missing is a configuration error at session start, naming the missing variables.
+
+### Google Gemini (`google` provider)
+
+Google's Gemini API (Google AI Studio), not Vertex AI: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with the API key.
+
+- `GOOGLE_API_KEY` (required): create it at https://aistudio.google.com/apikey and store it with **Set keys…** or in `~/.tool-agents/untype/.env` (a key exported only in `~/.zshrc` is not visible to the app started from Finder).
+- Model: the Gemini model ID, e.g. `gemini-3.8-flash` (the newest Flash on 2026-11-07). `GET https://generativelanguage.googleapis.com/v1beta/models` (header `x-goog-api-key`) lists the models available to the key. Gemini 4 Flash was not yet published on 2026-11-07 (`gemini-4-flash`, `gemini-4-flash-preview` → 404); when it is, only the model name changes.
+- Thinking: refine, translate and the combined call send `generationConfig.thinkingConfig.thinkingLevel: "low"` (Flash models then answer without thinking; thinking tokens count against `maxOutputTokens`, so a 400-token cap cut answers in half). `thinkingBudget: 0` is not used because Pro models reject it. Ask keeps the model's default thinking. A response with `finishReason: MAX_TOKENS` is an error ("output was truncated"), never half a sentence.
 
 ### DeepSeek (`deepseek` provider)
 
@@ -110,10 +120,11 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 **Push-to-Act** processes text you have already selected, instead of dictated text. It is set in Settings → General → Push-to-Act and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**); the stored names stay as before. It has no CLI flag or environment variable.
 
 - Select text in any app and press the hotkey. untype reads the selection: Accessibility first, then a synthetic ⌘C (the pasteboard is restored).
-- A pop-up opens over the app, starting from the current settings. It shows the selected text and lets you change, **for this run only** (nothing is saved):
-  - **Model**: Primary (the main LLM) or Alternative (the alternative LLM, `L`; shown only when one is configured).
+- A pop-up opens over the app. It shows the selected text and lets you change:
+  - **Model**: Primary (the main LLM), Alternative and Alternative 2 (the alternative LLMs, shown only when configured); `L` cycles them.
   - **Operators**: Refine `R`, Translate `T`, Ask `A`, Follow-up `F`, Clipboard `C`.
   - **Translation**: `1` Greek ↔ English (opposite), `2` → English, `3` → Greek.
+- **Remembered choices** (build 38): Push-to-Act has its own choices, separate from the push-to-talk / push-to-listen operators. Every Run saves the pop-up's model, operators and translation direction as `pushToAct` in `ui-state.json`, and the next pop-up opens with them; Esc saves nothing. Changing them never changes the push-to-talk operators, and vice versa. Before the first run the pop-up starts from the push-to-talk operators. A remembered model that is no longer configured opens as Primary.
 - Picking a translation direction (click or `1`–`3`) also turns **Translate** on: choosing a language means "translate to it". The direction is highlighted only while Translate is on.
 - Click or press the letters/digits to change them; **Enter** runs, **Esc** cancels (so does clicking elsewhere or pressing the push-to-talk hotkey). Enter does nothing while none of R/T/A is on.
 - What the run does:

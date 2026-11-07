@@ -248,6 +248,9 @@ public struct ResolvedConfig: Equatable, Sendable {
     public let llm: LLMConfig
     /// The Alternative operator's LLM; nil when not configured.
     public let alternativeLLM: LLMConfig?
+    /// The second alternative LLM, offered by the Push-to-Act pop-up; nil
+    /// when not configured.
+    public let alternativeLLM2: LLMConfig?
     public let prompts: PromptConfig
     public let releaseLatencyLogging: ReleaseLatencyLoggingConfig
     public let verbose: Bool

@@ -229,3 +229,60 @@ private func selectionController(
     #expect(!alternativeToggled)
     #expect(choice.operators?.alternative == false)
 }
+
+@Test func pushToActChoicePicksAmongTheConfiguredModels() throws {
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(refine: true))
+    var choice = PushToActChoice(settings: settings, alternativeAvailable: true, alternative2Available: true)
+    #expect(choice.model == .primary)
+    #expect(choice.availableModels == [.primary, .alternative, .alternative2])
+
+    // L cycles primary → alternative → alternative 2 → primary.
+    var seen: [PushToActModel] = []
+    for _ in 0..<3 {
+        choice.toggle(key: "l")
+        seen.append(choice.model)
+    }
+    #expect(seen == [.alternative, .alternative2, .primary])
+
+    let pickedSecond = choice.select(.alternative2)
+    #expect(pickedSecond)
+    #expect(choice.operators?.alternative == true)
+
+    // Only the second alternative configured: L goes straight to it.
+    var onlySecond = PushToActChoice(settings: settings, alternativeAvailable: false, alternative2Available: true)
+    let cycled = onlySecond.toggle(key: "l")
+    #expect(cycled)
+    #expect(onlySecond.model == .alternative2)
+    let pickedMissing = onlySecond.select(.alternative)
+    #expect(!pickedMissing)
+}
+
+@Test func pushToActRemembersItsOwnChoicesSeparatelyFromPushToTalk() throws {
+    let temp = SelectionTemporaryDirectory()
+    // Push-to-talk: refine on, opposite translation.
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(refine: true))
+    var choice = PushToActChoice(settings: settings, alternativeAvailable: true, alternative2Available: true)
+    #expect(choice.refine && !choice.translate)
+
+    // The user picks translate → Greek with the second alternative.
+    choice.toggle(key: "r")
+    choice.selectTranslation(.toGreek)
+    choice.select(.alternative2)
+    let remembered = try settings.merged(UntypeUISettingsPatch(pushToAct: choice.preferences))
+    try UntypeUISettingsStore.save(remembered, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    // Next time the pop-up opens with those choices…
+    let next = PushToActChoice(settings: loaded, alternativeAvailable: true, alternative2Available: true)
+    #expect(!next.refine && next.translate)
+    #expect(next.translationPolicy == .toGreek)
+    #expect(next.model == .alternative2)
+    // …while the push-to-talk operators are untouched.
+    #expect(loaded.refine && !loaded.translate)
+    #expect(loaded.translationPolicy == TranslationPolicy.opposite.rawValue)
+
+    // A remembered model that is no longer configured opens as the primary.
+    let withoutSecond = PushToActChoice(settings: loaded, alternativeAvailable: true, alternative2Available: false)
+    #expect(withoutSecond.model == .primary)
+    #expect(withoutSecond.translate && withoutSecond.translationPolicy == .toGreek)
+}

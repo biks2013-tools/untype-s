@@ -266,6 +266,31 @@ private struct UntypeSettingsGeneralView: View {
                     .disabled(sessionShapingDisabled)
                 }
 
+                // Alternative LLM 2 (Push-to-Act only)
+                inspectorGroup("Alternative LLM 2") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        inspectorFieldRow("Provider") {
+                            Picker("", selection: binding(\.alt2LlmProvider)) {
+                                Text("None").tag("")
+                                ForEach(LLMProvider.allCases, id: \.rawValue) { provider in
+                                    Text(provider.rawValue).tag(provider.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        inspectorFieldRow("Model") {
+                            TextField("", text: binding(\.alt2LlmModel))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        Text(alternative2LLMCaption)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .disabled(sessionShapingDisabled)
+                }
+
                 // Push to talk
                 inspectorGroup("Push to talk") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -541,7 +566,7 @@ private struct UntypeSettingsGeneralView: View {
         if !model.settings.hotkeyEnabled {
             return "Needs the push-to-talk hotkey listener: enable Push to talk."
         }
-        return "Select text in any app and press the hotkey: a pop-up shows the model (primary or Alternative), the operators and the translation direction, starting from the current ones. Change them for this run only (letters toggle, 1–3 translate to a language and turn Translate on) and press Enter: the result replaces the selection. Esc cancels. No recording."
+        return "Select text in any app and press the hotkey: a pop-up shows the model (primary, Alternative, Alternative 2), the operators and the translation direction (L switches model, letters toggle, 1–3 translate to a language and turn Translate on). Enter runs and the result replaces the selection; Esc cancels. Push-to-Act remembers its own choices for next time, separately from the push-to-talk operators. No recording."
     }
 
     private var hotkeyStatus: String {
@@ -572,6 +597,17 @@ private struct UntypeSettingsGeneralView: View {
             return "Set the model to use the alternative LLM (for azure-openai, the deployment name)."
         }
         return "With the Alternative operator (L) on, refine, translate and Ask use \(settings.altLlmProvider) / \(settings.altLlmModel), with the same prompts and the provider's keys from Set keys…."
+    }
+
+    private var alternative2LLMCaption: String {
+        let settings = model.settings
+        if settings.alt2LlmProvider.isEmpty {
+            return "Not configured. A second model the Push-to-Act pop-up can pick (L cycles the models)."
+        }
+        if settings.alt2LlmModel.isEmpty {
+            return "Set the model to use the second alternative LLM (for azure-openai, the deployment name)."
+        }
+        return "The Push-to-Act pop-up can run refine, translate and Ask with \(settings.alt2LlmProvider) / \(settings.alt2LlmModel), with the same prompts and the provider's keys from Set keys…."
     }
 
     private var sampleRateBinding: Binding<Int> {
@@ -626,6 +662,10 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(altLlmProvider: value as? String)
         case \UntypeUISettings.altLlmModel:
             return UntypeUISettingsPatch(altLlmModel: value as? String)
+        case \UntypeUISettings.alt2LlmProvider:
+            return UntypeUISettingsPatch(alt2LlmProvider: value as? String)
+        case \UntypeUISettings.alt2LlmModel:
+            return UntypeUISettingsPatch(alt2LlmModel: value as? String)
         case \UntypeUISettings.alternative:
             return UntypeUISettingsPatch(alternative: value as? Bool)
         case \UntypeUISettings.voiceCommands:

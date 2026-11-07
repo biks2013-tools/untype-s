@@ -146,6 +146,8 @@ public struct UntypeCommand {
       --llm-model <name>                      LLM model/deployment name. Env: UNTYPE_LLM_MODEL.
       --alt-llm-provider <provider>           Alternative LLM provider (Alternative operator). Env: UNTYPE_ALT_LLM_PROVIDER.
       --alt-llm-model <name>                  Alternative LLM model (azure-openai: deployment name); required with --alt-llm-provider. Env: UNTYPE_ALT_LLM_MODEL.
+      --alt2-llm-provider <provider>          Second alternative LLM provider (offered by the Push-to-Act pop-up). Env: UNTYPE_ALT2_LLM_PROVIDER.
+      --alt2-llm-model <name>                 Second alternative LLM model; required with --alt2-llm-provider. Env: UNTYPE_ALT2_LLM_MODEL.
       --llm-max-output-tokens <n>             Cap LLM output tokens (max_completion_tokens / maxOutputTokens). Omitted when unset. Env: UNTYPE_LLM_MAX_OUTPUT_TOKENS.
       --llm-reasoning-effort <level>          none, minimal, low, medium, or high for reasoning-capable models. Omitted when unset; non-none levels drop the temperature parameter. Env: UNTYPE_LLM_REASONING_EFFORT.
       -v, --verbose                           Emit diagnostic logs to stderr. Env: UNTYPE_VERBOSE.

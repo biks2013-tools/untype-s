@@ -533,10 +533,17 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
     private let maxOutputTokens: Int?
     private let verbose: Bool
     private let streamingEnabled: Bool
+    private let thinking: Bool
     private let httpClient: LLMHTTPClient
     private var disposed = false
 
-    public init(config: LLMConfig, httpClient: LLMHTTPClient = URLSessionLLMHTTPClient()) throws {
+    /// `thinking: false` (refine, translate, combined call) asks for
+    /// `thinkingLevel: low`: current Flash models then answer without
+    /// thinking, and thinking tokens, which count against `maxOutputTokens`,
+    /// cannot cut the rewrite short. `thinkingBudget: 0` is not used because
+    /// Pro models reject it ("only works in thinking mode"). Ask keeps the
+    /// model's default thinking.
+    public init(config: LLMConfig, thinking: Bool = true, httpClient: LLMHTTPClient = URLSessionLLMHTTPClient()) throws {
         guard case let .google(apiKey) = config.providerConfig else {
             throw UntypeError.invalidConfiguration("GoogleRefiner requires google provider configuration.")
         }
@@ -547,6 +554,7 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
         self.maxOutputTokens = config.maxOutputTokens
         self.verbose = config.verbose
         self.streamingEnabled = config.streamingEnabled
+        self.thinking = thinking
         self.httpClient = httpClient
     }
 
@@ -614,6 +622,12 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
             throw mapTransportError(error)
         }
         // EOF reached (Gemini has no [DONE]) — classify the result.
+        if lastFinishReason == "MAX_TOKENS" {
+            throw LLMRefinementError(
+                "LLM output was truncated: finishReason MAX_TOKENS (raise UNTYPE_LLM_MAX_OUTPUT_TOKENS or pick a model that thinks less)",
+                kind: .server
+            )
+        }
         let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
         guard sawAnyText, !trimmed.isEmpty else {
             if let reason = lastFinishReason, reason != "STOP" {
@@ -692,6 +706,9 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
         if let maxOutputTokens {
             config["maxOutputTokens"] = maxOutputTokens
         }
+        if !thinking {
+            config["thinkingConfig"] = ["thinkingLevel": "low"]
+        }
         return config
     }
 
@@ -737,8 +754,18 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
                 kind: .shape
             )
         }
-        let joined = parts.compactMap { $0["text"] as? String }.joined()
+        // A part marked `thought` is the model's reasoning, never the answer.
+        let joined = parts.filter { ($0["thought"] as? Bool) != true }
+            .compactMap { $0["text"] as? String }.joined()
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        // MAX_TOKENS: the answer was cut off (thinking tokens count against
+        // maxOutputTokens). Delivering it would paste half a sentence.
+        if let reason = first["finishReason"] as? String, reason == "MAX_TOKENS" {
+            throw LLMRefinementError(
+                "LLM output was truncated: finishReason MAX_TOKENS (raise UNTYPE_LLM_MAX_OUTPUT_TOKENS or pick a model that thinks less)",
+                kind: .server
+            )
+        }
         guard !joined.isEmpty else {
             throw LLMRefinementError(
                 "LLM response did not contain non-empty candidates[0].content.parts[].text",
@@ -1185,8 +1212,8 @@ public enum LLMRefinerFactory {
         )
     }
 
-    /// `thinking`: whether a DeepSeek client keeps thinking mode on (Ask)
-    /// or turns it off (refine, translate, combined call).
+    /// `thinking`: whether a DeepSeek or Gemini client keeps its thinking
+    /// on (Ask) or turns it off / low (refine, translate, combined call).
     private static func make(config: LLMConfig, thinking: Bool) throws -> TextRefining? {
         guard config.enabled else {
             return nil
@@ -1195,7 +1222,7 @@ public enum LLMRefinerFactory {
         case .azureOpenAI, .openAICompatible:
             return try AzureOpenAIRefiner(config: config, thinking: thinking)
         case .google:
-            return try GoogleRefiner(config: config)
+            return try GoogleRefiner(config: config, thinking: thinking)
         case .anthropic:
             return try AnthropicMessagesRefiner(config: config)
         case .unimplemented(let provider):

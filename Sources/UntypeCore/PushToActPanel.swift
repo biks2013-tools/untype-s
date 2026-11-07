@@ -3,7 +3,9 @@ import SwiftUI
 
 /// The Push-to-Act pop-up: shows the selected text and lets the user pick
 /// the model (primary / Alternative), the operators and the translation
-/// direction for this run only. Enter runs, Esc cancels.
+/// direction. It opens with the choices of the last Push-to-Act run, which
+/// are remembered again on Run (Push-to-Act's own, separate from the
+/// push-to-talk operators). Enter runs, Esc cancels without saving.
 ///
 /// The panel is non-activating but can become key, so it takes the keyboard
 /// while the app holding the selection stays frontmost (the result is then
@@ -25,6 +27,7 @@ final class PushToActPanelController {
         selectedText: String,
         primaryModel: String,
         alternativeModel: String?,
+        alternative2Model: String?,
         onRun: @escaping (PushToActChoice) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -33,7 +36,8 @@ final class PushToActPanelController {
             choice: choice,
             selectedText: selectedText,
             primaryModel: primaryModel,
-            alternativeModel: alternativeModel
+            alternativeModel: alternativeModel,
+            alternative2Model: alternative2Model
         )
         self.state = state
         self.onRun = onRun
@@ -150,18 +154,26 @@ private final class PushToActPanelState: ObservableObject {
     let selectedText: String
     let primaryModel: String
     let alternativeModel: String?
+    let alternative2Model: String?
     var run: () -> Void = {}
     var cancel: () -> Void = {}
 
-    init(choice: PushToActChoice, selectedText: String, primaryModel: String, alternativeModel: String?) {
+    init(
+        choice: PushToActChoice,
+        selectedText: String,
+        primaryModel: String,
+        alternativeModel: String?,
+        alternative2Model: String?
+    ) {
         self.choice = choice
         self.selectedText = selectedText
         self.primaryModel = primaryModel
         self.alternativeModel = alternativeModel
+        self.alternative2Model = alternative2Model
     }
 
-    /// Enter / keypad Enter run, Esc cancels, r t a f c l toggle, 1 2 3 pick (and turn on Translate)
-    /// the translation direction. true: the key was handled.
+    /// Enter / keypad Enter run, Esc cancels, r t a f c toggle, l switches
+    /// the model, 1 2 3 pick (and turn on Translate) the translation direction. true: the key was handled.
     func handleKey(_ event: NSEvent) -> Bool {
         switch event.keyCode {
         case 36, 76:
@@ -217,14 +229,20 @@ private struct PushToActView: View {
                 )
 
             section("Model") {
-                pill("Primary · \(state.primaryModel)", key: nil, on: !state.choice.alternative) {
-                    state.choice.alternative = false
+                pill("Primary · \(state.primaryModel)", key: nil, on: state.choice.model == .primary) {
+                    state.choice.select(.primary)
                 }
                 if let alternative = state.alternativeModel {
-                    pill("Alternative · \(alternative)", key: "L", on: state.choice.alternative) {
-                        state.choice.alternative = true
+                    pill("Alternative · \(alternative)", key: nil, on: state.choice.model == .alternative) {
+                        state.choice.select(.alternative)
                     }
-                } else {
+                }
+                if let alternative2 = state.alternative2Model {
+                    pill("Alternative 2 · \(alternative2)", key: nil, on: state.choice.model == .alternative2) {
+                        state.choice.select(.alternative2)
+                    }
+                }
+                if state.alternativeModel == nil, state.alternative2Model == nil {
                     Text("No Alternative LLM configured")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -250,7 +268,7 @@ private struct PushToActView: View {
             Divider()
 
             HStack {
-                Text(state.choice.canRun ? "Letters toggle · 1–3 translate to · Esc cancel" : "Turn on Refine, Translate or Ask")
+                Text(state.choice.canRun ? "L model · letters toggle · 1–3 translate to · Esc cancel" : "Turn on Refine, Translate or Ask")
                     .font(.system(size: 11))
                     .foregroundStyle(state.choice.canRun ? Color.secondary : UntypeDesignTokens.warnGold)
                 Spacer()
