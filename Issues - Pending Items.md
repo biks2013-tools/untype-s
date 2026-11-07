@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P2 - Push-to-Act whole-field mode: on-device check pending (2026-11-07)
+- Plan-045 (FR-50) is implemented and builds (319/319), but the Accessibility path can only be checked in the app: with nothing selected in TextEdit, Notes and a browser text field, Push-to-Act should highlight the whole text, show "whole field" in the pop-up, replace the text on Run (`focused_input.method: "ax-selection"`), and restore the caret on Esc.
+
 ### P2 - Screenshot operator: on-device check pending (2026-11-07)
 - Plan-044 is implemented and unit/live-LLM tested (318/318; `deepseek-flash`, `gemini-3.8-flash`, Azure `gpt-5.4` read a rendered window), but the ScreenCaptureKit capture itself can only be checked in the packaged app: it needs the Screen Recording permission for `com.local.untype`. After the next signed build: turn W on, dictate into an app, check Events for `screenshot captured (…)` and `screenshot copied to the clipboard`, paste the clipboard to see the image, and confirm `focused_input.ok=true` in `release-latency.jsonl`.
 - With Clipboard (C) also on, the result text replaces the screenshot on the clipboard at the end of the turn (by design; documented in the configuration guide).
