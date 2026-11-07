@@ -82,6 +82,10 @@ public enum UntypeEnvTemplate {
     # For azure-openai the model is the deployment name.
     # UNTYPE_ALT_LLM_PROVIDER=
     # UNTYPE_ALT_LLM_MODEL=
+    # Second alternative LLM, a further model the Push-to-Act pop-up can pick
+    # (e.g. google / gemini-3.8-flash). Same rules as above.
+    # UNTYPE_ALT2_LLM_PROVIDER=
+    # UNTYPE_ALT2_LLM_MODEL=
 
     # Azure OpenAI (required when UNTYPE_LLM_PROVIDER is azure-openai and refinement is on).
     # AZURE_OPENAI_API_KEY=

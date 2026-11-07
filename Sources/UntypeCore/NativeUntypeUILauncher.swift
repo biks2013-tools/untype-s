@@ -615,6 +615,23 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
+    /// Saves the Push-to-Act choices so the pop-up opens with them next
+    /// time. They are Push-to-Act's own and never touch the push-to-talk
+    /// operators, so nothing is reconfigured and the warm session stays.
+    private func rememberPushToActChoice(_ choice: PushToActChoice) {
+        let preferences = choice.preferences
+        guard settings.pushToAct != preferences else {
+            return
+        }
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(pushToAct: preferences))
+            try UntypeUISettingsStore.save(settings)
+            appendEvent("config.saved: push-to-act choices remembered")
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
     func refreshCredentials() {
         settings = settings.refreshingCredentialStatus()
     }
@@ -755,7 +772,14 @@ final class UntypeUIModel: ObservableObject {
         let alternativeModel = settings.altLlmProvider.isEmpty || settings.altLlmModel.isEmpty
             ? nil
             : settings.altLlmModel
-        let choice = PushToActChoice(settings: settings, alternativeAvailable: alternativeModel != nil)
+        let alternative2Model = settings.alt2LlmProvider.isEmpty || settings.alt2LlmModel.isEmpty
+            ? nil
+            : settings.alt2LlmModel
+        let choice = PushToActChoice(
+            settings: settings,
+            alternativeAvailable: alternativeModel != nil,
+            alternative2Available: alternative2Model != nil
+        )
         let panel = pushToActPanel ?? PushToActPanelController()
         pushToActPanel = panel
         panel.show(
@@ -763,6 +787,7 @@ final class UntypeUIModel: ObservableObject {
             selectedText: selectedText,
             primaryModel: settings.llmModel,
             alternativeModel: alternativeModel,
+            alternative2Model: alternative2Model,
             onRun: { [weak self] choice in
                 self?.runPushToAct(choice: choice, selectedText: selectedText, anchor: anchor, target: target)
             },
@@ -794,12 +819,14 @@ final class UntypeUIModel: ObservableObject {
             selectionHotkeyInFlight = false
             return
         }
-        appendEvent("diagnostic.info: [untype] push-to-act run (\(choice.alternative ? "alternative" : "primary") LLM, translation \(choice.translationPolicy.rawValue))")
+        appendEvent("diagnostic.info: [untype] push-to-act run (\(Self.pushToActModelLabel(choice.model)) LLM, translation \(choice.translationPolicy.rawValue))")
+        rememberPushToActChoice(choice)
         overlay?.show(phase: "finalizing")
         let currentSettings = settings
         let askConversationStore = askConversation
         let modelBox = WeakUntypeUIModelBox(self)
         let translationPolicy = choice.translationPolicy
+        let secondAlternative = choice.model == .alternative2
         var selectionReplacer: (@Sendable (String) async -> FocusedInputDeliveryResult?)?
         if let anchor {
             selectionReplacer = { @Sendable (text: String) async -> FocusedInputDeliveryResult? in
@@ -821,6 +848,7 @@ final class UntypeUIModel: ObservableObject {
                     config: config,
                     operators: operators,
                     translationPolicy: translationPolicy,
+                    secondAlternative: secondAlternative,
                     selectedText: selected,
                     askConversation: askConversationStore,
                     protocolOutput: UIEventTextOutput { line in
@@ -851,6 +879,14 @@ final class UntypeUIModel: ObservableObject {
             dispatchToUI { [modelBox] in
                 modelBox.model?.finishSelectionHotkey()
             }
+        }
+    }
+
+    private static func pushToActModelLabel(_ model: PushToActModel) -> String {
+        switch model {
+        case .primary: return "primary"
+        case .alternative: return "alternative"
+        case .alternative2: return "second alternative"
         }
     }
 
@@ -1536,6 +1572,8 @@ final class UntypeUIModel: ObservableObject {
             previous.voiceCommands == next.voiceCommands &&
             previous.altLlmProvider == next.altLlmProvider &&
             previous.altLlmModel == next.altLlmModel &&
+            previous.alt2LlmProvider == next.alt2LlmProvider &&
+            previous.alt2LlmModel == next.alt2LlmModel &&
             previous.hotkeyEnabled == next.hotkeyEnabled &&
             previous.hotkey == next.hotkey
     }

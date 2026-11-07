@@ -12,10 +12,11 @@ extension TranscriptionSessionRuntime: UntypeRuntimeSession {}
 extension TranscriptionSessionRuntime: @unchecked Sendable {}
 
 public enum UntypeRuntimeFactory {
-    /// The alternative LLM's clients with the same prompts as the primary
-    /// LLM; nil when no alternative LLM is configured.
-    static func makeAlternativeLLMClients(config: ResolvedConfig) throws -> ProtocolLLMClients? {
-        guard let llm = config.alternativeLLM else {
+    /// An alternative LLM's clients with the same prompts as the primary
+    /// LLM; nil when that alternative LLM is not configured. `second`: the
+    /// second alternative slot (Push-to-Act) instead of the first.
+    static func makeAlternativeLLMClients(config: ResolvedConfig, second: Bool = false) throws -> ProtocolLLMClients? {
+        guard let llm = second ? config.alternativeLLM2 : config.alternativeLLM else {
             return nil
         }
         return ProtocolLLMClients(
@@ -252,13 +253,15 @@ public enum UntypeRuntimeFactory {
 
     /// One Push-to-Act run: the selected text goes through `operators` (see
     /// `PushToActChoice`), translating in `translationPolicy` (nil: the
-    /// configured one), and the result is delivered to the focused control,
+    /// configured one); with `operators.alternative` on, `secondAlternative`
+    /// picks the second alternative LLM instead of the first. The result is delivered to the focused control,
     /// replacing the selection. Writes a release-latency record with trigger
     /// `push-to-act`. nil: nothing was processed.
     public static func runSelectionHotkey(
         config: ResolvedConfig,
         operators: OperatorState,
         translationPolicy: TranslationPolicy? = nil,
+        secondAlternative: Bool = false,
         selectedText: String,
         askConversation: AskConversation,
         protocolOutput: TextOutput,
@@ -270,7 +273,7 @@ public enum UntypeRuntimeFactory {
         let started = DispatchTime.now().uptimeNanoseconds
         let releaseTimestamp = ISO8601DateFormatter().string(from: Date())
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
-        let alternativeLLM = try makeAlternativeLLMClients(config: config)
+        let alternativeLLM = try makeAlternativeLLMClients(config: config, second: secondAlternative)
         let clipboardWriter = MacOSClipboardWriter()
         let focusedInputDelivery = FocusedInputDelivery(forceInProcess: true)
         let releaseLatencyLogger = try makeReleaseLatencyLogger(config.releaseLatencyLogging)

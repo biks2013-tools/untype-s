@@ -240,3 +240,51 @@ private func makeController(
     #expect(loaded.altLlmProvider == "google")
     #expect(loaded.altLlmModel == "gemini-3")
 }
+
+@Test func secondAlternativeLLMIsResolvedIndependentlyAndReachesTheSessionArguments() throws {
+    let temp = AltTemporaryDirectory()
+    let shell = ["DEEPSEEK_API_KEY": "ds-key", "GOOGLE_API_KEY": "g-key"]
+    let config = try ConfigResolver(cwd: temp.url, home: temp.url, shell: shell).resolve(argv: [
+        "--api-key", "k", "--no-refine",
+        "--alt-llm-provider", "deepseek", "--alt-llm-model", "deepseek-flash",
+        "--alt2-llm-provider", "google", "--alt2-llm-model", "gemini-3.8-flash"
+    ])
+    #expect(config.alternativeLLM?.model == "deepseek-flash")
+    let second = try #require(config.alternativeLLM2)
+    #expect(second.provider == .google)
+    #expect(second.model == "gemini-3.8-flash")
+    #expect(second.providerConfig == .google(apiKey: "g-key"))
+    #expect(second.systemPrompt == config.llm.systemPrompt)
+
+    // Same rules as the first slot: both values, and the provider's key.
+    #expect(throws: UntypeError.self) {
+        _ = try ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+            .resolve(argv: ["--api-key", "k", "--no-refine", "--alt2-llm-model", "gemini-3.8-flash"])
+    }
+    #expect(throws: UntypeError.self) {
+        _ = try ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+            .resolve(argv: ["--api-key", "k", "--no-refine", "--alt2-llm-provider", "google", "--alt2-llm-model", "gemini-3.8-flash"])
+    }
+
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        alt2LlmProvider: "google",
+        alt2LlmModel: "gemini-3.8-flash"
+    ))
+    let args = try settings.sessionArguments()
+    #expect(args.contains("--alt2-llm-provider") && args.contains("gemini-3.8-flash"))
+    #expect(!args.contains("--alt-llm-provider"))
+    let modelOnly = try UntypeUISettings.default.merged(UntypeUISettingsPatch(alt2LlmModel: "gemini-3.8-flash"))
+    #expect(!(try modelOnly.sessionArguments().contains("--alt2-llm-provider")))
+}
+
+@Test func secondAlternativeLLMSettingsRoundTrip() throws {
+    let temp = AltTemporaryDirectory()
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        alt2LlmProvider: "google",
+        alt2LlmModel: "gemini-3.8-flash"
+    ))
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+    #expect(loaded.alt2LlmProvider == "google")
+    #expect(loaded.alt2LlmModel == "gemini-3.8-flash")
+}

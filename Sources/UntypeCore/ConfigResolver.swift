@@ -486,6 +486,14 @@ public struct ConfigResolver: Sendable {
             askMaxOutputTokens: askMaxOutputTokens
         )
         let alternativeLLM = try resolveAlternativeLLM(
+            slot: .first,
+            parsed: parsed,
+            chain: chain,
+            primary: llm,
+            validateRequiredSettings: validateLLMProviderConfig
+        )
+        let alternativeLLM2 = try resolveAlternativeLLM(
+            slot: .second,
             parsed: parsed,
             chain: chain,
             primary: llm,
@@ -509,6 +517,7 @@ public struct ConfigResolver: Sendable {
             protocolConfig: protocolConfig,
             llm: llm,
             alternativeLLM: alternativeLLM,
+            alternativeLLM2: alternativeLLM2,
             prompts: promptConfig,
             releaseLatencyLogging: ReleaseLatencyLoggingConfig(
                 enabled: releaseLatencyLogEnabled,
@@ -1115,23 +1124,40 @@ public struct ConfigResolver: Sendable {
         }
     }
 
-    /// The alternative LLM (Alternative operator): its own provider and
-    /// model, the primary's prompts, limits and streaming. Not configured
-    /// (nil) when no provider is set; a provider without a model is an error.
+    /// The two alternative LLM slots: `--alt-llm-*` / `UNTYPE_ALT_LLM_*`
+    /// (the Alternative operator) and `--alt2-llm-*` / `UNTYPE_ALT2_LLM_*`
+    /// (a second choice in the Push-to-Act pop-up).
+    enum AlternativeLLMSlot {
+        case first
+        case second
+
+        var flagPrefix: String { self == .first ? "--alt-llm" : "--alt2-llm" }
+        var envPrefix: String { self == .first ? "UNTYPE_ALT_LLM" : "UNTYPE_ALT2_LLM" }
+        var label: String { self == .first ? "alternative LLM" : "second alternative LLM" }
+    }
+
+    /// An alternative LLM: its own provider and model, the primary's
+    /// prompts, limits and streaming. Not configured (nil) when no provider
+    /// is set; a provider without a model is an error.
     private func resolveAlternativeLLM(
+        slot: AlternativeLLMSlot,
         parsed: ParsedArguments,
         chain: EnvChain,
         primary: LLMConfig,
         validateRequiredSettings: Bool
     ) throws -> LLMConfig? {
-        let providerRaw = (parsed.value(for: "--alt-llm-provider") ?? chain.get("UNTYPE_ALT_LLM_PROVIDER")?.value)?
+        let providerFlag = "\(slot.flagPrefix)-provider"
+        let modelFlag = "\(slot.flagPrefix)-model"
+        let providerEnv = "\(slot.envPrefix)_PROVIDER"
+        let modelEnv = "\(slot.envPrefix)_MODEL"
+        let providerRaw = (parsed.value(for: providerFlag) ?? chain.get(providerEnv)?.value)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = (parsed.value(for: "--alt-llm-model") ?? chain.get("UNTYPE_ALT_LLM_MODEL")?.value)?
+        let model = (parsed.value(for: modelFlag) ?? chain.get(modelEnv)?.value)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let providerRaw, !providerRaw.isEmpty else {
             if let model, !model.isEmpty {
                 throw UntypeError.invalidConfiguration(
-                    "--alt-llm-model / UNTYPE_ALT_LLM_MODEL is set but --alt-llm-provider / UNTYPE_ALT_LLM_PROVIDER is not. Set both to configure the alternative LLM."
+                    "\(modelFlag) / \(modelEnv) is set but \(providerFlag) / \(providerEnv) is not. Set both to configure the \(slot.label)."
                 )
             }
             return nil
@@ -1139,12 +1165,12 @@ public struct ConfigResolver: Sendable {
         guard let provider = LLMProvider(rawValue: providerRaw) else {
             let values = LLMProvider.allCases.map(\.rawValue).joined(separator: ", ")
             throw UntypeError.invalidConfiguration(
-                "--alt-llm-provider / UNTYPE_ALT_LLM_PROVIDER must be one of: \(values)."
+                "\(providerFlag) / \(providerEnv) must be one of: \(values)."
             )
         }
         guard let model, !model.isEmpty else {
             throw UntypeError.invalidConfiguration(
-                "--alt-llm-provider / UNTYPE_ALT_LLM_PROVIDER is set but --alt-llm-model / UNTYPE_ALT_LLM_MODEL is not. Set the alternative model (for azure-openai, its deployment name)."
+                "\(providerFlag) / \(providerEnv) is set but \(modelFlag) / \(modelEnv) is not. Set the \(slot.label)'s model (for azure-openai, its deployment name)."
             )
         }
         let providerConfig = try resolveLLMProviderConfig(
@@ -1154,8 +1180,8 @@ public struct ConfigResolver: Sendable {
             chain: chain,
             validateRequiredSettings: validateRequiredSettings,
             deploymentFromModel: true,
-            enabledBy: "--alt-llm-provider=\(provider.rawValue)",
-            disableHint: "unset UNTYPE_ALT_LLM_PROVIDER to remove the alternative LLM"
+            enabledBy: "\(providerFlag)=\(provider.rawValue)",
+            disableHint: "unset \(providerEnv) to remove the \(slot.label)"
         )
         return LLMConfig(
             enabled: true,
@@ -1257,7 +1283,7 @@ struct ParsedArguments: Sendable {
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
                 "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--followup-default", "--selection-default", "--alternative-default", "--protocol-output",
-                "--llm-provider", "--llm-model", "--alt-llm-provider", "--alt-llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
+                "--llm-provider", "--llm-model", "--alt-llm-provider", "--alt-llm-model", "--alt2-llm-provider", "--alt2-llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
                 "--release-latency-log-path":
                 let value: String
                 if let inline = split.value {
