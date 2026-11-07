@@ -166,6 +166,9 @@ public enum UntypeEnvTemplate {
     # UNTYPE_SELECTION_DEFAULT=
     # Alternative: refine, translate and Ask use the alternative LLM.
     # UNTYPE_ALTERNATIVE_DEFAULT=
+    # Screenshot: a screenshot of the active app's window goes with the request
+    # (needs a vision model and Screen Recording permission) and is copied to the clipboard.
+    # UNTYPE_SCREENSHOT_DEFAULT=
     # Output cap for Ask answers (separate from UNTYPE_LLM_MAX_OUTPUT_TOKENS). Default: 8000.
     # UNTYPE_ASK_MAX_OUTPUT_TOKENS=
 

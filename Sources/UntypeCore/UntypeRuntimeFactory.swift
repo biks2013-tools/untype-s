@@ -92,6 +92,8 @@ public enum UntypeRuntimeFactory {
             selectionContextTemplate: config.prompts.selectionContextTemplate,
             askSelectionTemplate: config.prompts.askSelectionTemplate,
             askConversationTemplate: config.prompts.askConversationTemplate,
+            screenshotContextTemplate: config.prompts.screenshotContextTemplate,
+            askScreenshotTemplate: config.prompts.askScreenshotTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
             diagnostics: diagnostics
@@ -203,6 +205,8 @@ public enum UntypeRuntimeFactory {
             selectionContextTemplate: config.prompts.selectionContextTemplate,
             askSelectionTemplate: config.prompts.askSelectionTemplate,
             askConversationTemplate: config.prompts.askConversationTemplate,
+            screenshotContextTemplate: config.prompts.screenshotContextTemplate,
+            askScreenshotTemplate: config.prompts.askScreenshotTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 await focusedInputPreparation()
@@ -263,6 +267,7 @@ public enum UntypeRuntimeFactory {
         translationPolicy: TranslationPolicy? = nil,
         secondAlternative: Bool = false,
         selectedText: String,
+        screenshot: WindowScreenshot? = nil,
         askConversation: AskConversation,
         protocolOutput: TextOutput,
         diagnostics: @escaping @Sendable (_ line: String, _ warning: Bool) -> Void,
@@ -302,11 +307,13 @@ public enum UntypeRuntimeFactory {
             alternativeLLM: alternativeLLM,
             askUserPromptTemplate: config.prompts.askUserPromptTemplate,
             askTranslatedUserPromptTemplate: config.prompts.askTranslatedUserPromptTemplate,
-            turnContext: SelectionHotkeyPlan.turnContext(selectedText: selectedText),
+            turnContext: SelectionHotkeyPlan.turnContext(selectedText: selectedText, screenshot: screenshot),
             askConversation: askConversation,
             selectionContextTemplate: config.prompts.selectionContextTemplate,
             askSelectionTemplate: config.prompts.askSelectionTemplate,
             askConversationTemplate: config.prompts.askConversationTemplate,
+            screenshotContextTemplate: config.prompts.screenshotContextTemplate,
+            askScreenshotTemplate: config.prompts.askScreenshotTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 // The captured selection first (writes into its element,

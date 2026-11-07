@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import UntypeCore
@@ -156,4 +157,50 @@ func liveAlternativeLLMRefinesAndTranslatesASection() async throws {
     let text = processed?["output_text"] as? String ?? ""
     print("[live] alternative refine+translate \(Int(Date().timeIntervalSince(start) * 1000)) ms: \(text)")
     #expect(text.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) })
+}
+
+/// Live check of the Screenshot operator: the configured LLM reads a
+/// rendered "window" and answers about it through the real Ask prompts.
+@Test(.enabled(if: ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_TEST"] == "1"))
+func liveLLMProviderReadsTheScreenshot() async throws {
+    let extra = (ProcessInfo.processInfo.environment["UNTYPE_LIVE_LLM_ARGS"] ?? "")
+        .split(separator: " ").map(String.init)
+    let config = try ConfigResolver().resolve(argv: extra)
+    print("[live] provider=\(config.llm.provider.rawValue) model=\(config.llm.model)")
+    let image = NSImage(size: NSSize(width: 480, height: 120), flipped: false) { rect in
+        NSColor.white.setFill()
+        rect.fill()
+        ("Invoice INV-58213 is overdue" as NSString).draw(
+            at: NSPoint(x: 20, y: 45),
+            withAttributes: [.font: NSFont.systemFont(ofSize: 28), .foregroundColor: NSColor.black]
+        )
+        return true
+    }
+    let cgImage = try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+    let png = try #require(NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]))
+    let output = MemoryOutput()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: output),
+        markers: config.protocolConfig.markers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false, ask: true, screenshot: true),
+        translationPolicy: .toEnglish,
+        asker: try LLMRefinerFactory.makeAsker(config: config.llm, systemPrompt: config.prompts.askSystemPrompt),
+        askUserPromptTemplate: config.prompts.askUserPromptTemplate,
+        turnContext: UntypeTurnContext(screenshot: WindowScreenshot(
+            image: LLMImageAttachment(data: png, mediaType: "image/png", pixelWidth: cgImage.width, pixelHeight: cgImage.height),
+            appName: "Mail"
+        )),
+        askScreenshotTemplate: config.prompts.askScreenshotTemplate
+    )
+    try controller.startSession()
+    let start = Date()
+    _ = try await controller.submitWithoutDictation()
+    let events = try output.text.split(separator: "\n").map {
+        try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] ?? [:]
+    }
+    let answer = events.last { $0["type"] as? String == "section.processed" }?["output_text"] as? String ?? ""
+    print("[live] screenshot ask \(Int(Date().timeIntervalSince(start) * 1000)) ms: \(answer)")
+    #expect(answer.contains("58213"))
 }

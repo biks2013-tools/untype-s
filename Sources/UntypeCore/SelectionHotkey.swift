@@ -12,9 +12,10 @@ public enum SelectionHotkeyPlan {
         PushToActChoice(settings: settings, alternativeAvailable: true).operators
     }
 
-    /// The turn context of a run: the selection as material.
-    public static func turnContext(selectedText: String) -> UntypeTurnContext {
-        UntypeTurnContext(selectedText: selectedText, selectionRole: .material)
+    /// The turn context of a run: the selection as material, and the
+    /// window's screenshot when the Screenshot operator is on.
+    public static func turnContext(selectedText: String, screenshot: WindowScreenshot? = nil) -> UntypeTurnContext {
+        UntypeTurnContext(selectedText: selectedText, selectionRole: .material, screenshot: screenshot)
     }
 }
 
@@ -36,6 +37,9 @@ public struct PushToActPreferences: Codable, Equatable, Sendable {
     public var ask: Bool
     public var followup: Bool
     public var clipboard: Bool
+    /// Send a screenshot of the app's window (absent in choices saved
+    /// before build 39: off).
+    public var screenshot: Bool
     /// `PushToActModel` raw value; an unknown or no-longer-configured model
     /// opens as the primary.
     public var model: String
@@ -48,6 +52,7 @@ public struct PushToActPreferences: Codable, Equatable, Sendable {
         ask: Bool,
         followup: Bool,
         clipboard: Bool,
+        screenshot: Bool = false,
         model: String,
         translationPolicy: String
     ) {
@@ -56,8 +61,27 @@ public struct PushToActPreferences: Codable, Equatable, Sendable {
         self.ask = ask
         self.followup = followup
         self.clipboard = clipboard
+        self.screenshot = screenshot
         self.model = model
         self.translationPolicy = translationPolicy
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case refine, translate, ask, followup, clipboard, screenshot, model, translationPolicy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            refine: try container.decode(Bool.self, forKey: .refine),
+            translate: try container.decode(Bool.self, forKey: .translate),
+            ask: try container.decode(Bool.self, forKey: .ask),
+            followup: try container.decode(Bool.self, forKey: .followup),
+            clipboard: try container.decode(Bool.self, forKey: .clipboard),
+            screenshot: try container.decodeIfPresent(Bool.self, forKey: .screenshot) ?? false,
+            model: try container.decode(String.self, forKey: .model),
+            translationPolicy: try container.decode(String.self, forKey: .translationPolicy)
+        )
     }
 }
 
@@ -70,6 +94,8 @@ public struct PushToActChoice: Equatable, Sendable {
     public var ask: Bool
     public var followup: Bool
     public var clipboard: Bool
+    /// Send a screenshot of the app's window with the request.
+    public var screenshot: Bool
     /// The LLM that runs the action; only a configured one can be picked.
     public private(set) var model: PushToActModel
     public var translationPolicy: TranslationPolicy
@@ -86,6 +112,7 @@ public struct PushToActChoice: Equatable, Sendable {
             ask = saved.ask
             followup = saved.followup
             clipboard = saved.clipboard
+            screenshot = saved.screenshot
             model = .primary
             translationPolicy = TranslationPolicy(rawValue: saved.translationPolicy) ?? .opposite
             if let savedModel = PushToActModel(rawValue: saved.model) {
@@ -98,6 +125,7 @@ public struct PushToActChoice: Equatable, Sendable {
         ask = settings.ask
         followup = settings.followup
         clipboard = settings.clipboard
+        screenshot = settings.screenshot
         // The Alternative operator's setting picks the first alternative LLM.
         model = alternativeAvailable && settings.alternative ? .alternative : .primary
         translationPolicy = TranslationPolicy(rawValue: settings.translationPolicy) ?? .opposite
@@ -111,6 +139,7 @@ public struct PushToActChoice: Equatable, Sendable {
             ask: ask,
             followup: followup,
             clipboard: clipboard,
+            screenshot: screenshot,
             model: model.rawValue,
             translationPolicy: translationPolicy.rawValue
         )
@@ -156,11 +185,12 @@ public struct PushToActChoice: Equatable, Sendable {
             ask: ask,
             followup: followup,
             selection: true,
-            alternative: alternative
+            alternative: alternative,
+            screenshot: screenshot
         )
     }
 
-    /// Single-key toggles of the pop-up: r, t, a, f, c, and l (next model:
+    /// Single-key toggles of the pop-up: r, t, a, f, c, w, and l (next model:
     /// primary → alternative → alternative 2 → primary, configured ones only).
     /// Returns false for any other key.
     @discardableResult
@@ -171,6 +201,7 @@ public struct PushToActChoice: Equatable, Sendable {
         case "a": ask.toggle()
         case "f": followup.toggle()
         case "c": clipboard.toggle()
+        case "w": screenshot.toggle()
         case "l":
             let models = availableModels
             guard models.count > 1, let index = models.firstIndex(of: model) else {

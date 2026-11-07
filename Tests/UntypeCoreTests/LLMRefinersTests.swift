@@ -1027,3 +1027,93 @@ private func foundryClaudeConfig(
         #expect(error.message.contains("truncated"))
     }
 }
+
+// MARK: - Screenshot operator (image input)
+
+private let screenshotImage = LLMImageAttachment(data: Data([0x89, 0x50, 0x4E, 0x47]), mediaType: "image/png", pixelWidth: 2, pixelHeight: 1)
+
+@Test func everyVisionProviderSendsTheScreenshotWithTheText() async throws {
+    let base64 = screenshotImage.data.base64EncodedString()
+
+    let geminiHTTP = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: jsonData([
+        "candidates": [["content": ["parts": [["text": "Clean."]]], "finishReason": "STOP"]]
+    ]))])
+    _ = try await GoogleRefiner(config: googleConfig(), httpClient: geminiHTTP).refine("raw", image: screenshotImage, onProgress: nil)
+    let geminiRequest = try #require(geminiHTTP.requests.first)
+    let geminiContents = try #require(try requestJSONObject(geminiRequest)["contents"] as? [[String: Any]])
+    let geminiParts = try #require(geminiContents.first?["parts"] as? [[String: Any]])
+    #expect(geminiParts.first?["text"] as? String == "raw")
+    let inline = try #require(geminiParts.last?["inlineData"] as? [String: String])
+    #expect(inline == ["mimeType": "image/png", "data": base64])
+
+    let claudeHTTP = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: jsonData([
+        "stop_reason": "end_turn", "content": [["type": "text", "text": "Clean."]]
+    ]))])
+    _ = try await AnthropicMessagesRefiner(config: foundryClaudeConfig(), httpClient: claudeHTTP).refine("raw", image: screenshotImage, onProgress: nil)
+    let claudeRequest = try #require(claudeHTTP.requests.first)
+    let claudeMessages = try #require(try requestJSONObject(claudeRequest)["messages"] as? [[String: Any]])
+    let claudeContent = try #require(claudeMessages.first?["content"] as? [[String: Any]])
+    let source = try #require(claudeContent.first?["source"] as? [String: String])
+    #expect(source == ["type": "base64", "media_type": "image/png", "data": base64])
+    #expect(claudeContent.last?["text"] as? String == "raw")
+
+    let azureHTTP = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: jsonData([
+        "choices": [["message": ["content": "Clean."]]]
+    ]))])
+    _ = try await AzureOpenAIRefiner(config: azureConfig(), httpClient: azureHTTP).refine("raw", image: screenshotImage, onProgress: nil)
+    let azureRequest = try #require(azureHTTP.requests.first)
+    let azureMessages = try #require(try requestJSONObject(azureRequest)["messages"] as? [[String: Any]])
+    let azureContent = try #require(azureMessages.last?["content"] as? [[String: Any]])
+    #expect(azureContent.first?["text"] as? String == "raw")
+    let imageURL = try #require(azureContent.last?["image_url"] as? [String: String])
+    #expect(imageURL["url"] == "data:image/png;base64,\(base64)")
+
+    // Without an image the request stays plain text.
+    let plainHTTP = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: jsonData([
+        "choices": [["message": ["content": "Clean."]]]
+    ]))])
+    _ = try await AzureOpenAIRefiner(config: azureConfig(), httpClient: plainHTTP).refine("raw")
+    let plainRequest = try #require(plainHTTP.requests.first)
+    let plainMessages = try #require(try requestJSONObject(plainRequest)["messages"] as? [[String: Any]])
+    #expect(plainMessages.last?["content"] as? String == "raw")
+}
+
+@Test func deepseekSendsTheScreenshotAsAnImagePart() async throws {
+    let http = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: jsonData([
+        "choices": [["message": ["content": "Clean."]]]
+    ]))])
+    let config = LLMConfig(
+        enabled: true,
+        provider: .deepseek,
+        model: "deepseek-flash",
+        systemPrompt: "Clean this transcript.",
+        requestTimeoutMs: 15_000,
+        providerConfig: .openAICompatible(apiKey: "ds-key", baseURL: "https://api.deepseek.com/"),
+        verbose: false
+    )
+    _ = try await AzureOpenAIRefiner(config: config, thinking: false, httpClient: http).refine("raw", image: screenshotImage, onProgress: nil)
+    let request = try #require(http.requests.first)
+    let messages = try #require(try requestJSONObject(request)["messages"] as? [[String: Any]])
+    let content = try #require(messages.last?["content"] as? [[String: Any]])
+    #expect(content.last?["type"] as? String == "image_url")
+}
+
+@Test func combinedRefineTranslateSendsTheScreenshot() async throws {
+    let http = MockLLMHTTPClient(responses: [LLMHTTPResponse(statusCode: 200, body: jsonData([
+        "candidates": [["content": ["parts": [["text": #"{"refined_text":"Hi.","translated_text":"Γεια."}"#]]], "finishReason": "STOP"]]
+    ]))])
+    let composite = LLMCompositeRefineTranslator(
+        refiner: try GoogleRefiner(config: googleConfig(), httpClient: http),
+        refinementPromptTemplate: "{text}",
+        translationPromptTemplate: "{target_language} {text}"
+    )
+    let result = try await composite.refineAndTranslate(
+        CompositeRefineTranslateRequest(rawText: "hi", targetLanguageName: "Greek", image: screenshotImage)
+    )
+    #expect(result.translatedText == "Γεια.")
+    let compositeRequest = try #require(http.requests.first)
+    let contents = try #require(try requestJSONObject(compositeRequest)["contents"] as? [[String: Any]])
+    let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+    #expect(parts.count == 2)
+    #expect(parts.last?["inlineData"] != nil)
+}

@@ -10,17 +10,59 @@ public enum SelectionRole: String, CaseIterable, Sendable, Equatable {
     case context
 }
 
+/// A screenshot of the active app's window (the Screenshot operator).
+public struct WindowScreenshot: Sendable, Equatable {
+    public let image: LLMImageAttachment
+    /// The app the window belongs to, named in the prompt.
+    public let appName: String
+
+    public init(image: LLMImageAttachment, appName: String) {
+        self.image = image
+        self.appName = appName
+    }
+}
+
 /// Per-turn inputs that come from outside the transcript: the text selected
-/// in the active app at press time. Owned by the UI model (runtimes are
-/// recreated every turn) and read by the protocol controller.
+/// in the active app at press time and the screenshot of its window. Owned
+/// by the UI model (runtimes are recreated every turn) and read by the
+/// protocol controller.
 public final class UntypeTurnContext: @unchecked Sendable {
     private let lock = NSLock()
     private var storedSelection: String?
     private var storedRole: SelectionRole = .material
+    private var storedScreenshot: WindowScreenshot?
+    private var pendingScreenshot: Task<WindowScreenshot?, Never>?
 
-    public init(selectedText: String? = nil, selectionRole: SelectionRole = .material) {
+    public init(
+        selectedText: String? = nil,
+        selectionRole: SelectionRole = .material,
+        screenshot: WindowScreenshot? = nil
+    ) {
         storedSelection = selectedText
         storedRole = selectionRole
+        storedScreenshot = screenshot
+    }
+
+    /// The screenshot, waiting for a capture still in progress.
+    public func screenshot() async -> WindowScreenshot? {
+        let (stored, pending) = lock.withLock { (storedScreenshot, pendingScreenshot) }
+        if let stored {
+            return stored
+        }
+        return await pending?.value
+    }
+
+    /// Whether a screenshot was captured or is being captured.
+    public var hasScreenshot: Bool {
+        lock.withLock { storedScreenshot != nil || pendingScreenshot != nil }
+    }
+
+    /// A capture in progress; its result becomes the screenshot.
+    public func setScreenshotCapture(_ capture: Task<WindowScreenshot?, Never>) {
+        lock.withLock {
+            storedScreenshot = nil
+            pendingScreenshot = capture
+        }
     }
 
     public var selectedText: String? {
@@ -35,6 +77,8 @@ public final class UntypeTurnContext: @unchecked Sendable {
         lock.withLock {
             storedSelection = nil
             storedRole = selectionRole
+            storedScreenshot = nil
+            pendingScreenshot = nil
         }
     }
 

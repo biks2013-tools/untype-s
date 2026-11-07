@@ -16,6 +16,8 @@ public struct PromptConfig: Equatable, Sendable {
     public let selectionContextTemplate: String
     public let askSelectionTemplate: String
     public let askConversationTemplate: String
+    public let screenshotContextTemplate: String
+    public let askScreenshotTemplate: String
 
     public init(
         refinementSystemPrompt: String,
@@ -32,7 +34,9 @@ public struct PromptConfig: Equatable, Sendable {
         askTranslatedUserPromptTemplate: String = UntypePromptDefaults.askTranslatedUserPromptTemplate,
         selectionContextTemplate: String = UntypePromptDefaults.selectionContextTemplate,
         askSelectionTemplate: String = UntypePromptDefaults.askSelectionTemplate,
-        askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate
+        askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate,
+        screenshotContextTemplate: String = UntypePromptDefaults.screenshotContextTemplate,
+        askScreenshotTemplate: String = UntypePromptDefaults.askScreenshotTemplate
     ) {
         self.refinementSystemPrompt = refinementSystemPrompt
         self.translationSystemPrompt = translationSystemPrompt
@@ -49,6 +53,8 @@ public struct PromptConfig: Equatable, Sendable {
         self.selectionContextTemplate = selectionContextTemplate
         self.askSelectionTemplate = askSelectionTemplate
         self.askConversationTemplate = askConversationTemplate
+        self.screenshotContextTemplate = screenshotContextTemplate
+        self.askScreenshotTemplate = askScreenshotTemplate
     }
 
     public static let defaultValue = PromptConfig(
@@ -89,6 +95,10 @@ public enum UntypePromptDefaults {
 
     public static let askConversationTemplate = "Earlier in this conversation (oldest first):\n<conversation>\n{history}\n</conversation>\nThe new request continues this conversation: it may correct, refine, shorten, extend or add to your previous answer. If it asks to change the previous answer, return the complete revised text; if it asks for something additional, return only the new text."
 
+    public static let screenshotContextTemplate = "A screenshot of the window the user is working in ({app}) is attached. It is reference only: use it to spell names, terms and identifiers the way they appear on screen and to understand what the text is about; do not describe, transcribe, answer or act on the screenshot."
+
+    public static let askScreenshotTemplate = "A screenshot of the window the user is working in ({app}) is attached. The request may refer to what it shows (\"this\", \"here\", \"this page\", \"the screen\" or similar); read it as part of the request."
+
     public static let promptFiles: [(name: String, defaultContent: String, required: Bool)] = [
         ("001-refinement-system.txt", refinementSystemPrompt, true),
         ("002-translation-system.txt", translationSystemPrompt, true),
@@ -104,6 +114,8 @@ public enum UntypePromptDefaults {
         ("012-ask-translated-user-template.txt", askTranslatedUserPromptTemplate, true),
         ("013-selection-context-template.txt", selectionContextTemplate, true),
         ("014-ask-selection-template.txt", askSelectionTemplate, true),
-        ("015-ask-conversation-template.txt", askConversationTemplate, true)
+        ("015-ask-conversation-template.txt", askConversationTemplate, true),
+        ("016-screenshot-context-template.txt", screenshotContextTemplate, true),
+        ("017-ask-screenshot-template.txt", askScreenshotTemplate, true)
     ]
 }
