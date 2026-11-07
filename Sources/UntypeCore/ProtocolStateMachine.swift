@@ -15,6 +15,9 @@ public enum OperatorKey: String, CaseIterable, Sendable, Equatable, Codable {
     /// Refine, translate and Ask use the alternative LLM instead of the
     /// primary one.
     case alternative
+    /// A screenshot of the active app's window is sent with the request
+    /// (refine, translate and Ask) and copied to the clipboard.
+    case screenshot
 }
 
 public struct ProtocolSettingsSnapshot: Sendable, Equatable, Codable {
@@ -282,6 +285,7 @@ extension OperatorState: Codable {
         case followup
         case selection
         case alternative
+        case screenshot
     }
 
     public init(from decoder: Decoder) throws {
@@ -294,7 +298,8 @@ extension OperatorState: Codable {
             ask: try container.decodeIfPresent(Bool.self, forKey: .ask) ?? false,
             followup: try container.decodeIfPresent(Bool.self, forKey: .followup) ?? false,
             selection: try container.decodeIfPresent(Bool.self, forKey: .selection) ?? false,
-            alternative: try container.decodeIfPresent(Bool.self, forKey: .alternative) ?? false
+            alternative: try container.decodeIfPresent(Bool.self, forKey: .alternative) ?? false,
+            screenshot: try container.decodeIfPresent(Bool.self, forKey: .screenshot) ?? false
         )
     }
 
@@ -308,6 +313,7 @@ extension OperatorState: Codable {
         try container.encode(followup, forKey: .followup)
         try container.encode(selection, forKey: .selection)
         try container.encode(alternative, forKey: .alternative)
+        try container.encode(screenshot, forKey: .screenshot)
     }
 
     public func value(for key: OperatorKey) -> Bool {
@@ -328,6 +334,8 @@ extension OperatorState: Codable {
             return selection
         case .alternative:
             return alternative
+        case .screenshot:
+            return screenshot
         }
     }
 
@@ -340,7 +348,8 @@ extension OperatorState: Codable {
             ask: key == .ask ? value : ask,
             followup: key == .followup ? value : followup,
             selection: key == .selection ? value : selection,
-            alternative: key == .alternative ? value : alternative
+            alternative: key == .alternative ? value : alternative,
+            screenshot: key == .screenshot ? value : screenshot
         )
     }
 }

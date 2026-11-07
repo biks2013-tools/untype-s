@@ -8,6 +8,7 @@ public struct PromptFileDescriptor: Sendable, Equatable, Identifiable {
         case composite = "Refine + translate (one call)"
         case ask = "Ask (request to the model)"
         case selection = "Selected text"
+        case screenshot = "Screenshot"
         case transcription = "Transcription context"
     }
 
@@ -164,6 +165,26 @@ public struct PromptFileStore: Sendable {
             defaultContent: UntypePromptDefaults.selectionContextTemplate,
             required: true,
             placeholders: ["{selection}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "017-ask-screenshot-template.txt",
+            title: "Ask — screenshot",
+            group: .screenshot,
+            summary: "Put before an Ask request when Screenshot is on; {app} is the name of the app whose window is attached.",
+            defaultContent: UntypePromptDefaults.askScreenshotTemplate,
+            required: true,
+            placeholders: ["{app}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "016-screenshot-context-template.txt",
+            title: "Refine / translate — screenshot as context",
+            group: .screenshot,
+            summary: "Appended to the refine or translate input when Screenshot is on; {app} is the name of the app whose window is attached.",
+            defaultContent: UntypePromptDefaults.screenshotContextTemplate,
+            required: true,
+            placeholders: ["{app}"],
             maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
         ),
         PromptFileDescriptor(

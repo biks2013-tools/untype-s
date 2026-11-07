@@ -381,6 +381,9 @@ final class UntypeUIModel: ObservableObject {
     /// Per-turn inputs (the selected text) and the Ask conversation; both
     /// outlive the per-turn runtimes, which read them.
     private let turnContext = UntypeTurnContext()
+    /// The ⌘C selection read of this turn; it restores the clipboard, so the
+    /// screenshot is copied only after it.
+    private var selectionCopyTask: Task<Void, Never>?
     private let askConversation = AskConversation()
     /// Session and diagnostic events, persisted (see `UntypeEventLogFile`).
     private let eventLogFile = UntypeEventLogFile(url: UntypeEventLogFile.userFile())
@@ -495,10 +498,58 @@ final class UntypeUIModel: ObservableObject {
                 return
             }
             liveTyper?.hold()
-            Task { @MainActor [weak self] in
+            selectionCopyTask = Task { @MainActor [weak self] in
                 let text = await SelectedTextReader.readByCopying()
                 self?.applyCapturedSelection(text, via: "copy")
             }
+        }
+    }
+
+    /// Screenshot operator: captures the front window of the app in front
+    /// for this turn and copies it to the clipboard. The turn waits for the
+    /// capture before its LLM call; a failure is logged and the turn is not
+    /// sent to the LLM.
+    private func captureWindowScreenshot() {
+        guard settings.screenshot else {
+            return
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        guard let app = frontmost, isExternalFocusedInputApplication(app) else {
+            appendEvent("diagnostic.warning: [untype] screenshot: no app window in front to capture")
+            return
+        }
+        let selectionCopy = selectionCopyTask
+        turnContext.setScreenshotCapture(Task { @MainActor [weak self] in
+            let screenshot = await self?.captureScreenshot(of: app)
+            // The ⌘C selection read restores the clipboard when it finishes.
+            await selectionCopy?.value
+            if let screenshot {
+                self?.copyScreenshotToClipboard(screenshot)
+            }
+            return screenshot
+        })
+    }
+
+    /// nil (logged) when the window could not be captured.
+    private func captureScreenshot(of app: NSRunningApplication) async -> WindowScreenshot? {
+        let name = app.localizedName ?? "the active app"
+        do {
+            let screenshot = try await WindowScreenshotCapture.capture(pid: app.processIdentifier, appName: name)
+            let image = screenshot.image
+            appendEvent("diagnostic.info: [untype] screenshot captured (\(name), \(image.pixelWidth)×\(image.pixelHeight), \(image.data.count / 1024) KB)")
+            return screenshot
+        } catch {
+            appendEvent("diagnostic.warning: [untype] screenshot: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func copyScreenshotToClipboard(_ screenshot: WindowScreenshot) {
+        do {
+            try WindowScreenshotCapture.copyToClipboard(screenshot)
+            appendEvent("diagnostic.info: [untype] screenshot copied to the clipboard")
+        } catch {
+            appendEvent("diagnostic.warning: [untype] screenshot: \(error.localizedDescription)")
         }
     }
 
@@ -819,9 +870,36 @@ final class UntypeUIModel: ObservableObject {
             selectionHotkeyInFlight = false
             return
         }
-        appendEvent("diagnostic.info: [untype] push-to-act run (\(Self.pushToActModelLabel(choice.model)) LLM, translation \(choice.translationPolicy.rawValue))")
+        appendEvent("diagnostic.info: [untype] push-to-act run (\(Self.pushToActModelLabel(choice.model)) LLM, translation \(choice.translationPolicy.rawValue)\(choice.screenshot ? ", screenshot" : ""))")
         rememberPushToActChoice(choice)
         overlay?.show(phase: "finalizing")
+        guard choice.screenshot else {
+            startPushToActRun(choice: choice, operators: operators, selectedText: selected, screenshot: nil, anchor: anchor, target: target)
+            return
+        }
+        // The pop-up is closed; only the target's window is captured.
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            guard let screenshot = await self.captureScreenshot(of: target) else {
+                self.selectionHotkeyInFlight = false
+                self.overlay?.showNotice("Screenshot failed — see the event log")
+                return
+            }
+            self.copyScreenshotToClipboard(screenshot)
+            self.startPushToActRun(choice: choice, operators: operators, selectedText: selected, screenshot: screenshot, anchor: anchor, target: target)
+        }
+    }
+
+    private func startPushToActRun(
+        choice: PushToActChoice,
+        operators: OperatorState,
+        selectedText selected: String,
+        screenshot: WindowScreenshot?,
+        anchor: SelectionAnchor?,
+        target: NSRunningApplication
+    ) {
         let currentSettings = settings
         let askConversationStore = askConversation
         let modelBox = WeakUntypeUIModelBox(self)
@@ -850,6 +928,7 @@ final class UntypeUIModel: ObservableObject {
                     translationPolicy: translationPolicy,
                     secondAlternative: secondAlternative,
                     selectedText: selected,
+                    screenshot: screenshot,
                     askConversation: askConversationStore,
                     protocolOutput: UIEventTextOutput { line in
                         dispatchToUI { [modelBox] in
@@ -926,8 +1005,10 @@ final class UntypeUIModel: ObservableObject {
         timeline.clearPartial()
         captureFocusedInputTarget(reason: "hotkey-press")
         turnContext.begin(selectionRole: settings.selectionRoleValue)
+        selectionCopyTask = nil
         startLiveTyping()
         captureSelectedText()
+        captureWindowScreenshot()
         clearWarmSessionRecycleTimer()
         let control = hotkeySessionControl ?? HotkeySessionControl()
         control.waveform.configure(sampleRate: settings.sampleRate)
@@ -972,6 +1053,10 @@ final class UntypeUIModel: ObservableObject {
 
     func toggleOperator(_ key: OperatorKey) {
         update(UntypeUISettings.operatorPatch(key, !settings.value(of: key)))
+        // Switched on mid-turn: capture the window now.
+        if key == .screenshot, settings.screenshot, hotkeyPressed, !turnContext.hasScreenshot {
+            captureWindowScreenshot()
+        }
     }
 
     /// Settings → Operators: whether a change lasts one push-to-talk turn.
@@ -2158,6 +2243,15 @@ private struct UntypeRootView: View {
                 model.toggleOperator(.alternative)
             }
             UntypeOperatorChip(
+                letter: "W",
+                label: "Screenshot",
+                isOn: model.settings.screenshot,
+                isRecording: model.isRunning,
+                showsLabel: showsOperatorLabels
+            ) {
+                model.toggleOperator(.screenshot)
+            }
+            UntypeOperatorChip(
                 letter: "C",
                 label: "Clipboard",
                 isOn: model.settings.clipboard,
@@ -2791,7 +2885,7 @@ private final class UntypeOverlayController: ObservableObject {
         return samples.map { min(1, max(-1, $0 * displayedGain)) }
     }
 
-    /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/C/I
+    /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/L/W/C/I
     /// keys), shown under the trace as a reminder.
     fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
         guard let settings = model?.settings else {
@@ -2804,6 +2898,7 @@ private final class UntypeOverlayController: ObservableObject {
             ("F", "Follow-up", settings.followup),
             ("S", "Selection", settings.selection),
             ("L", "Alt LLM", settings.alternative),
+            ("W", "Screenshot", settings.screenshot),
             ("C", "Clipboard", settings.clipboard),
             ("I", "Focused input", settings.focusedInput)
         ]
@@ -3549,6 +3644,9 @@ private struct UntypeMiniView: View {
                 UntypeOperatorChip(letter: "L", label: "Alt LLM", isOn: model.settings.alternative, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.alternative)
                 }
+                UntypeOperatorChip(letter: "W", label: "Screenshot", isOn: model.settings.screenshot, isRecording: isRecording, isCompact: true) {
+                    model.toggleOperator(.screenshot)
+                }
                 UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.clipboard)
                 }
@@ -4039,6 +4137,8 @@ private extension OperatorKey {
             return .selection
         case "L":
             return .alternative
+        case "W":
+            return .screenshot
         default:
             return nil
         }

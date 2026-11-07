@@ -210,6 +210,7 @@ private struct UntypeSettingsGeneralView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         operatorSettingRow("Alternative LLM (refine, translate and Ask use it)", .alternative)
+                        operatorSettingRow("Screenshot (send the app's window; copied to the clipboard)", .screenshot)
                         operatorSettingRow("Clipboard", .clipboard)
                         operatorSettingRow("Focused input", .input)
                         Text("“This turn” switches an operator off again after each push-to-talk turn; “Until changed” keeps it as you set it.")
@@ -668,6 +669,8 @@ private struct UntypeSettingsGeneralView: View {
             return UntypeUISettingsPatch(alt2LlmModel: value as? String)
         case \UntypeUISettings.alternative:
             return UntypeUISettingsPatch(alternative: value as? Bool)
+        case \UntypeUISettings.screenshot:
+            return UntypeUISettingsPatch(screenshot: value as? Bool)
         case \UntypeUISettings.voiceCommands:
             return UntypeUISettingsPatch(voiceCommands: value as? Bool)
         case \UntypeUISettings.hotkeyEnabled:

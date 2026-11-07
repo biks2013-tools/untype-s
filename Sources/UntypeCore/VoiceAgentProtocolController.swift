@@ -69,6 +69,8 @@ public final class VoiceAgentProtocolController {
     private let selectionContextTemplate: String
     private let askSelectionTemplate: String
     private let askConversationTemplate: String
+    private let screenshotContextTemplate: String
+    private let askScreenshotTemplate: String
     private let clipboardWriter: TextDelivery
     private let focusedInputWriter: FocusedInputTextDelivery
     private let diagnostics: ProtocolControllerDiagnostics
@@ -100,6 +102,8 @@ public final class VoiceAgentProtocolController {
         selectionContextTemplate: String = UntypePromptDefaults.selectionContextTemplate,
         askSelectionTemplate: String = UntypePromptDefaults.askSelectionTemplate,
         askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate,
+        screenshotContextTemplate: String = UntypePromptDefaults.screenshotContextTemplate,
+        askScreenshotTemplate: String = UntypePromptDefaults.askScreenshotTemplate,
         clipboardWriter: @escaping TextDelivery = { _ in },
         inputWriter: @escaping TextDelivery = { _ in },
         focusedInputWriter: FocusedInputTextDelivery? = nil,
@@ -125,6 +129,8 @@ public final class VoiceAgentProtocolController {
         self.selectionContextTemplate = selectionContextTemplate
         self.askSelectionTemplate = askSelectionTemplate
         self.askConversationTemplate = askConversationTemplate
+        self.screenshotContextTemplate = screenshotContextTemplate
+        self.askScreenshotTemplate = askScreenshotTemplate
         self.clipboardWriter = clipboardWriter
         if let focusedInputWriter {
             self.focusedInputWriter = focusedInputWriter
@@ -221,19 +227,21 @@ public final class VoiceAgentProtocolController {
 
     /// A release with no dictated text: still process the turn when the
     /// selected text alone can be processed (Ask, or refine/translate with the
-    /// selection as material). Returns nil when there is nothing to do.
+    /// selection as material), or when Ask can answer about the screenshot.
+    /// Returns nil when there is nothing to do.
     public func submitWithoutDictation() async throws -> ProtocolSubmissionSummary? {
         guard !sessionEnded, !disposed else {
             return nil
         }
         let operators = stateMachine.activeOperatorKeys
-        guard operators.contains(.selection), turnContext?.selectedText != nil else {
-            return nil
-        }
-        let processesSelection = operators.contains(.ask)
-            || (turnContext?.selectionRole == .material
-                && (operators.contains(.refine) || operators.contains(.translate)))
-        guard processesSelection else {
+        let hasSelection = operators.contains(.selection) && turnContext?.selectedText != nil
+        let hasScreenshot = operators.contains(.screenshot) && turnContext?.hasScreenshot == true
+        let processesSelection = hasSelection
+            && (operators.contains(.ask)
+                || (turnContext?.selectionRole == .material
+                    && (operators.contains(.refine) || operators.contains(.translate))))
+        let asksAboutScreenshot = hasScreenshot && operators.contains(.ask)
+        guard processesSelection || asksAboutScreenshot else {
             return nil
         }
         return try await handleAction(.sectionSubmitted(
@@ -343,11 +351,19 @@ public final class VoiceAgentProtocolController {
                 selectionReference = selectionContextTemplate.replacingOccurrences(of: "{selection}", with: selection)
             }
         }
+        // Screenshot: the image goes with every LLM call of the section and
+        // the prompt says so. Operator on but no screenshot captured: no LLM
+        // call (the capture already warned why).
+        let wantsScreenshot = operators.contains(.screenshot)
+        let screenshot = wantsScreenshot ? await turnContext?.screenshot() : nil
+        let image = screenshot?.image
+        let screenshotReference = screenshot.map {
+            screenshotContextTemplate.replacingOccurrences(of: "{app}", with: $0.appName)
+        }
         let withReference: (String) -> String = { input in
-            guard let selectionReference else {
-                return input
-            }
-            return "\(input)\n\n\(selectionReference)"
+            [input, selectionReference, screenshotReference]
+                .compactMap { $0 }
+                .joined(separator: "\n\n")
         }
         var current = processInput
         var refinedText: String?
@@ -360,14 +376,18 @@ public final class VoiceAgentProtocolController {
         let useAlternative = operators.contains(.alternative)
         let llmOperatorsOn = operators.contains(.ask) || operators.contains(.refine) || operators.contains(.translate)
         let alternativeMissing = useAlternative && alternativeLLM == nil
+        let screenshotMissing = wantsScreenshot && screenshot == nil
         if alternativeMissing, llmOperatorsOn {
             warn("Alternative LLM operator is enabled, but no alternative LLM is configured (Settings → Alternative LLM, or UNTYPE_ALT_LLM_PROVIDER and UNTYPE_ALT_LLM_MODEL). The text was not processed by an LLM.")
+        } else if screenshotMissing, llmOperatorsOn {
+            warn("Screenshot operator is enabled, but no screenshot of the app's window was captured. The text was not processed by an LLM.")
         }
-        let warnMissingLLM: (String) -> Void = alternativeMissing ? { _ in } : { [weak self] message in self?.warn(message) }
-        let refiner = useAlternative ? alternativeLLM?.refiner : self.refiner
-        let translator = useAlternative ? alternativeLLM?.translator : self.translator
-        let compositeRefineTranslator = useAlternative ? alternativeLLM?.compositeRefineTranslator : self.compositeRefineTranslator
-        let asker = useAlternative ? alternativeLLM?.asker : self.asker
+        let skipLLM = alternativeMissing || screenshotMissing
+        let warnMissingLLM: (String) -> Void = skipLLM ? { _ in } : { [weak self] message in self?.warn(message) }
+        let refiner = screenshotMissing ? nil : useAlternative ? alternativeLLM?.refiner : self.refiner
+        let translator = screenshotMissing ? nil : useAlternative ? alternativeLLM?.translator : self.translator
+        let compositeRefineTranslator = screenshotMissing ? nil : useAlternative ? alternativeLLM?.compositeRefineTranslator : self.compositeRefineTranslator
+        let asker = screenshotMissing ? nil : useAlternative ? alternativeLLM?.asker : self.asker
         // Ask: the section is a request to the model and its answer becomes
         // the output. Refine is moot (the model reads the raw dictation);
         // translate only chooses the answer's language.
@@ -383,7 +403,11 @@ public final class VoiceAgentProtocolController {
                 warnMissingLLM("Ask operator is enabled, but no LLM is configured.")
             } else {
                 operatorDiagnostic(.ask, stage: "started")
-                let request = rawText.isEmpty ? "(no spoken request: respond to the selected text)" : rawText
+                let request = rawText.isEmpty
+                    ? (selection != nil
+                        ? "(no spoken request: respond to the selected text)"
+                        : "(no spoken request: respond to what the screenshot shows)")
+                    : rawText
                 var prompt = askUserPromptTemplate.replacingOccurrences(of: "{text}", with: request)
                 if operators.contains(.translate) {
                     sourceLanguage = detectProtocolLanguage(rawText.isEmpty ? (selection ?? "") : rawText)
@@ -406,10 +430,13 @@ public final class VoiceAgentProtocolController {
                 if let selection {
                     preamble.append(askSelectionTemplate.replacingOccurrences(of: "{selection}", with: selection))
                 }
+                if let screenshot {
+                    preamble.append(askScreenshotTemplate.replacingOccurrences(of: "{app}", with: screenshot.appName))
+                }
                 prompt = (preamble + [prompt]).joined(separator: "\n\n")
                 do {
                     let started = DispatchTime.now().uptimeNanoseconds
-                    let answer = try await refine(prompt, using: asker!, onProgress: onProgress)
+                    let answer = try await refine(prompt, image: image, using: asker!, onProgress: onProgress)
                     summary.askMs = releaseLatencyMilliseconds(from: started)
                     if !answer.isEmpty {
                         current = answer
@@ -431,7 +458,8 @@ public final class VoiceAgentProtocolController {
                 let result = try await compositeRefineTranslator!.refineAndTranslate(
                     CompositeRefineTranslateRequest(
                         rawText: withReference(processInput),
-                        targetLanguageName: languageDisplayName(targetLanguage!)
+                        targetLanguageName: languageDisplayName(targetLanguage!),
+                        image: image
                     ),
                     onProgress: onProgress
                 )
@@ -455,7 +483,7 @@ public final class VoiceAgentProtocolController {
                 operatorDiagnostic(.refine, stage: "started")
                 do {
                     let started = DispatchTime.now().uptimeNanoseconds
-                    let refined = try await refine(withReference(current), using: refiner!, onProgress: onProgress)
+                    let refined = try await refine(withReference(current), image: image, using: refiner!, onProgress: onProgress)
                     summary.refineMs = releaseLatencyMilliseconds(from: started)
                     if !refined.isEmpty {
                         refinedText = refined
@@ -482,7 +510,7 @@ public final class VoiceAgentProtocolController {
                         targetLanguage: languageDisplayName(targetLanguage!)
                     ))
                     let started = DispatchTime.now().uptimeNanoseconds
-                    let translated = try await refine(prompt, using: translator!, onProgress: onProgress)
+                    let translated = try await refine(prompt, image: image, using: translator!, onProgress: onProgress)
                     summary.translateMs = releaseLatencyMilliseconds(from: started)
                     if !translated.isEmpty {
                         current = translated
@@ -576,9 +604,16 @@ public final class VoiceAgentProtocolController {
     /// existing one-shot `refine(_:)` path. The returned value is always the strict final result.
     private func refine(
         _ text: String,
+        image: LLMImageAttachment? = nil,
         using refiner: TextRefining,
         onProgress: @escaping (String) -> Void
     ) async throws -> String {
+        if let image {
+            guard let imageRefiner = refiner as? ImageInputRefining else {
+                throw LLMRefinementError("This LLM client cannot send images, so the screenshot cannot be sent.", kind: .shape)
+            }
+            return try await imageRefiner.refine(text, image: image, onProgress: onProgress)
+        }
         if let streaming = refiner as? StreamingTextRefining {
             return try await streaming.refine(text, onProgress: onProgress)
         }
@@ -658,6 +693,7 @@ private func formatStatusSummary(_ report: ProtocolStatusReport) -> String {
         "followup=\(report.operators.followup ? "on" : "off")",
         "selection=\(report.operators.selection ? "on" : "off")",
         "alternative=\(report.operators.alternative ? "on" : "off")",
+        "screenshot=\(report.operators.screenshot ? "on" : "off")",
         "translation_policy=\(report.translationPolicy.rawValue)",
         "pending_section=\(report.pendingSection ? "yes" : "no")"
     ].joined(separator: ", ")

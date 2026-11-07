@@ -161,7 +161,8 @@ private extension OperatorState {
             "ask": ask,
             "followup": followup,
             "selection": selection,
-            "alternative": alternative
+            "alternative": alternative,
+            "screenshot": screenshot
         ]
     }
 }

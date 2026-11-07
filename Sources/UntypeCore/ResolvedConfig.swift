@@ -144,6 +144,7 @@ public struct OperatorState: Equatable, Sendable {
     public let followup: Bool
     public let selection: Bool
     public let alternative: Bool
+    public let screenshot: Bool
 
     public init(
         refine: Bool,
@@ -153,7 +154,8 @@ public struct OperatorState: Equatable, Sendable {
         ask: Bool = false,
         followup: Bool = false,
         selection: Bool = false,
-        alternative: Bool = false
+        alternative: Bool = false,
+        screenshot: Bool = false
     ) {
         self.refine = refine
         self.translate = translate
@@ -163,6 +165,7 @@ public struct OperatorState: Equatable, Sendable {
         self.followup = followup
         self.selection = selection
         self.alternative = alternative
+        self.screenshot = screenshot
     }
 }
 
@@ -180,6 +183,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
     public let followup: ProtocolSettingSource
     public let selection: ProtocolSettingSource
     public let alternative: ProtocolSettingSource
+    public let screenshot: ProtocolSettingSource
     public let translationPolicy: ProtocolSettingSource
 
     public init(
@@ -191,6 +195,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         followup: ProtocolSettingSource = .default,
         selection: ProtocolSettingSource = .default,
         alternative: ProtocolSettingSource = .default,
+        screenshot: ProtocolSettingSource = .default,
         translationPolicy: ProtocolSettingSource
     ) {
         self.refine = refine
@@ -201,6 +206,7 @@ public struct ProtocolSettingSources: Equatable, Sendable {
         self.followup = followup
         self.selection = selection
         self.alternative = alternative
+        self.screenshot = screenshot
         self.translationPolicy = translationPolicy
     }
 }

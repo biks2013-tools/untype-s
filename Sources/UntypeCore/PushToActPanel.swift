@@ -254,6 +254,7 @@ private struct PushToActView: View {
                 pill("Translate", key: "T", on: state.choice.translate) { state.choice.translate.toggle() }
                 pill("Ask", key: "A", on: state.choice.ask) { state.choice.ask.toggle() }
                 pill("Follow-up", key: "F", on: state.choice.followup) { state.choice.followup.toggle() }
+                pill("Screenshot", key: "W", on: state.choice.screenshot) { state.choice.screenshot.toggle() }
                 pill("Clipboard", key: "C", on: state.choice.clipboard) { state.choice.clipboard.toggle() }
             }
 

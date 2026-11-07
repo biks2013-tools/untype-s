@@ -2,6 +2,10 @@
 
 ## Pending Items
 
+### P2 - Screenshot operator: on-device check pending (2026-11-07)
+- Plan-044 is implemented and unit/live-LLM tested (318/318; `deepseek-flash`, `gemini-3.8-flash`, Azure `gpt-5.4` read a rendered window), but the ScreenCaptureKit capture itself can only be checked in the packaged app: it needs the Screen Recording permission for `com.local.untype`. After the next signed build: turn W on, dictate into an app, check Events for `screenshot captured (…)` and `screenshot copied to the clipboard`, paste the clipboard to see the image, and confirm `focused_input.ok=true` in `release-latency.jsonl`.
+- With Clipboard (C) also on, the result text replaces the screenshot on the clipboard at the end of the turn (by design; documented in the configuration guide).
+
 ### P3 - `settingsExpanded` UI setting is now unused (2026-10-24)
 - Plan-035 replaced the main window's inspector pane with the Settings window, so `UntypeUISettings.settingsExpanded` is still persisted in `ui-state.json` but no longer read. It was kept so existing state files and tests stay valid; remove it together with its patch field when the settings schema is next revised.
 

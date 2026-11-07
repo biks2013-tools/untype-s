@@ -25,10 +25,13 @@ public struct LLMRefinementError: Error, Sendable, Equatable, LocalizedError {
 public struct CompositeRefineTranslateRequest: Sendable, Equatable {
     public let rawText: String
     public let targetLanguageName: String
+    /// Sent with the prompt (the Screenshot operator).
+    public let image: LLMImageAttachment?
 
-    public init(rawText: String, targetLanguageName: String) {
+    public init(rawText: String, targetLanguageName: String, image: LLMImageAttachment? = nil) {
         self.rawText = rawText
         self.targetLanguageName = targetLanguageName
+        self.image = image
     }
 }
 
@@ -82,6 +85,31 @@ public extension CompositeRefineTranslating {
 /// editing Unit C's file; the same concrete methods satisfy both protocols.
 public protocol StreamingTextRefining: AnyObject {
     func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String
+}
+
+/// An image sent with the text (the Screenshot operator).
+public struct LLMImageAttachment: Sendable, Equatable {
+    public let data: Data
+    public let mediaType: String
+    public let pixelWidth: Int
+    public let pixelHeight: Int
+
+    public init(data: Data, mediaType: String, pixelWidth: Int, pixelHeight: Int) {
+        self.data = data
+        self.mediaType = mediaType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+    }
+
+    var base64: String {
+        data.base64EncodedString()
+    }
+}
+
+/// A refiner that can send an image along with the text. Streams like
+/// `StreamingTextRefining` when streaming is enabled.
+public protocol ImageInputRefining: AnyObject {
+    func refine(_ text: String, image: LLMImageAttachment, onProgress: ((String) -> Void)?) async throws -> String
 }
 
 public struct LLMHTTPResponse: Sendable, Equatable {
@@ -279,7 +307,7 @@ public final class URLSessionLLMHTTPClient: NSObject, LLMHTTPClient, @unchecked 
 
 /// Chat Completions refiner for Azure OpenAI deployments and for
 /// OpenAI-compatible APIs (`deepseek`).
-public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
+public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining, ImageInputRefining {
     private enum Route {
         case azure(endpoint: String, deployment: String, apiVersion: String)
         case openAICompatible(baseURL: String, model: String)
@@ -329,10 +357,22 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
     }
 
     public func refine(_ text: String) async throws -> String {
+        try await oneShot(text, image: nil)
+    }
+
+    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+        try await streamed(text, image: nil, onProgress: onProgress)
+    }
+
+    public func refine(_ text: String, image: LLMImageAttachment, onProgress: ((String) -> Void)?) async throws -> String {
+        try await streamed(text, image: image, onProgress: onProgress)
+    }
+
+    private func oneShot(_ text: String, image: LLMImageAttachment?) async throws -> String {
         guard !disposed else {
             throw LLMRefinementError("Azure OpenAI refiner has been disposed", kind: .network)
         }
-        let request = try makeRequest(text: text)
+        let request = try makeRequest(text: text, image: image)
         if verbose {
             FileHandle.standardError.writeData(
                 "[untype] llm: refining \(text.count) chars via \(providerLabel)\n"
@@ -343,16 +383,16 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
         return try parseContent(response.body)
     }
 
-    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+    private func streamed(_ text: String, image: LLMImageAttachment?, onProgress: ((String) -> Void)?) async throws -> String {
         // Streaming is silently inert unless explicitly enabled — delegate to the
         // one-shot path and NEVER invoke onProgress when disabled.
         guard streamingEnabled else {
-            return try await refine(text)
+            return try await oneShot(text, image: image)
         }
         guard !disposed else {
             throw LLMRefinementError("Azure OpenAI refiner has been disposed", kind: .network)
         }
-        let request = try makeRequest(text: text, stream: true)
+        let request = try makeRequest(text: text, image: image, stream: true)
         if verbose {
             FileHandle.standardError.writeData(
                 "[untype] llm: streaming \(text.count) chars via \(providerLabel)\n"
@@ -409,7 +449,7 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
         httpClient.cancelAll()
     }
 
-    private func makeRequest(text: String, stream: Bool = false) throws -> URLRequest {
+    private func makeRequest(text: String, image: LLMImageAttachment?, stream: Bool = false) throws -> URLRequest {
         let rawUrl: String
         switch route {
         case let .azure(endpoint, deployment, apiVersion):
@@ -420,13 +460,21 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
         guard let url = URL(string: rawUrl) else {
             throw LLMRefinementError("Chat Completions URL is invalid: \(rawUrl)", kind: .network)
         }
+        var userContent: Any = text
+        if let image {
+            // A model that cannot read images answers with an HTTP error.
+            userContent = [
+                ["type": "text", "text": text],
+                ["type": "image_url", "image_url": ["url": "data:\(image.mediaType);base64,\(image.base64)"]]
+            ]
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = [
             "messages": [
                 ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": text]
+                ["role": "user", "content": userContent]
             ]
         ]
         switch route {
@@ -523,7 +571,7 @@ public final class AzureOpenAIRefiner: TextRefining, StreamingTextRefining {
     }
 }
 
-public final class GoogleRefiner: TextRefining, StreamingTextRefining {
+public final class GoogleRefiner: TextRefining, StreamingTextRefining, ImageInputRefining {
     private static let baseURL = "https://generativelanguage.googleapis.com/v1beta"
 
     private let apiKey: String
@@ -559,10 +607,22 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
     }
 
     public func refine(_ text: String) async throws -> String {
+        try await oneShot(text, image: nil)
+    }
+
+    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+        try await streamed(text, image: nil, onProgress: onProgress)
+    }
+
+    public func refine(_ text: String, image: LLMImageAttachment, onProgress: ((String) -> Void)?) async throws -> String {
+        try await streamed(text, image: image, onProgress: onProgress)
+    }
+
+    private func oneShot(_ text: String, image: LLMImageAttachment?) async throws -> String {
         guard !disposed else {
             throw LLMRefinementError("Google refiner has been disposed", kind: .network)
         }
-        let request = try makeRequest(text: text)
+        let request = try makeRequest(text: text, image: image)
         if verbose {
             FileHandle.standardError.writeData(
                 "[untype] llm: refining \(text.count) chars via google/\(model)\n"
@@ -573,16 +633,16 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
         return try parseContent(response.body)
     }
 
-    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+    private func streamed(_ text: String, image: LLMImageAttachment?, onProgress: ((String) -> Void)?) async throws -> String {
         // Streaming is silently inert unless explicitly enabled — delegate to the
         // one-shot path and NEVER invoke onProgress when disabled.
         guard streamingEnabled else {
-            return try await refine(text)
+            return try await oneShot(text, image: image)
         }
         guard !disposed else {
             throw LLMRefinementError("Google refiner has been disposed", kind: .network)
         }
-        let request = try makeRequest(text: text, stream: true)
+        let request = try makeRequest(text: text, image: image, stream: true)
         if verbose {
             FileHandle.standardError.writeData(
                 "[untype] llm: streaming \(text.count) chars via google/\(model)\n"
@@ -668,7 +728,7 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
         httpClient.cancelAll()
     }
 
-    private func makeRequest(text: String, stream: Bool = false) throws -> URLRequest {
+    private func makeRequest(text: String, image: LLMImageAttachment?, stream: Bool = false) throws -> URLRequest {
         let model = percentEncodePathComponent(model)
         let apiKey = percentEncodeQueryValue(apiKey)
         // The streaming endpoint differs only in the method name and the alt=sse query;
@@ -691,14 +751,20 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
             "contents": [
                 [
                     "role": "user",
-                    "parts": [
-                        ["text": text]
-                    ]
+                    "parts": parts(text: text, image: image)
                 ]
             ],
             "generationConfig": generationConfig()
         ])
         return request
+    }
+
+    private func parts(text: String, image: LLMImageAttachment?) -> [[String: Any]] {
+        var parts: [[String: Any]] = [["text": text]]
+        if let image {
+            parts.append(["inlineData": ["mimeType": image.mediaType, "data": image.base64]])
+        }
+        return parts
     }
 
     private func generationConfig() -> [String: Any] {
@@ -786,7 +852,7 @@ public final class GoogleRefiner: TextRefining, StreamingTextRefining {
 /// latency is controlled with `output_config.effort`: dictation cleanup is
 /// short, so the default is `low`; `UNTYPE_LLM_REASONING_EFFORT` maps
 /// `none`/`minimal` to `low` and passes `low`/`medium`/`high` through.
-public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining {
+public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining, ImageInputRefining {
     static let defaultMaxTokens = 4096
     static let defaultEffort = "low"
     private static let apiVersion = "2023-06-01"
@@ -831,10 +897,22 @@ public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining
     }
 
     public func refine(_ text: String) async throws -> String {
+        try await oneShot(text, image: nil)
+    }
+
+    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+        try await streamed(text, image: nil, onProgress: onProgress)
+    }
+
+    public func refine(_ text: String, image: LLMImageAttachment, onProgress: ((String) -> Void)?) async throws -> String {
+        try await streamed(text, image: image, onProgress: onProgress)
+    }
+
+    private func oneShot(_ text: String, image: LLMImageAttachment?) async throws -> String {
         guard !disposed else {
             throw LLMRefinementError("Anthropic refiner has been disposed", kind: .network)
         }
-        let request = try makeRequest(text: text)
+        let request = try makeRequest(text: text, image: image)
         if verbose {
             FileHandle.standardError.writeData(
                 "[untype] llm: refining \(text.count) chars via \(providerName)/\(model)\n"
@@ -858,16 +936,16 @@ public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining
         return try parseContent(response.body)
     }
 
-    public func refine(_ text: String, onProgress: ((String) -> Void)?) async throws -> String {
+    private func streamed(_ text: String, image: LLMImageAttachment?, onProgress: ((String) -> Void)?) async throws -> String {
         // Streaming is silently inert unless explicitly enabled — delegate to the
         // one-shot path and NEVER invoke onProgress when disabled.
         guard streamingEnabled else {
-            return try await refine(text)
+            return try await oneShot(text, image: image)
         }
         guard !disposed else {
             throw LLMRefinementError("Anthropic refiner has been disposed", kind: .network)
         }
-        let request = try makeRequest(text: text, stream: true)
+        let request = try makeRequest(text: text, image: image, stream: true)
         if verbose {
             FileHandle.standardError.writeData(
                 "[untype] llm: streaming \(text.count) chars via \(providerName)/\(model)\n"
@@ -941,7 +1019,7 @@ public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining
         httpClient.cancelAll()
     }
 
-    private func makeRequest(text: String, stream: Bool = false) throws -> URLRequest {
+    private func makeRequest(text: String, image: LLMImageAttachment?, stream: Bool = false) throws -> URLRequest {
         let rawUrl = "\(baseURL)/v1/messages"
         guard let url = URL(string: rawUrl) else {
             throw LLMRefinementError("Anthropic Messages URL is invalid: \(rawUrl)", kind: .network)
@@ -951,12 +1029,19 @@ public final class AnthropicMessagesRefiner: TextRefining, StreamingTextRefining
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var content: Any = text
+        if let image {
+            content = [
+                ["type": "image", "source": ["type": "base64", "media_type": image.mediaType, "data": image.base64]],
+                ["type": "text", "text": text]
+            ]
+        }
         var body: [String: Any] = [
             "model": model,
             "max_tokens": maxTokens,
             "system": systemPrompt,
             "messages": [
-                ["role": "user", "content": text]
+                ["role": "user", "content": content]
             ],
             "output_config": ["effort": effort]
         ]
@@ -1035,6 +1120,18 @@ public final class LLMCompositeRefineTranslator: CompositeRefineTranslating {
     ) async throws -> CompositeRefineTranslateResult {
         let prompt = renderPrompt(request)
         let response: String
+        let displayProgress: (String) -> Void = { accumulatedRawJSON in
+            let refined = partialStringValue(forKey: "refined_text", in: accumulatedRawJSON)
+            let translated = partialStringValue(forKey: "translated_text", in: accumulatedRawJSON)
+            onProgress?(translated ?? refined ?? accumulatedRawJSON)
+        }
+        if let image = request.image {
+            guard let imageRefiner = refiner as? ImageInputRefining else {
+                throw LLMRefinementError("This LLM client cannot send images, so the screenshot cannot be sent.", kind: .shape)
+            }
+            response = try await imageRefiner.refine(prompt, image: image, onProgress: onProgress == nil ? nil : displayProgress)
+            return try Self.parseResponse(response)
+        }
         // Stream only when a progress sink is provided AND the underlying refiner supports
         // streaming (azure-openai / google). The streaming overload is silently inert when
         // LLMConfig.streamingEnabled is false (it delegates to the one-shot path), so a

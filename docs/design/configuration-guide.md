@@ -122,7 +122,7 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 - Select text in any app and press the hotkey. untype reads the selection: Accessibility first, then a synthetic ⌘C (the pasteboard is restored).
 - A pop-up opens over the app. It shows the selected text and lets you change:
   - **Model**: Primary (the main LLM), Alternative and Alternative 2 (the alternative LLMs, shown only when configured); `L` cycles them.
-  - **Operators**: Refine `R`, Translate `T`, Ask `A`, Follow-up `F`, Clipboard `C`.
+  - **Operators**: Refine `R`, Translate `T`, Ask `A`, Follow-up `F`, Screenshot `W`, Clipboard `C`.
   - **Translation**: `1` Greek ↔ English (opposite), `2` → English, `3` → Greek.
 - **Remembered choices** (build 38): Push-to-Act has its own choices, separate from the push-to-talk / push-to-listen operators. Every Run saves the pop-up's model, operators and translation direction as `pushToAct` in `ui-state.json`, and the next pop-up opens with them; Esc saves nothing. Changing them never changes the push-to-talk operators, and vice versa. Before the first run the pop-up starts from the push-to-talk operators. A remembered model that is no longer configured opens as Primary.
 - Picking a translation direction (click or `1`–`3`) also turns **Translate** on: choosing a language means "translate to it". The direction is highlighted only while Translate is on.
@@ -173,6 +173,19 @@ With **Selection** on (key **S**, `--selection-default` / `UNTYPE_SELECTION_DEFA
   - **Context.** Reference only: `013-selection-context-template.txt` (`{selection}`) is appended to the refine/translate input. Only what you dictate is processed, and the result is inserted after the selection: untype presses Right arrow to move the cursor to the end of the selection first.
 - **With Ask.** The selection is put before the request through `014-ask-selection-template.txt` (`{selection}`), e.g. select text and say "make this more formal". In the Material role the answer replaces the selection; in the Context role it goes after it. A press with no speech answers about the selection.
 - The selected text is held in memory for the turn only. The event log records only its length.
+
+## Screenshot Operator (send the app's window)
+
+With **Screenshot** on (key **W**, `--screenshot-default` / `UNTYPE_SCREENSHOT_DEFAULT`, setting `screenshot` in `ui-state.json`, default **off**), a screenshot of the window of the app you are in goes to the LLM together with what you dictate.
+
+- **What is captured.** The front window of the app in front, and only that window (untype's overlay or pop-up never appears in it). It is scaled so its longest side is at most 1568 px and sent as PNG.
+- **When.** Push-to-talk: when you press the hotkey, or when you switch W on while holding it. Push-to-Act: when you press Run (the pop-up's **Screenshot** choice, key **W**, remembered like the others).
+- **Clipboard.** The screenshot is also copied to the clipboard (PNG and TIFF), so you can paste it to see exactly what was sent. With **Clipboard** (C) also on, the result text replaces it at the end of the turn.
+- **Prompts.** Refine, translate and the combined call get `016-screenshot-context-template.txt` appended to their input; Ask gets `017-ask-screenshot-template.txt` before the request. `{app}` is the app's name. A press with Ask on and no speech answers about the screenshot.
+- **Models.** The image goes to whichever LLM the turn uses (primary or alternative). It works with Gemini, Claude, Azure OpenAI vision deployments and `deepseek-flash`. A model that cannot read images answers with an HTTP error, logged as an operator failure.
+- **Permission.** Screen Recording: System Settings → Privacy & Security → Screen & System Audio Recording → untype. The first use asks for it; after granting, quit and reopen untype.
+- **No fallback.** With the operator on and no screenshot captured (permission missing, no window), the turn is not sent to the LLM and Events shows why.
+- The screenshot is held in memory for the turn only. The event log records its size, never the image.
 
 ## Ask Operator (request to the model)
 
@@ -225,6 +238,8 @@ When a prompt file is missing, `untype` creates it with the documented default c
 | `013-selection-context-template.txt` | Yes | Reference-only block with `{selection}` | Appended to the refine/translate input when Selection is on and its role is Context. Must contain `{selection}`. |
 | `014-ask-selection-template.txt` | Yes | Selected-text block with `{selection}` | Put before an Ask request when Selection is on. Must contain `{selection}`. |
 | `015-ask-conversation-template.txt` | Yes | Conversation block with `{history}` | Put before an Ask request when Follow-up is on; `{history}` is the earlier `User:` / `Assistant:` exchanges. Must contain `{history}`. |
+| `016-screenshot-context-template.txt` | Yes | Reference-only note with `{app}` | Appended to the refine/translate input when Screenshot is on: a screenshot of `{app}`'s window is attached, to be used only as reference. Must contain `{app}`. |
+| `017-ask-screenshot-template.txt` | Yes | Screenshot note with `{app}` | Put before an Ask request when Screenshot is on: the request may refer to what the screenshot shows. Must contain `{app}`. |
 | `012-ask-translated-user-template.txt` | Yes | `Dictated request:` plus `{text}` and "Write your reply in {target_language}…" | The message sent with each Ask request when Translate is also on: the reply is written in the translation target language (per the translation policy), in the same single call. Must contain `{target_language}` and `{text}`. |
 
 ### Recommended Storage and Editing

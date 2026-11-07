@@ -21,6 +21,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var selection: Bool
     /// Alternative operator: refine, translate and Ask use the alternative LLM.
     public var alternative: Bool
+    /// Screenshot operator: a screenshot of the active app's window goes with
+    /// the request and is copied to the clipboard.
+    public var screenshot: Bool
     /// `material` or `context` (see `SelectionRole`).
     public var selectionRole: String
     /// Operators (by `OperatorKey` raw value) that switch off again after
@@ -85,6 +88,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         followup: false,
         selection: false,
         alternative: false,
+        screenshot: false,
         selectionRole: SelectionRole.material.rawValue,
         perTurnOperators: UntypeUISettings.defaultPerTurnOperators,
         translationPolicy: TranslationPolicy.opposite.rawValue,
@@ -224,6 +228,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let alternative = patch.alternative {
             next.alternative = alternative
         }
+        if let screenshot = patch.screenshot {
+            next.screenshot = screenshot
+        }
         if let selectionRole = patch.selectionRole {
             next.selectionRole = selectionRole
         }
@@ -322,6 +329,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--followup-default", normalized.followup ? "on" : "off",
             "--selection-default", normalized.selection ? "on" : "off",
             "--alternative-default", normalized.alternative ? "on" : "off",
+            "--screenshot-default", normalized.screenshot ? "on" : "off",
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
             normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
@@ -391,6 +399,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var followup: Bool?
     public var selection: Bool?
     public var alternative: Bool?
+    public var screenshot: Bool?
     public var selectionRole: String?
     public var perTurnOperators: [String]?
     public var translationPolicy: String?
@@ -434,6 +443,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         followup: Bool? = nil,
         selection: Bool? = nil,
         alternative: Bool? = nil,
+        screenshot: Bool? = nil,
         selectionRole: String? = nil,
         perTurnOperators: [String]? = nil,
         translationPolicy: String? = nil,
@@ -476,6 +486,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.followup = followup
         self.selection = selection
         self.alternative = alternative
+        self.screenshot = screenshot
         self.selectionRole = selectionRole
         self.perTurnOperators = perTurnOperators
         self.translationPolicy = translationPolicy
@@ -725,6 +736,7 @@ public enum UntypeUISettingsStore {
             followup: operators.followup,
             selection: operators.selection,
             alternative: operators.alternative,
+            screenshot: operators.screenshot,
             selectionRole: current.selectionRole,
             perTurnOperators: current.perTurnOperators,
             translationPolicy: protocolConfig.translationPolicy.rawValue,
@@ -803,6 +815,7 @@ private struct PersistedUISettings: Codable {
     let followup: Bool?
     let selection: Bool?
     let alternative: Bool?
+    let screenshot: Bool?
     let selectionRole: String?
     let perTurnOperators: [String]?
     let translationPolicy: String
@@ -846,6 +859,7 @@ private struct PersistedUISettings: Codable {
         case followup
         case selection
         case alternative
+        case screenshot
         case selectionRole
         case perTurnOperators
         case translationPolicy
@@ -890,6 +904,7 @@ private struct PersistedUISettings: Codable {
         self.followup = settings.followup
         self.selection = settings.selection
         self.alternative = settings.alternative
+        self.screenshot = settings.screenshot
         self.selectionRole = settings.selectionRole
         self.perTurnOperators = settings.perTurnOperators
         self.translationPolicy = settings.translationPolicy
@@ -937,6 +952,7 @@ private struct PersistedUISettings: Codable {
                 followup: followup ?? defaults.followup,
                 selection: selection ?? defaults.selection,
                 alternative: alternative ?? defaults.alternative,
+                screenshot: screenshot ?? defaults.screenshot,
                 selectionRole: selectionRole ?? defaults.selectionRole,
                 perTurnOperators: perTurnOperators ?? defaults.perTurnOperators,
                 translationPolicy: translationPolicy,
@@ -1172,6 +1188,7 @@ extension UntypeUISettings {
         case .followup: return followup
         case .selection: return selection
         case .alternative: return alternative
+        case .screenshot: return screenshot
         }
     }
 
@@ -1189,7 +1206,8 @@ extension UntypeUISettings {
             ask: reset.contains(.ask) ? false : nil,
             followup: reset.contains(.followup) ? false : nil,
             selection: reset.contains(.selection) ? false : nil,
-            alternative: reset.contains(.alternative) ? false : nil
+            alternative: reset.contains(.alternative) ? false : nil,
+            screenshot: reset.contains(.screenshot) ? false : nil
         )
     }
 
@@ -1203,6 +1221,7 @@ extension UntypeUISettings {
         case .followup: return UntypeUISettingsPatch(followup: value)
         case .selection: return UntypeUISettingsPatch(selection: value)
         case .alternative: return UntypeUISettingsPatch(alternative: value)
+        case .screenshot: return UntypeUISettingsPatch(screenshot: value)
         }
     }
 
