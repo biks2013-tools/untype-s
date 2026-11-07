@@ -38,6 +38,50 @@ enum SelectedTextReader {
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .nothingSelected : .selected(text)
     }
 
+    /// Push-to-Act with nothing selected: selects the whole text of the
+    /// focused field through Accessibility, so it is processed and replaced
+    /// like a selection. nil (nothing changed) when there is no focused
+    /// field, it is empty, or its selection cannot be set and read back.
+    static func selectWholeFocusedField() -> WholeFieldSelection? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.25)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused,
+              CFGetTypeID(focused) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+        let element = unsafeBitCast(focused, to: AXUIElement.self)
+        var value: CFTypeRef?
+        var rangeValue: CFTypeRef?
+        var original = CFRange()
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success,
+              let text = value as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let rangeValue,
+              CFGetTypeID(rangeValue) == AXValueGetTypeID(),
+              AXValueGetValue(unsafeBitCast(rangeValue, to: AXValue.self), .cfRange, &original)
+        else {
+            return nil
+        }
+        var whole = CFRange(location: 0, length: (text as NSString).length)
+        guard let wholeValue = AXValueCreate(.cfRange, &whole),
+              AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, wholeValue) == .success
+        else {
+            return nil
+        }
+        var selected: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success,
+              selected as? String == text
+        else {
+            WholeFieldSelection(element: element, originalRange: original, text: text).restore()
+            return nil
+        }
+        return WholeFieldSelection(element: element, originalRange: original, text: text)
+    }
+
     /// The element and range of the current Accessibility selection, so the
     /// selection can be replaced later even if focus has moved (Push-to-Act
     /// shows a pop-up in between). nil when the focused element does not
@@ -121,6 +165,27 @@ enum SelectedTextReader {
             event.flags = flags
             event.setIntegerValueField(.eventSourceUserData, value: untypeSyntheticKeyboardEventMarker)
             event.post(tap: .cghidEventTap)
+        }
+    }
+}
+
+/// The whole text of a field, selected by Push-to-Act because nothing was
+/// selected; `restore()` puts the caret/selection back (on cancel).
+final class WholeFieldSelection: @unchecked Sendable {
+    private let element: AXUIElement
+    private let originalRange: CFRange
+    let text: String
+
+    init(element: AXUIElement, originalRange: CFRange, text: String) {
+        self.element = element
+        self.originalRange = originalRange
+        self.text = text
+    }
+
+    func restore() {
+        var range = originalRange
+        if let value = AXValueCreate(.cfRange, &range) {
+            AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value)
         }
     }
 }

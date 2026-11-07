@@ -25,6 +25,7 @@ final class PushToActPanelController {
     func show(
         choice: PushToActChoice,
         selectedText: String,
+        isWholeField: Bool = false,
         primaryModel: String,
         alternativeModel: String?,
         alternative2Model: String?,
@@ -35,6 +36,7 @@ final class PushToActPanelController {
         let state = PushToActPanelState(
             choice: choice,
             selectedText: selectedText,
+            isWholeField: isWholeField,
             primaryModel: primaryModel,
             alternativeModel: alternativeModel,
             alternative2Model: alternative2Model
@@ -152,6 +154,8 @@ private final class PushToActKeyPanel: NSPanel {
 private final class PushToActPanelState: ObservableObject {
     @Published var choice: PushToActChoice
     let selectedText: String
+    /// Nothing was selected: the text is the whole active field.
+    let isWholeField: Bool
     let primaryModel: String
     let alternativeModel: String?
     let alternative2Model: String?
@@ -161,12 +165,14 @@ private final class PushToActPanelState: ObservableObject {
     init(
         choice: PushToActChoice,
         selectedText: String,
+        isWholeField: Bool,
         primaryModel: String,
         alternativeModel: String?,
         alternative2Model: String?
     ) {
         self.choice = choice
         self.selectedText = selectedText
+        self.isWholeField = isWholeField
         self.primaryModel = primaryModel
         self.alternativeModel = alternativeModel
         self.alternative2Model = alternative2Model
@@ -211,7 +217,9 @@ private struct PushToActView: View {
                 Text("Push-to-Act")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                 Spacer()
-                Text("\(state.selectedText.count) characters selected")
+                Text(state.isWholeField
+                    ? "Nothing selected · whole field, \(state.selectedText.count) characters"
+                    : "\(state.selectedText.count) characters selected")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

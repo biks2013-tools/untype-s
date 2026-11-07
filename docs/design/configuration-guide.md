@@ -120,6 +120,7 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 **Push-to-Act** processes text you have already selected, instead of dictated text. It is set in Settings → General → Push-to-Act and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**); the stored names stay as before. It has no CLI flag or environment variable.
 
 - Select text in any app and press the hotkey. untype reads the selection: Accessibility first, then a synthetic ⌘C (the pasteboard is restored).
+- **Nothing selected:** the whole text of the active field is used instead. untype selects it (you see it highlighted), the pop-up says "Nothing selected · whole field", and the result replaces the field's text. Esc puts your cursor back. This needs a field that exposes its text through Accessibility (TextEdit, Notes, Mail, most native and browser text fields); in apps where untype has to fall back to ⌘C (terminals, some Electron apps) a selection is still required.
 - A pop-up opens over the app. It shows the selected text and lets you change:
   - **Model**: Primary (the main LLM), Alternative and Alternative 2 (the alternative LLMs, shown only when configured); `L` cycles them.
   - **Operators**: Refine `R`, Translate `T`, Ask `A`, Follow-up `F`, Screenshot `W`, Clipboard `C`.

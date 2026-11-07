@@ -792,14 +792,21 @@ final class UntypeUIModel: ObservableObject {
             let selected: String?
             let method: String
             var anchor: SelectionAnchor?
+            var wholeField: WholeFieldSelection?
             switch SelectedTextReader.readAccessibility() {
             case .selected(let text):
                 selected = text
                 method = "accessibility"
                 anchor = SelectedTextReader.captureAnchor(expectedText: text)
             case .nothingSelected:
-                selected = nil
-                method = "accessibility"
+                // Nothing selected: the whole text of the active field,
+                // selected so it is replaced like a selection.
+                wholeField = SelectedTextReader.selectWholeFocusedField()
+                selected = wholeField?.text
+                method = wholeField == nil ? "accessibility" : "accessibility, whole field"
+                if let text = wholeField?.text {
+                    anchor = SelectedTextReader.captureAnchor(expectedText: text)
+                }
             case .unsupported:
                 selected = await SelectedTextReader.readByCopying()
                 method = "copy"
@@ -808,18 +815,23 @@ final class UntypeUIModel: ObservableObject {
                 return
             }
             guard let selected else {
-                self.appendEvent("diagnostic.warning: [untype] push-to-act: no selected text found (\(method))")
+                self.appendEvent("diagnostic.warning: [untype] push-to-act: no selected text and no text in the active field (\(method))")
                 self.selectionHotkeyInFlight = false
-                self.overlay?.showNotice("No selected text found")
+                self.overlay?.showNotice("No selected text or field text found")
                 return
             }
             self.appendEvent("diagnostic.info: [untype] selected text captured (\(selected.count) characters, \(method), push-to-act, \(target.localizedName ?? "unknown app")\(anchor == nil ? "" : ", anchored"))")
-            self.showPushToActPanel(selectedText: selected, anchor: anchor, target: target)
+            self.showPushToActPanel(selectedText: selected, anchor: anchor, wholeField: wholeField, target: target)
         }
     }
 
     /// Opens the Push-to-Act pop-up over the app holding the selection.
-    private func showPushToActPanel(selectedText: String, anchor: SelectionAnchor?, target: NSRunningApplication) {
+    private func showPushToActPanel(
+        selectedText: String,
+        anchor: SelectionAnchor?,
+        wholeField: WholeFieldSelection?,
+        target: NSRunningApplication
+    ) {
         let alternativeModel = settings.altLlmProvider.isEmpty || settings.altLlmModel.isEmpty
             ? nil
             : settings.altLlmModel
@@ -836,6 +848,7 @@ final class UntypeUIModel: ObservableObject {
         panel.show(
             choice: choice,
             selectedText: selectedText,
+            isWholeField: wholeField != nil,
             primaryModel: settings.llmModel,
             alternativeModel: alternativeModel,
             alternative2Model: alternative2Model,
@@ -843,6 +856,8 @@ final class UntypeUIModel: ObservableObject {
                 self?.runPushToAct(choice: choice, selectedText: selectedText, anchor: anchor, target: target)
             },
             onCancel: { [weak self] in
+                // Put back the caret the whole-field selection replaced.
+                wholeField?.restore()
                 self?.appendEvent("diagnostic.info: [untype] push-to-act cancelled")
                 self?.selectionHotkeyInFlight = false
                 if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
