@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P2 - Clickable overlay chips: on-device check pending (2026-11-09)
+- Plan-046 / FR-51. Check while holding push-to-talk: a click on a chip switches it (amber ↔ outline) and the dictation is still delivered to the focused field (`focused_input.ok=true`); a click on the transparent area around the trace reaches the window behind. If transparent areas turn out to block clicks, switch `ignoresMouseEvents` on only while the mouse is over the chip row.
+
 ### P2 - Push-to-Act whole-field mode: on-device check pending (2026-11-07)
 - Terminal prompt (build 41): with the cursor at the end of a Claude Code prompt in cmux and nothing selected, Push-to-Act should show "terminal prompt", delete the prompt and type the result; with the cursor moved left, it should type nothing, warn, and put the result on the clipboard.
 - Plan-045 (FR-50) is implemented and builds (319/319), but the Accessibility path can only be checked in the app: with nothing selected in TextEdit, Notes and a browser text field, Push-to-Act should highlight the whole text, show "whole field" in the pop-up, replace the text on Run (`focused_input.method: "ax-selection"`), and restore the caret on Esc.
