@@ -69,6 +69,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var selectedEventsFilter: String
     public var compactWindow: Bool
     public var appearance: String
+    /// The push-to-talk overlay stays on screen when not dictating, so its
+    /// operator chips can be clicked at any time.
+    public var overlayAlwaysVisible: Bool
     /// Push-to-Act's remembered choices (nil until the first Push-to-Act run).
     public var pushToAct: PushToActPreferences? = nil
 
@@ -120,7 +123,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         selectedMonitorTab: "transcript",
         selectedEventsFilter: "all",
         compactWindow: false,
-        appearance: "system"
+        appearance: "system",
+        overlayAlwaysVisible: false
     )
 
     public static let defaultSelectionHotkey = "Control+Option+`"
@@ -309,6 +313,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let appearance = patch.appearance {
             next.appearance = appearance
         }
+        if let overlayAlwaysVisible = patch.overlayAlwaysVisible {
+            next.overlayAlwaysVisible = overlayAlwaysVisible
+        }
         return try next.normalized()
     }
 
@@ -425,6 +432,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var selectedEventsFilter: String?
     public var compactWindow: Bool?
     public var appearance: String?
+    public var overlayAlwaysVisible: Bool?
     public var pushToAct: PushToActPreferences?
 
     public init(
@@ -469,6 +477,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         selectedEventsFilter: String? = nil,
         compactWindow: Bool? = nil,
         appearance: String? = nil,
+        overlayAlwaysVisible: Bool? = nil,
         pushToAct: PushToActPreferences? = nil
     ) {
         self.provider = provider
@@ -512,6 +521,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.selectedEventsFilter = selectedEventsFilter
         self.compactWindow = compactWindow
         self.appearance = appearance
+        self.overlayAlwaysVisible = overlayAlwaysVisible
         self.pushToAct = pushToAct
     }
 }
@@ -769,6 +779,7 @@ public enum UntypeUISettingsStore {
             selectedEventsFilter: current.selectedEventsFilter,
             compactWindow: current.compactWindow,
             appearance: current.appearance,
+            overlayAlwaysVisible: current.overlayAlwaysVisible,
             pushToAct: current.pushToAct
         )
         return try settings.normalized().refreshingCredentialStatus(
@@ -841,6 +852,7 @@ private struct PersistedUISettings: Codable {
     let selectedEventsFilter: String?
     let compactWindow: Bool?
     let appearance: String?
+    let overlayAlwaysVisible: Bool?
     let pushToAct: PushToActPreferences?
 
     enum CodingKeys: String, CodingKey {
@@ -885,6 +897,7 @@ private struct PersistedUISettings: Codable {
         case selectedEventsFilter
         case compactWindow
         case appearance
+        case overlayAlwaysVisible
         case pushToAct
     }
 
@@ -930,6 +943,7 @@ private struct PersistedUISettings: Codable {
         self.selectedEventsFilter = settings.selectedEventsFilter
         self.compactWindow = settings.compactWindow
         self.appearance = settings.appearance
+        self.overlayAlwaysVisible = settings.overlayAlwaysVisible
         self.pushToAct = settings.pushToAct
     }
 
@@ -978,6 +992,7 @@ private struct PersistedUISettings: Codable {
                 selectedEventsFilter: selectedEventsFilter ?? defaults.selectedEventsFilter,
                 compactWindow: compactWindow ?? defaults.compactWindow,
                 appearance: appearance ?? defaults.appearance,
+                overlayAlwaysVisible: overlayAlwaysVisible ?? defaults.overlayAlwaysVisible,
                 pushToAct: pushToAct
             ))
         } catch {

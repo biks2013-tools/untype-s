@@ -129,6 +129,11 @@ private struct UntypeSettingsGeneralView: View {
                         .pickerStyle(.segmented)
                         .labelsHidden()
                     }
+                    inspectorToggleRow("Keep overlay visible", isOn: Binding(
+                        get: { model.settings.overlayAlwaysVisible },
+                        set: { model.updateLayout(overlayAlwaysVisible: $0) }
+                    ))
+                    .help("Keep the push-to-talk overlay (waveform and operator chips) on screen when you are not dictating, so the operators can be switched with the mouse at any time")
                 }
 
                 // Provider
