@@ -793,6 +793,7 @@ final class UntypeUIModel: ObservableObject {
             let method: String
             var anchor: SelectionAnchor?
             var wholeField: WholeFieldSelection?
+            var terminalPrompt: TerminalPromptAnchor?
             switch SelectedTextReader.readAccessibility() {
             case .selected(let text):
                 selected = text
@@ -808,8 +809,16 @@ final class UntypeUIModel: ObservableObject {
                     anchor = SelectedTextReader.captureAnchor(expectedText: text)
                 }
             case .unsupported:
-                selected = await SelectedTextReader.readByCopying()
-                method = "copy"
+                if let copied = await SelectedTextReader.readByCopying() {
+                    selected = copied
+                    method = "copy"
+                } else {
+                    // A terminal with nothing selected: the prompt box of a
+                    // coding agent (Claude Code), read from the screen text.
+                    terminalPrompt = SelectedTextReader.readTerminalPrompt()
+                    selected = terminalPrompt?.text
+                    method = terminalPrompt == nil ? "copy" : "terminal prompt"
+                }
             }
             guard let self else {
                 return
@@ -821,7 +830,7 @@ final class UntypeUIModel: ObservableObject {
                 return
             }
             self.appendEvent("diagnostic.info: [untype] selected text captured (\(selected.count) characters, \(method), push-to-act, \(target.localizedName ?? "unknown app")\(anchor == nil ? "" : ", anchored"))")
-            self.showPushToActPanel(selectedText: selected, anchor: anchor, wholeField: wholeField, target: target)
+            self.showPushToActPanel(selectedText: selected, anchor: anchor, wholeField: wholeField, terminalPrompt: terminalPrompt, target: target)
         }
     }
 
@@ -830,6 +839,7 @@ final class UntypeUIModel: ObservableObject {
         selectedText: String,
         anchor: SelectionAnchor?,
         wholeField: WholeFieldSelection?,
+        terminalPrompt: TerminalPromptAnchor?,
         target: NSRunningApplication
     ) {
         let alternativeModel = settings.altLlmProvider.isEmpty || settings.altLlmModel.isEmpty
@@ -848,12 +858,12 @@ final class UntypeUIModel: ObservableObject {
         panel.show(
             choice: choice,
             selectedText: selectedText,
-            isWholeField: wholeField != nil,
+            wholeFieldName: wholeField != nil ? "whole field" : terminalPrompt != nil ? "terminal prompt" : nil,
             primaryModel: settings.llmModel,
             alternativeModel: alternativeModel,
             alternative2Model: alternative2Model,
             onRun: { [weak self] choice in
-                self?.runPushToAct(choice: choice, selectedText: selectedText, anchor: anchor, target: target)
+                self?.runPushToAct(choice: choice, selectedText: selectedText, anchor: anchor, terminalPrompt: terminalPrompt, target: target)
             },
             onCancel: { [weak self] in
                 // Put back the caret the whole-field selection replaced.
@@ -879,6 +889,7 @@ final class UntypeUIModel: ObservableObject {
         choice: PushToActChoice,
         selectedText selected: String,
         anchor: SelectionAnchor?,
+        terminalPrompt: TerminalPromptAnchor?,
         target: NSRunningApplication
     ) {
         guard let operators = choice.operators else {
@@ -889,7 +900,7 @@ final class UntypeUIModel: ObservableObject {
         rememberPushToActChoice(choice)
         overlay?.show(phase: "finalizing")
         guard choice.screenshot else {
-            startPushToActRun(choice: choice, operators: operators, selectedText: selected, screenshot: nil, anchor: anchor, target: target)
+            startPushToActRun(choice: choice, operators: operators, selectedText: selected, screenshot: nil, anchor: anchor, terminalPrompt: terminalPrompt, target: target)
             return
         }
         // The pop-up is closed; only the target's window is captured.
@@ -903,7 +914,7 @@ final class UntypeUIModel: ObservableObject {
                 return
             }
             self.copyScreenshotToClipboard(screenshot)
-            self.startPushToActRun(choice: choice, operators: operators, selectedText: selected, screenshot: screenshot, anchor: anchor, target: target)
+            self.startPushToActRun(choice: choice, operators: operators, selectedText: selected, screenshot: screenshot, anchor: anchor, terminalPrompt: terminalPrompt, target: target)
         }
     }
 
@@ -913,6 +924,7 @@ final class UntypeUIModel: ObservableObject {
         selectedText selected: String,
         screenshot: WindowScreenshot?,
         anchor: SelectionAnchor?,
+        terminalPrompt: TerminalPromptAnchor?,
         target: NSRunningApplication
     ) {
         let currentSettings = settings
@@ -931,6 +943,9 @@ final class UntypeUIModel: ObservableObject {
                 }
                 return result
             }
+        }
+        if let terminalPrompt {
+            selectionReplacer = Self.terminalPromptReplacer(terminalPrompt, target: target, modelBox: modelBox)
         }
         let replacer = selectionReplacer
         Task.detached { [modelBox] in
@@ -973,6 +988,41 @@ final class UntypeUIModel: ObservableObject {
             dispatchToUI { [modelBox] in
                 modelBox.model?.finishSelectionHotkey()
             }
+        }
+    }
+
+    /// Push-to-Act in a terminal prompt: deletes the prompt with one
+    /// Backspace per character (the cursor is expected at its end), then
+    /// checks the screen. Empty: nil, so ordinary delivery types the result.
+    /// Not empty (the cursor was elsewhere): a failure, nothing is typed and
+    /// the result goes to the clipboard.
+    private static func terminalPromptReplacer(
+        _ prompt: TerminalPromptAnchor,
+        target: NSRunningApplication,
+        modelBox: WeakUntypeUIModelBox
+    ) -> @Sendable (String) async -> FocusedInputDeliveryResult? {
+        { @Sendable (text: String) async -> FocusedInputDeliveryResult? in
+            await MainActor.run {
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
+                    target.activate(options: [.activateAllWindows])
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(80))
+            await SelectedTextReader.pressBackspace(times: prompt.text.count)
+            for _ in 0..<15 {
+                try? await Task.sleep(for: .milliseconds(100))
+                if await MainActor.run(body: { prompt.currentPrompt() }) == nil {
+                    dispatchToUI { [modelBox] in
+                        modelBox.model?.appendEvent("diagnostic.info: [untype] push-to-act: terminal prompt cleared (\(prompt.text.count) characters)")
+                    }
+                    return nil
+                }
+            }
+            try? MacOSClipboardWriter.writeToSystemPasteboard(text)
+            return .failure(
+                code: "terminal_prompt_not_cleared",
+                message: "The terminal prompt was not empty after \(prompt.text.count) Backspaces (was the cursor at the end of the prompt?). The result was not typed; it is on the clipboard."
+            )
         }
     }
 
