@@ -2897,12 +2897,16 @@ private final class UntypeOverlayController: ObservableObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.ignoresMouseEvents = true
+        // The operator chips take clicks; the transparent rest of the panel
+        // lets them through to the window behind. The panel never becomes
+        // key, so a click leaves the focus in the app being dictated into.
+        panel.ignoresMouseEvents = false
+        panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.hasShadow = false
         panel.animationBehavior = .utilityWindow
-        let hostingView = NSHostingView(rootView: UntypeOverlayView(controller: self))
+        let hostingView = UntypeOverlayHostingView(rootView: UntypeOverlayView(controller: self))
         hostingView.frame = NSRect(x: 0, y: 0, width: layout.width, height: layout.height)
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
@@ -2951,7 +2955,7 @@ private final class UntypeOverlayController: ObservableObject {
     }
 
     /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/L/W/C/I
-    /// keys), shown under the trace as a reminder.
+    /// keys, or a click on the chip), shown under the trace.
     fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
         guard let settings = model?.settings else {
             return []
@@ -2967,6 +2971,22 @@ private final class UntypeOverlayController: ObservableObject {
             ("C", "Clipboard", settings.clipboard),
             ("I", "Focused input", settings.focusedInput)
         ]
+    }
+
+    /// A click on an operator chip: the same as its key while holding
+    /// push-to-talk.
+    fileprivate func toggleOperator(letter: String) {
+        guard let key = OperatorKey.hotkeyKey(letter) else {
+            return
+        }
+        model?.toggleOperator(key)
+    }
+}
+
+/// Clicks act at once although the overlay panel is never the key window.
+private final class UntypeOverlayHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 }
 
@@ -3009,7 +3029,14 @@ private struct UntypeOverlayView: View {
 
             HStack(spacing: 6) {
                 ForEach(controller.operatorSnapshot, id: \.label) { item in
-                    operatorChip(item.label, name: item.name, enabled: item.enabled)
+                    Button {
+                        controller.toggleOperator(letter: item.label)
+                    } label: {
+                        operatorChip(item.label, name: item.name, enabled: item.enabled)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Capsule(style: .continuous))
+                    .help("\(item.name): click to switch \(item.enabled ? "off" : "on")")
                 }
             }
         }
