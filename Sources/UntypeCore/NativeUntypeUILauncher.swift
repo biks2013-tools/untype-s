@@ -672,6 +672,21 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
+    /// Saves where the user dragged the overlay (nil: back to the default
+    /// place). Layout only: nothing is reconfigured.
+    func setOverlayPosition(_ position: UntypeOverlayPosition?) {
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(
+                overlayPosition: position,
+                resetOverlayPosition: position == nil
+            ))
+            try UntypeUISettingsStore.save(settings)
+            appendEvent("config.saved: overlay position \(position.map { "set to \(Int($0.x)),\(Int($0.y))" } ?? "reset")")
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
     /// Saves the Push-to-Act choices so the pop-up opens with them next
     /// time. They are Push-to-Act's own and never touch the push-to-talk
     /// operators, so nothing is reconfigured and the warm session stays.
@@ -2832,6 +2847,11 @@ private final class UntypeOverlayController: ObservableObject {
     fileprivate var chipFrames: [String: CGRect] = [:]
     /// Follows the mouse while the panel is on screen.
     private var mouseTimer: Timer?
+    /// A drag of the handle in progress: where the mouse and the panel
+    /// started.
+    private var dragStart: (mouse: CGPoint, origin: CGPoint)?
+    /// The letter-free key of the drag handle in `chipFrames`/`hoveredChip`.
+    fileprivate static let handleKey = "handle"
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -2844,8 +2864,9 @@ private final class UntypeOverlayController: ObservableObject {
         self.phase = phase
         notice = nil
         guard panel?.isVisible != true else {
-            // Kept on screen while idle: follow the screen under the mouse.
-            if let panel, let screen = overlayScreen(), panel.screen != screen {
+            // Kept on screen while idle: follow the screen under the mouse,
+            // unless the user placed it.
+            if savedFrame() == nil, let panel, let screen = overlayScreen(), panel.screen != screen {
                 panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
             }
             return
@@ -2860,8 +2881,8 @@ private final class UntypeOverlayController: ObservableObject {
         displayedGain = 1
         lastTraceUpdate = nil
         createPanel()
-        if let panel, let screen = overlayScreen() {
-            panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
+        if let panel, let frame = savedFrame() ?? overlayScreen().map({ layout.panelFrame(in: $0.visibleFrame) }) {
+            panel.setFrame(frame, display: true)
         }
         panel?.orderFrontRegardless()
         startFollowingMouse()
@@ -2965,7 +2986,64 @@ private final class UntypeOverlayController: ObservableObject {
         setHoveredChip(chip)
     }
 
+    /// The place the user dragged the overlay to, while it is still on a
+    /// screen (a disconnected display falls back to the default place).
+    private func savedFrame() -> CGRect? {
+        guard let position = model?.settings.overlayPosition else {
+            return nil
+        }
+        let frame = CGRect(x: position.x, y: position.y, width: layout.width, height: layout.height)
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        guard NSScreen.screens.contains(where: { $0.frame.contains(center) }) else {
+            return nil
+        }
+        return frame
+    }
+
+    fileprivate func beginDrag() {
+        guard let panel else {
+            return
+        }
+        dragStart = (NSEvent.mouseLocation, panel.frame.origin)
+    }
+
+    fileprivate func continueDrag() {
+        guard let panel, let dragStart else {
+            return
+        }
+        let mouse = NSEvent.mouseLocation
+        panel.setFrameOrigin(CGPoint(
+            x: dragStart.origin.x + mouse.x - dragStart.mouse.x,
+            y: dragStart.origin.y + mouse.y - dragStart.mouse.y
+        ))
+    }
+
+    fileprivate func endDrag() {
+        guard let panel, let start = dragStart else {
+            return
+        }
+        dragStart = nil
+        let origin = panel.frame.origin
+        if origin != start.origin {
+            model?.setOverlayPosition(UntypeOverlayPosition(x: Double(origin.x), y: Double(origin.y)))
+        }
+        followMouse()
+    }
+
+    /// Double-click on the handle: back to the bottom centre.
+    fileprivate func resetPosition() {
+        dragStart = nil
+        model?.setOverlayPosition(nil)
+        if let panel, let screen = overlayScreen() {
+            panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
+        }
+    }
+
     private func setHoveredChip(_ chip: String?) {
+        // A drag keeps the mouse even when it outruns the handle.
+        guard dragStart == nil else {
+            return
+        }
         if hoveredChip != chip {
             hoveredChip = chip
         }
@@ -3079,6 +3157,51 @@ private final class UntypeOverlayHostingView<Content: View>: NSHostingView<Conte
     }
 }
 
+/// Mouse handling of the overlay's drag handle: drag moves the panel,
+/// double-click puts it back in its default place.
+private struct UntypeOverlayDragArea: NSViewRepresentable {
+    let controller: UntypeOverlayController
+
+    func makeNSView(context: Context) -> DragView {
+        DragView(controller: controller)
+    }
+
+    func updateNSView(_ view: DragView, context: Context) {}
+
+    final class DragView: NSView {
+        private weak var controller: UntypeOverlayController?
+
+        init(controller: UntypeOverlayController) {
+            self.controller = controller
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            true
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 {
+                controller?.resetPosition()
+            } else {
+                controller?.beginDrag()
+            }
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            controller?.continueDrag()
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            controller?.endDrag()
+        }
+    }
+}
+
 /// Frames of the overlay's operator chips, by letter, in the overlay's
 /// coordinate space.
 private struct UntypeOverlayChipFrames: PreferenceKey {
@@ -3115,6 +3238,39 @@ private struct UntypeOverlayView: View {
             return nil
         }
         return controller.operatorSnapshot.first { $0.label == letter }
+    }
+
+    private var tooltip: String? {
+        if controller.hoveredChip == UntypeOverlayController.handleKey {
+            return "Drag to move · double-click to reset"
+        }
+        guard let item = hoveredChip else {
+            return nil
+        }
+        return "\(item.name) (\(item.label)) · \(item.enabled ? "on" : "off") — click to switch \(item.enabled ? "off" : "on")"
+    }
+
+    /// The drag handle: a small grip in the top-left corner.
+    private var dragHandle: some View {
+        let hovered = controller.hoveredChip == UntypeOverlayController.handleKey
+        return Image(systemName: "line.3.horizontal")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.white.opacity(hovered ? 0.95 : 0.7))
+            .frame(width: 18, height: 12)
+            .background(Capsule(style: .continuous).fill(Color.black.opacity(hovered ? 0.6 : 0.35)))
+            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+            .overlay(UntypeOverlayDragArea(controller: controller))
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: UntypeOverlayChipFrames.self,
+                        value: [UntypeOverlayController.handleKey: proxy.frame(in: .named(Self.coordinateSpace))]
+                    )
+                }
+            )
+            .padding(.top, 4)
+            .padding(.leading, 4)
+            .accessibilityLabel("Move the overlay")
     }
 
     var body: some View {
@@ -3172,9 +3328,12 @@ private struct UntypeOverlayView: View {
         .padding(.vertical, 2)
         .frame(width: controller.overlaySize.width, height: controller.overlaySize.height)
         .accessibilityElement(children: .contain)
+        .overlay(alignment: .topLeading) {
+            dragHandle
+        }
         .overlay(alignment: .top) {
-            if let item = hoveredChip {
-                Text("\(item.name) (\(item.label)) · \(item.enabled ? "on" : "off") — click to switch \(item.enabled ? "off" : "on")")
+            if let tooltip {
+                Text(tooltip)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
