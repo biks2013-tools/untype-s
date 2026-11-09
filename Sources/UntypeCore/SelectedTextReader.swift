@@ -82,6 +82,45 @@ enum SelectedTextReader {
         return WholeFieldSelection(element: element, originalRange: original, text: text)
     }
 
+    /// Push-to-Act in a terminal with nothing selected: the prompt box of a
+    /// terminal coding agent (Claude Code) read from the focused text area,
+    /// which holds the screen. nil when the focused element is not such a
+    /// text area or shows no non-empty prompt.
+    static func readTerminalPrompt() -> TerminalPromptAnchor? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.25)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused,
+              CFGetTypeID(focused) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+        let element = unsafeBitCast(focused, to: AXUIElement.self)
+        var role: CFTypeRef?
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+              role as? String == kAXTextAreaRole as String,
+              AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success,
+              let screen = value as? String,
+              let prompt = TerminalPromptParser.prompt(in: screen)
+        else {
+            return nil
+        }
+        return TerminalPromptAnchor(element: element, text: prompt)
+    }
+
+    /// Presses Backspace `times` times in the app in front (marked as
+    /// untype's own keys, so the hotkey monitors ignore them).
+    static func pressBackspace(times: Int) async {
+        for index in 0..<times {
+            postKey(keyCode: 51, flags: [])
+            if index % 20 == 19 {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+    }
+
     /// The element and range of the current Accessibility selection, so the
     /// selection can be replaced later even if focus has moved (Push-to-Act
     /// shows a pop-up in between). nil when the focused element does not
