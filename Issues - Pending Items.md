@@ -3,7 +3,7 @@
 ## Pending Items
 
 ### P2 - Clickable overlay chips: on-device check pending (2026-11-09)
-- Plan-046 / FR-51. Check while holding push-to-talk: a click on a chip switches it (amber ↔ outline) and the dictation is still delivered to the focused field (`focused_input.ok=true`); a click on the transparent area around the trace reaches the window behind. If transparent areas turn out to block clicks, switch `ignoresMouseEvents` on only while the mouse is over the chip row.
+- Plan-046 / FR-51. Check while holding push-to-talk: a click on a chip switches it (amber ↔ outline) and the dictation is still delivered to the focused field (`focused_input.ok=true`); a click on the transparent area around the trace reaches the window behind; hovering a chip shows its tooltip at the top of the overlay (build 43). If transparent areas turn out to block clicks, switch `ignoresMouseEvents` on only while the mouse is over the chip row.
 
 ### P2 - Push-to-Act whole-field mode: on-device check pending (2026-11-07)
 - Terminal prompt (build 41): with the cursor at the end of a Claude Code prompt in cmux and nothing selected, Push-to-Act should show "terminal prompt", delete the prompt and type the result; with the cursor moved left, it should type nothing, warn, and put the result on the clipboard.

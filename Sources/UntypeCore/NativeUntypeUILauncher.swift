@@ -2818,6 +2818,9 @@ private final class UntypeOverlayController: ObservableObject {
     @Published private var operatorVersion = 0
     private var displayedGain: Float = 1
     private var lastTraceUpdate: TimeInterval?
+    /// The mouse over the panel (SwiftUI coordinates), for the chip
+    /// tooltips; nil when it is elsewhere.
+    @Published fileprivate var hoverLocation: CGPoint?
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -2906,7 +2909,12 @@ private final class UntypeOverlayController: ObservableObject {
         panel.isReleasedWhenClosed = false
         panel.hasShadow = false
         panel.animationBehavior = .utilityWindow
+        hoverLocation = nil
+        panel.acceptsMouseMovedEvents = true
         let hostingView = UntypeOverlayHostingView(rootView: UntypeOverlayView(controller: self))
+        hostingView.onHover = { [weak self] location in
+            self?.hoverLocation = location
+        }
         hostingView.frame = NSRect(x: 0, y: 0, width: layout.width, height: layout.height)
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
@@ -2984,9 +2992,59 @@ private final class UntypeOverlayController: ObservableObject {
 }
 
 /// Clicks act at once although the overlay panel is never the key window.
+/// It also tracks the mouse itself: the panel belongs to an app that is not
+/// active, where system tooltips and SwiftUI hover do not fire.
 private final class UntypeOverlayHostingView<Content: View>: NSHostingView<Content> {
+    var onHover: ((CGPoint?) -> Void)?
+    private var hoverArea: NSTrackingArea?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea {
+            removeTrackingArea(hoverArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        reportHover(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        reportHover(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(nil)
+    }
+
+    private func reportHover(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        onHover?(CGPoint(x: point.x, y: isFlipped ? point.y : bounds.height - point.y))
+    }
+}
+
+/// Frames of the overlay's operator chips, by letter, in the overlay's
+/// coordinate space.
+private struct UntypeOverlayChipFrames: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
@@ -2999,8 +3057,21 @@ private struct UntypeOverlayView: View {
     private static let visibleSeconds = 0.35
     private static let traceColor = Color(.sRGB, red: 0.23, green: 0.44, blue: 0.90, opacity: 1)
 
+    private static let coordinateSpace = "untype-overlay"
+    @State private var chipFrames: [String: CGRect] = [:]
+
     private var isRecording: Bool {
         controller.overlayPhase.lowercased() == "recording"
+    }
+
+    /// The chip under the mouse, for its tooltip.
+    private var hoveredChip: (label: String, name: String, enabled: Bool)? {
+        guard let location = controller.hoverLocation else {
+            return nil
+        }
+        return controller.operatorSnapshot.first { item in
+            chipFrames[item.label]?.insetBy(dx: -3, dy: -3).contains(location) ?? false
+        }
     }
 
     var body: some View {
@@ -3036,13 +3107,36 @@ private struct UntypeOverlayView: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Capsule(style: .continuous))
-                    .help("\(item.name): click to switch \(item.enabled ? "off" : "on")")
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: UntypeOverlayChipFrames.self,
+                                value: [item.label: proxy.frame(in: .named(Self.coordinateSpace))]
+                            )
+                        }
+                    )
                 }
             }
         }
         .padding(.vertical, 2)
         .frame(width: controller.overlaySize.width, height: controller.overlaySize.height)
         .accessibilityElement(children: .contain)
+        .overlay(alignment: .top) {
+            if let item = hoveredChip {
+                Text("\(item.name) (\(item.label)) · \(item.enabled ? "on" : "off") — click to switch \(item.enabled ? "off" : "on")")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule(style: .continuous).fill(Color.black.opacity(0.75)))
+                    .padding(.top, 4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .coordinateSpace(name: Self.coordinateSpace)
+        .onPreferenceChange(UntypeOverlayChipFrames.self) { chipFrames = $0 }
         .accessibilityLabel(isRecording ? "Push to talk, listening" : "Push to talk, processing")
     }
 
