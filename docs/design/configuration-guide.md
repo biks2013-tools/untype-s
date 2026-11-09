@@ -144,6 +144,8 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 
 **Keep overlay visible** (Settings → Appearance, `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off.
 
+**Overlay position** (build 45): drag the small grip in the overlay's top-left corner to move it anywhere; untype remembers the place as `overlayPosition` (`{"x":…, "y":…}`, the bottom-left corner in screen points) in `ui-state.json` and shows the overlay there from then on. Double-click the grip to put it back at the bottom centre (the key is removed). Without the key, or when the saved place is on a display that is no longer connected, the overlay appears at the bottom centre of the screen under the mouse.
+
 ## Voice Commands On/Off
 
 **Voice commands** (Settings → General → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.

@@ -74,6 +74,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var overlayAlwaysVisible: Bool
     /// Push-to-Act's remembered choices (nil until the first Push-to-Act run).
     public var pushToAct: PushToActPreferences? = nil
+    /// Where the user dragged the overlay (nil: bottom centre of the screen
+    /// under the mouse).
+    public var overlayPosition: UntypeOverlayPosition? = nil
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
@@ -271,6 +274,11 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let alt2LlmProvider = patch.alt2LlmProvider {
             next.alt2LlmProvider = alt2LlmProvider
         }
+        if patch.resetOverlayPosition == true {
+            next.overlayPosition = nil
+        } else if let overlayPosition = patch.overlayPosition {
+            next.overlayPosition = overlayPosition
+        }
         if let pushToAct = patch.pushToAct {
             next.pushToAct = pushToAct
         }
@@ -434,6 +442,9 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var appearance: String?
     public var overlayAlwaysVisible: Bool?
     public var pushToAct: PushToActPreferences?
+    public var overlayPosition: UntypeOverlayPosition?
+    /// true: forget `overlayPosition` (back to the default place).
+    public var resetOverlayPosition: Bool?
 
     public init(
         provider: String? = nil,
@@ -478,7 +489,9 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         compactWindow: Bool? = nil,
         appearance: String? = nil,
         overlayAlwaysVisible: Bool? = nil,
-        pushToAct: PushToActPreferences? = nil
+        pushToAct: PushToActPreferences? = nil,
+        overlayPosition: UntypeOverlayPosition? = nil,
+        resetOverlayPosition: Bool? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -523,6 +536,19 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.appearance = appearance
         self.overlayAlwaysVisible = overlayAlwaysVisible
         self.pushToAct = pushToAct
+        self.overlayPosition = overlayPosition
+        self.resetOverlayPosition = resetOverlayPosition
+    }
+}
+
+/// The overlay's bottom-left corner in global screen coordinates (points).
+public struct UntypeOverlayPosition: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
     }
 }
 
@@ -780,7 +806,8 @@ public enum UntypeUISettingsStore {
             compactWindow: current.compactWindow,
             appearance: current.appearance,
             overlayAlwaysVisible: current.overlayAlwaysVisible,
-            pushToAct: current.pushToAct
+            pushToAct: current.pushToAct,
+            overlayPosition: current.overlayPosition
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -854,6 +881,7 @@ private struct PersistedUISettings: Codable {
     let appearance: String?
     let overlayAlwaysVisible: Bool?
     let pushToAct: PushToActPreferences?
+    let overlayPosition: UntypeOverlayPosition?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -899,6 +927,7 @@ private struct PersistedUISettings: Codable {
         case appearance
         case overlayAlwaysVisible
         case pushToAct
+        case overlayPosition
     }
 
     init(settings: UntypeUISettings) {
@@ -945,6 +974,7 @@ private struct PersistedUISettings: Codable {
         self.appearance = settings.appearance
         self.overlayAlwaysVisible = settings.overlayAlwaysVisible
         self.pushToAct = settings.pushToAct
+        self.overlayPosition = settings.overlayPosition
     }
 
     func toRuntimeSettings(path: String) throws -> UntypeUISettings {
@@ -993,7 +1023,8 @@ private struct PersistedUISettings: Codable {
                 compactWindow: compactWindow ?? defaults.compactWindow,
                 appearance: appearance ?? defaults.appearance,
                 overlayAlwaysVisible: overlayAlwaysVisible ?? defaults.overlayAlwaysVisible,
-                pushToAct: pushToAct
+                pushToAct: pushToAct,
+                overlayPosition: overlayPosition
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")

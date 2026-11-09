@@ -2,8 +2,8 @@
 
 ## Pending Items
 
-### P2 - Keep overlay visible: on-device check pending (2026-11-09)
-- Plan-047 / FR-52 (build 44). Check: Settings → Appearance → Keep overlay visible shows the idle overlay at once and after relaunch; push-to-talk still records, shows the waveform and delivers (`focused_input.ok=true`), then the overlay returns to idle; clicks next to the chips reach the window behind; switching the setting off hides the idle overlay.
+### P2 - Overlay drag handle: on-device check pending (2026-11-10)
+- Plan-048 / FR-53 (build 45). Check: hovering the top-left grip shows "Drag to move · double-click to reset"; dragging moves the overlay smoothly and the focus stays in the app being dictated into; the place survives relaunch and is used during push-to-talk; double-click returns it to the bottom centre.
 
 ### P2 - Clickable overlay chips: on-device check pending (2026-11-09)
 - Plan-046 / FR-51. Check while holding push-to-talk: a click on a chip switches it (amber ↔ outline) and the dictation is still delivered to the focused field (`focused_input.ok=true`); a click on the transparent area around the trace reaches the window behind; hovering a chip shows its tooltip at the top of the overlay (build 43). Builds 42–43 did block clicks in the transparent area (probe, 2026-11-09); fixed in build 44 (the panel ignores the mouse except over a chip).
@@ -86,6 +86,9 @@ The source project has unit tests but no live provider or UI automation harness.
 
 - **2026-11-07 — Gemini rewrites could deliver half a sentence (fixed, build 37).** With `UNTYPE_LLM_MAX_OUTPUT_TOKENS` set, `gemini-3.8-flash` spent most of the cap on thinking (380 of 400 tokens) and stopped with `finishReason: MAX_TOKENS`; the one-shot Gemini parser ignored the finish reason and returned the fragment ("…την Πέμπτη το από"). Fix: rewrites send `thinkingLevel: low` (`thinkingBudget: 0` is rejected by Pro models), `thought` parts are skipped, and `MAX_TOKENS` is reported as truncation in both one-shot and streaming paths (FR-47).
 - **2026-11-05 — DeepSeek alternative returned empty refine/translate (fixed, build 33).** `deepseek-flash` thinks before answering and its reasoning tokens count against `max_tokens` (1000, inherited from the primary); long selections/dictations exhausted it and the reply had no content. Fix: thinking disabled for DeepSeek rewrite calls (refine, translate, combined); Ask keeps thinking; `finish_reason: length` now reported as truncation.
+
+### 2026-11-10 - Keep overlay visible verified on device (build 44)
+- The user confirmed the always-visible overlay works and push-to-talk delivery still reports `focused_input.ok=true` (plan-047 / FR-52).
 
 ### 2026-11-09 - Build 44 released, published, and on Homebrew (v0.1.0-b44)
 - Keep overlay visible setting; overlay ignores the mouse except over a chip (plan-047, FR-52). Packaged with `--build 44 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary`; suite 325/325. App and disk image (`--dmg-only`): notarized, `source=Notarized Developer ID`; installed from the same bundle (CFBundleVersion 44). Commit `768937f`, tag `v0.1.0-b44`, release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b44, downloaded DMG SHA-256 verified (`8991fbdc…4421fa75`), cask `523f079` → tap `0b95315`; `brew style` clean. On-device check still pending (see the P2 item).
