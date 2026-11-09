@@ -140,6 +140,10 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 - It needs the push-to-talk listener on (Push to talk → Enabled), because it is detected by the same event tap.
 - Each run writes a record to `release-latency.jsonl` with `trigger: "push-to-act"` (`"selection-hotkey"` up to build 33). Check `focused_input.ok` there.
 
+## Keep Overlay Visible
+
+**Keep overlay visible** (Settings → Appearance, `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off.
+
 ## Voice Commands On/Off
 
 **Voice commands** (Settings → General → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.

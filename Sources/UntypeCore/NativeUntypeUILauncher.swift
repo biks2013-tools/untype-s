@@ -76,6 +76,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.overlay = overlay
         self.hotkeyMonitor = hotkeyMonitor
         model.configureHotkeyServices()
+        overlay.applyAlwaysVisible()
 
         let content = UntypeRootView(model: model)
         let initialCompact = model.settings.compactWindow
@@ -646,7 +647,8 @@ final class UntypeUIModel: ObservableObject {
         selectedMonitorTab: String? = nil,
         selectedEventsFilter: String? = nil,
         compactWindow: Bool? = nil,
-        appearance: String? = nil
+        appearance: String? = nil,
+        overlayAlwaysVisible: Bool? = nil
     ) {
         do {
             settings = try settings.merged(UntypeUISettingsPatch(
@@ -657,10 +659,14 @@ final class UntypeUIModel: ObservableObject {
                 selectedMonitorTab: selectedMonitorTab,
                 selectedEventsFilter: selectedEventsFilter,
                 compactWindow: compactWindow,
-                appearance: appearance
+                appearance: appearance,
+                overlayAlwaysVisible: overlayAlwaysVisible
             ))
             try UntypeUISettingsStore.save(settings)
             overlay?.refreshTheme()
+            if overlayAlwaysVisible != nil {
+                overlay?.applyAlwaysVisible()
+            }
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
         }
@@ -2818,9 +2824,14 @@ private final class UntypeOverlayController: ObservableObject {
     @Published private var operatorVersion = 0
     private var displayedGain: Float = 1
     private var lastTraceUpdate: TimeInterval?
-    /// The mouse over the panel (SwiftUI coordinates), for the chip
-    /// tooltips; nil when it is elsewhere.
-    @Published fileprivate var hoverLocation: CGPoint?
+    /// The chip under the mouse (its letter), for its tooltip; nil when the
+    /// mouse is elsewhere.
+    @Published fileprivate private(set) var hoveredChip: String?
+    /// Frames of the chips in the overlay (top-left origin), reported by
+    /// the view.
+    fileprivate var chipFrames: [String: CGRect] = [:]
+    /// Follows the mouse while the panel is on screen.
+    private var mouseTimer: Timer?
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -2833,6 +2844,10 @@ private final class UntypeOverlayController: ObservableObject {
         self.phase = phase
         notice = nil
         guard panel?.isVisible != true else {
+            // Kept on screen while idle: follow the screen under the mouse.
+            if let panel, let screen = overlayScreen(), panel.screen != screen {
+                panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
+            }
             return
         }
         // A fresh panel on every appearance: a long-lived hidden panel can
@@ -2849,6 +2864,20 @@ private final class UntypeOverlayController: ObservableObject {
             panel.setFrame(layout.panelFrame(in: screen.visibleFrame), display: true)
         }
         panel?.orderFrontRegardless()
+        startFollowingMouse()
+    }
+
+    /// Settings → Appearance → "Keep overlay visible": shows the idle
+    /// overlay, or hides it when it is idle.
+    func applyAlwaysVisible() {
+        guard phase == "idle" else {
+            return
+        }
+        if model?.settings.overlayAlwaysVisible == true {
+            show(phase: "idle")
+        } else {
+            hideNow()
+        }
     }
 
     func refreshOperators() {
@@ -2880,13 +2909,70 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         phase = "idle"
         notice = nil
+        if model?.settings.overlayAlwaysVisible == true {
+            if panel?.isVisible != true {
+                show(phase: "idle")
+            }
+            return
+        }
+        stopFollowingMouse()
         panel?.orderOut(nil)
     }
 
     func destroy() {
         hideTask?.cancel()
+        stopFollowingMouse()
         panel?.close()
         panel = nil
+    }
+
+    /// The panel ignores the mouse except over a chip, so the rest of it
+    /// (transparent around the trace) never blocks clicks to the window
+    /// behind. The window server does not let clicks through transparent
+    /// pixels, and a panel that ignores the mouse gets no mouse events, so
+    /// the position is polled.
+    private func startFollowingMouse() {
+        stopFollowingMouse()
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            dispatchToUI { [weak self] in
+                self?.followMouse()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        mouseTimer = timer
+        followMouse()
+    }
+
+    private func stopFollowingMouse() {
+        mouseTimer?.invalidate()
+        mouseTimer = nil
+        setHoveredChip(nil)
+    }
+
+    private func followMouse() {
+        guard let panel, panel.isVisible else {
+            setHoveredChip(nil)
+            return
+        }
+        let mouse = NSEvent.mouseLocation
+        let frame = panel.frame
+        guard frame.contains(mouse) else {
+            setHoveredChip(nil)
+            return
+        }
+        let location = CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y)
+        let chip = chipFrames.first { $0.value.insetBy(dx: -3, dy: -3).contains(location) }?.key
+        setHoveredChip(chip)
+    }
+
+    private func setHoveredChip(_ chip: String?) {
+        if hoveredChip != chip {
+            hoveredChip = chip
+        }
+        let ignores = chip == nil
+        if panel?.ignoresMouseEvents != ignores {
+            panel?.ignoresMouseEvents = ignores
+        }
     }
 
     private func createPanel() {
@@ -2900,21 +2986,16 @@ private final class UntypeOverlayController: ObservableObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        // The operator chips take clicks; the transparent rest of the panel
-        // lets them through to the window behind. The panel never becomes
-        // key, so a click leaves the focus in the app being dictated into.
-        panel.ignoresMouseEvents = false
+        // Only the operator chips take clicks (see `followMouse`). The panel
+        // never becomes key, so a click leaves the focus in the app being
+        // dictated into.
+        panel.ignoresMouseEvents = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.hasShadow = false
         panel.animationBehavior = .utilityWindow
-        hoverLocation = nil
-        panel.acceptsMouseMovedEvents = true
         let hostingView = UntypeOverlayHostingView(rootView: UntypeOverlayView(controller: self))
-        hostingView.onHover = { [weak self] location in
-            self?.hoverLocation = location
-        }
         hostingView.frame = NSRect(x: 0, y: 0, width: layout.width, height: layout.height)
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
@@ -2992,49 +3073,9 @@ private final class UntypeOverlayController: ObservableObject {
 }
 
 /// Clicks act at once although the overlay panel is never the key window.
-/// It also tracks the mouse itself: the panel belongs to an app that is not
-/// active, where system tooltips and SwiftUI hover do not fire.
 private final class UntypeOverlayHostingView<Content: View>: NSHostingView<Content> {
-    var onHover: ((CGPoint?) -> Void)?
-    private var hoverArea: NSTrackingArea?
-
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverArea {
-            removeTrackingArea(hoverArea)
-        }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        hoverArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        reportHover(event)
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        reportHover(event)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        onHover?(nil)
-    }
-
-    private func reportHover(_ event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        onHover?(CGPoint(x: point.x, y: isFlipped ? point.y : bounds.height - point.y))
     }
 }
 
@@ -3058,20 +3099,22 @@ private struct UntypeOverlayView: View {
     private static let traceColor = Color(.sRGB, red: 0.23, green: 0.44, blue: 0.90, opacity: 1)
 
     private static let coordinateSpace = "untype-overlay"
-    @State private var chipFrames: [String: CGRect] = [:]
 
     private var isRecording: Bool {
         controller.overlayPhase.lowercased() == "recording"
     }
 
+    /// Not dictating; on screen only with "Keep overlay visible".
+    private var isIdle: Bool {
+        controller.overlayPhase.lowercased() == "idle"
+    }
+
     /// The chip under the mouse, for its tooltip.
     private var hoveredChip: (label: String, name: String, enabled: Bool)? {
-        guard let location = controller.hoverLocation else {
+        guard let letter = controller.hoveredChip else {
             return nil
         }
-        return controller.operatorSnapshot.first { item in
-            chipFrames[item.label]?.insetBy(dx: -3, dy: -3).contains(location) ?? false
-        }
+        return controller.operatorSnapshot.first { $0.label == letter }
     }
 
     var body: some View {
@@ -3086,6 +3129,14 @@ private struct UntypeOverlayView: View {
                     .padding(.vertical, 4)
                     .background(Capsule(style: .continuous).fill(Color.black.opacity(0.7)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isIdle {
+                // A flat, dim line: nothing is being recorded or processed.
+                Canvas { canvas, size in
+                    drawTrace([0, 0], in: &canvas, size: size)
+                }
+                .opacity(0.45)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
                     let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
@@ -3136,8 +3187,8 @@ private struct UntypeOverlayView: View {
             }
         }
         .coordinateSpace(name: Self.coordinateSpace)
-        .onPreferenceChange(UntypeOverlayChipFrames.self) { chipFrames = $0 }
-        .accessibilityLabel(isRecording ? "Push to talk, listening" : "Push to talk, processing")
+        .onPreferenceChange(UntypeOverlayChipFrames.self) { controller.chipFrames = $0 }
+        .accessibilityLabel(isIdle ? "untype operators" : isRecording ? "Push to talk, listening" : "Push to talk, processing")
     }
 
     /// On: solid amber with a dark letter. Off: a dim outline. Both carry a
