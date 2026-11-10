@@ -45,7 +45,7 @@ The native UI can write provider credentials into `~/.tool-agents/untype/.env` s
 
 | Setting | Values | Default | Meaning |
 |---|---|---|---|
-| `hotkeyEnabled` | `true` / `false` | `false` | Whether the global hotkey is monitored at all (menu-bar dropdown → Hotkey switch, or Settings → General → Push to talk → Enabled). |
+| `hotkeyEnabled` | `true` / `false` | `false` | Whether the global hotkey is monitored at all (menu-bar dropdown → Hotkey switch, or Settings → Push-to-Talk → Enable push-to-talk). |
 | `hotkeyHoldToTalk` | `true` / `false` | `true` | `true`: push-to-talk, hold the hotkey to record and release to submit. `false`: push-to-listen, press once to start recording and press again to stop and submit. Menu-bar dropdown segmented control, the main window's top-bar switch, and Settings → General → Push to talk → "Hold to talk". |
 | `hotkey` | key chord, e.g. `Control+\`` | `Control+\`` | The hotkey itself. |
 
@@ -84,7 +84,7 @@ A second LLM, chosen separately from the primary one. While the **Alternative** 
 | Model | `--alt-llm-model` | `UNTYPE_ALT_LLM_MODEL` | none | The model; for `azure-openai`, the deployment name (`AZURE_OPENAI_DEPLOYMENT` belongs to the primary LLM and is not used). Required when a provider is set. |
 | Operator default | `--alternative-default on\|off` | `UNTYPE_ALTERNATIVE_DEFAULT` | `off` | Initial operator state. |
 
-In the app: Settings → General → **Alternative LLM** (Provider: None or a provider; Model), stored as `altLlmProvider` / `altLlmModel` in `~/.tool-agents/untype/ui-state.json` and passed to the session only when both are set.
+In the app: Settings → Language Models → **Alternative** (Provider: None or a provider; Model), stored as `altLlmProvider` / `altLlmModel` in `~/.tool-agents/untype/ui-state.json` and passed to the session only when both are set.
 
 **Alternative LLM 2** (build 37): a second alternative slot with the same rules, `--alt2-llm-provider` / `UNTYPE_ALT2_LLM_PROVIDER` and `--alt2-llm-model` / `UNTYPE_ALT2_LLM_MODEL` (default: none), Settings → General → **Alternative LLM 2**, stored as `alt2LlmProvider` / `alt2LlmModel`. Only the Push-to-Act pop-up uses it (Model: Primary · Alternative · Alternative 2; **L** cycles the configured ones). The Alternative operator in dictation always uses the first slot. Example: `deepseek` / `deepseek-flash` in the first slot and `google` / `gemini-3.8-flash` in the second. The operator row in Settings → Operators chooses "This turn" or "Until changed" (default "Until changed").
 
@@ -117,7 +117,7 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 
 ## Push-to-Act (Selection Hotkey)
 
-**Push-to-Act** processes text you have already selected, instead of dictated text. It is set in Settings → General → Push-to-Act and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**); the stored names stay as before. It has no CLI flag or environment variable.
+**Push-to-Act** processes text you have already selected, instead of dictated text. It is set in Settings → Push-to-Act and stored in `~/.tool-agents/untype/ui-state.json` as `selectionHotkeyEnabled` (default **on**) and `selectionHotkey` (default **`Control+Option+``**); the stored names stay as before. It has no CLI flag or environment variable.
 
 - Select text in any app and press the hotkey. untype reads the selection: Accessibility first, then a synthetic ⌘C (the pasteboard is restored).
 - **Nothing selected:** the whole text of the active field is used instead. untype selects it (you see it highlighted), the pop-up says "Nothing selected · whole field", and the result replaces the field's text. Esc puts your cursor back. This needs a field that exposes its text through Accessibility (TextEdit, Notes, Mail, most native and browser text fields); in apps where untype has to fall back to ⌘C (some Electron apps) a selection is still required.
@@ -140,15 +140,32 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 - It needs the push-to-talk listener on (Push to talk → Enabled), because it is detected by the same event tap.
 - Each run writes a record to `release-latency.jsonl` with `trigger: "push-to-act"` (`"selection-hotkey"` up to build 33). Check `focused_input.ok` there.
 
+## Settings Window
+
+The Settings window (⌘, from the menu-bar dropdown or the main window) is organised like macOS System Settings: a sidebar of panes on the left, a grouped form on the right.
+
+| Pane | What it holds |
+|---|---|
+| **General** | Theme; dictation overlay (Keep overlay visible, position reset); current session status. |
+| **Push-to-Talk** | Enable, hotkey, hold-to-talk or press-to-start/stop, Quick Close, listener status and a test button. |
+| **Push-to-Act** | Enable and hotkey. |
+| **Speech** | Speech-recognition provider, model, languages, sample rate, endpoint detection; protocol mode and voice commands. |
+| **Operators** | Each operator with its key, state and how long a change lasts; "Selected text is"; translate direction. |
+| **Language Models** | Primary, Alternative and Alternative 2 (Push-to-Act) provider and model. |
+| **Prompts** | The editable prompt files. |
+| **Permissions & Keys** | macOS permission status and setup guide; API key status and **Edit Keys…**. |
+
+Settings that shape the session are locked while a session is active; the pane header says so.
+
 ## Keep Overlay Visible
 
-**Keep overlay visible** (Settings → Appearance, `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off.
+**Keep overlay visible** (Settings → General → Dictation overlay, `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off.
 
 **Overlay position** (build 45): drag the small grip in the overlay's top-left corner to move it anywhere; untype remembers the place as `overlayPosition` (`{"x":…, "y":…}`, the bottom-left corner in screen points) in `ui-state.json` and shows the overlay there from then on. Double-click the grip to put it back at the bottom centre (the key is removed). Without the key, or when the saved place is on a display that is no longer connected, the overlay appears at the bottom centre of the screen under the mouse.
 
 ## Voice Commands On/Off
 
-**Voice commands** (Settings → General → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.
+**Voice commands** (Settings → Speech → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.
 
 - **On:** the spoken markers work as configured: the command phrase (`command translate on`, `command status` …), section end (`command send` and the guard phrase `τέλος εντολής`), section cancel (`command cancel`) and `literal phrase`.
 - **Off:** none of them is recognised. Everything you say is dictated text, including the words "command send". Turns are delivered on hotkey release (push-to-talk) or on the second press (push-to-listen); operators are changed with the hotkey letters, the dropdown or Settings.
@@ -157,7 +174,7 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
 
 ## Operator Persistence: "This turn" or "Until changed"
 
-Every operator (Refine, Translate, Ask, Follow-up, Selection, Clipboard, Focused input) has a **Lasts** choice in Settings → General → Operators:
+Every operator (Refine, Translate, Ask, Follow-up, Selection, Clipboard, Focused input) has a **Lasts** choice in Settings → Operators:
 
 - **Until changed**: the operator stays as you set it until you switch it again.
 - **This turn**: the operator is switched off again when a push-to-talk turn has been delivered, so you switch it on for each use. Switch it on in the dropdown before pressing, or with hotkey + its letter while holding.
@@ -176,7 +193,7 @@ With **Follow-up** on (key **F**, `--followup-default` / `UNTYPE_FOLLOWUP_DEFAUL
 With **Selection** on (key **S**, `--selection-default` / `UNTYPE_SELECTION_DEFAULT`), the text selected in the app in front at press time is included in the request.
 
 - **Reading the selection.** untype reads it through Accessibility (`AXSelectedText`), so the Accessibility permission is required. Where the app does not expose it (terminals, some Electron apps), untype sends a ⌘C, reads the clipboard and restores the previous clipboard contents right away. Some editors copy the whole current line when nothing is selected. Live typing waits until the selection has been read.
-- **Selected text is** (Settings → General → Operators, `selectionRole` in `ui-state.json`, default `material`):
+- **Selected text is** (Settings → Operators, `selectionRole` in `ui-state.json`, default `material`):
   - **Material.** The selection is what refine/translate process; what you dictate, if anything, follows it. The result replaces the selection. A press with no speech still processes the selection, e.g. select a paragraph with Translate + Selection on and tap the hotkey.
   - **Context.** Reference only: `013-selection-context-template.txt` (`{selection}`) is appended to the refine/translate input. Only what you dictate is processed, and the result is inserted after the selection: untype presses Right arrow to move the cursor to the end of the selection first.
 - **With Ask.** The selection is put before the request through `014-ask-selection-template.txt` (`{selection}`), e.g. select text and say "make this more formal". In the Material role the answer replaces the selection; in the Context role it goes after it. A press with no speech answers about the selection.
@@ -201,7 +218,7 @@ With **Screenshot** on (key **W**, `--screenshot-default` / `UNTYPE_SCREENSHOT_D
 With **Ask** on, what you dictate is not text to clean up but a request to the LLM, for example "write a short reply thanking them and proposing Tuesday" or "explain what a mutex is in two sentences". The model's answer replaces the dictated text and goes to the usual outputs (focused input, clipboard, transcript).
 
 ### How to switch it
-- Menu-bar dropdown → **Ask the model** (key **A**), the main window and overlay chips (**A**), Settings → General → Operators.
+- Menu-bar dropdown → **Ask the model** (key **A**), the main window and overlay chips (**A**), Settings → Operators.
 - While holding the hotkey: hotkey + **A** toggles it for the current turn.
 - Spoken: `<command phrase> ask on` / `<command phrase> ask off` (agent/hybrid protocol).
 - Initial state: `--ask-default on|off` or `UNTYPE_ASK_DEFAULT` (default `off`). Like the other operators, the native UI persists the last state in `~/.tool-agents/untype/state.json`; a value set by flag or env wins over the persisted one.
@@ -210,7 +227,7 @@ With **Ask** on, what you dictate is not text to clean up but a request to the L
 - One LLM call per section: system prompt `010-ask-system.txt`, user message `011-ask-user-template.txt`.
 - Refine is skipped while Ask is on (the model reads the raw dictation; a cleanup call would only add latency).
 - Translate on as well: the same single call uses `012-ask-translated-user-template.txt`, so the reply is written in the target language chosen by the translation policy (`opposite`, `to-en`, `to-el`).
-- Requires the LLM to be enabled (`--refine` / Settings → LLM). Otherwise the warning "Ask operator is enabled, but no LLM is configured." appears and the dictated text is delivered unchanged. The same fail-open applies when the request fails (the warning reads "ask operator failed: …").
+- Requires the LLM to be enabled (`--refine` / Settings → Language Models). Otherwise the warning "Ask operator is enabled, but no LLM is configured." appears and the dictated text is delivered unchanged. The same fail-open applies when the request fails (the warning reads "ask operator failed: …").
 - It uses the configured LLM provider, model and reasoning effort, but its **own limits**, because an answer is a full text rather than a rewrite of the dictation:
   - Output cap `--ask-max-output-tokens` / `UNTYPE_ASK_MAX_OUTPUT_TOKENS` (default `8000`, positive integer). `UNTYPE_LLM_MAX_OUTPUT_TOKENS` keeps capping refine/translate only.
   - Request timeout 120 s, fixed (refine/translate keep 15 s). A long answer can take 30 s or more.

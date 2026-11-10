@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P2 - Settings window redesign: on-device check pending (2026-11-10)
+- Plan-049 / FR-54. Check in the installed app: every pane opens from the sidebar; changing a setting still takes effect (theme, an operator, the hotkey); dark theme looks right (snapshots were taken in light only); unsaved prompt edits survive a visit to another pane; push-to-talk still delivers (`focused_input.ok=true`).
+
 ### P2 - Overlay drag handle: on-device check pending (2026-11-10)
 - Plan-048 / FR-53 (build 45). Check: hovering the top-left grip shows "Drag to move · double-click to reset"; dragging moves the overlay smoothly and the focus stays in the app being dictated into; the place survives relaunch and is used during push-to-talk; double-click returns it to the bottom centre.
 
