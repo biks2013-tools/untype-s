@@ -14,3 +14,6 @@ Tidy the dropdown that opens from the menu-bar icon. The operator switches are a
 1. Rewrite the body, controls and operators parts of `UntypeMenuBarPanel.swift`.
 2. Check both states and the Operators tab with rendered snapshots (throwaway test), light and dark.
 3. Docs: FR-55, design, configuration guide, pending on-device check.
+
+## Addition (build 48)
+Controls gain an **Overlay** row with a "Keep on screen" switch (`overlayAlwaysVisible`, saved through `updateLayout`), so the two dropdown modes can be switched from the dropdown itself. The "On now" summary sits under the row when it is on; a one-line caption states the current behaviour.

@@ -178,10 +178,40 @@ struct UntypeMenuBarPanel: View {
                 }
             }
 
+            Divider()
+            overlaySection
+        }
+    }
+
+    /// The overlay switch. On, the overlay stays on screen and has the
+    /// operator switches, so the dropdown only names the ones that are on.
+    private var overlaySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                rowLabel("Overlay")
+                Text("Keep on screen")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Toggle("Keep overlay visible", isOn: Binding(
+                    get: { model.settings.overlayAlwaysVisible },
+                    set: { model.updateLayout(overlayAlwaysVisible: $0) }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .controlSize(.small)
+                .tint(UntypeDesignTokens.accentAmber)
+            }
+            .help("Keep the dictation overlay on screen when you are not dictating. Also in Settings → General.")
+
             if !showsOperatorsTab {
-                Divider()
                 operatorsSummary
             }
+            Text(showsOperatorsTab
+                ? "The overlay appears only while you dictate."
+                : "Switch operators on the screen overlay.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -249,7 +279,7 @@ struct UntypeMenuBarPanel: View {
     /// Shown instead of the operators tab while the overlay is kept on screen.
     private var operatorsSummary: some View {
         let active = operatorEntries.filter(\.isOn)
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 rowLabel("On now")
                 Text(active.isEmpty ? "No operators" : active.map(\.title).joined(separator: ", "))
@@ -265,9 +295,6 @@ struct UntypeMenuBarPanel: View {
                     Spacer(minLength: 0)
                 }
             }
-            Text("Switch operators on the screen overlay.")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
         }
     }
 
