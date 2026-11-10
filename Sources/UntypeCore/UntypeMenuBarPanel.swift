@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The dropdown under the menu-bar icon: only the switches flipped day to day
-/// (hotkey, push-to-talk / push-to-listen, protocol mode, operators,
-/// translation target), the hotkeys, and the way into the Transcript, History
-/// and Settings windows.
+/// The dropdown under the menu-bar icon: the state, the hotkey switches flipped
+/// day to day, and the way into the Transcript, History and Settings windows.
+///
+/// The operator switches are on the screen overlay too. While the overlay is
+/// kept on screen (`overlayAlwaysVisible`) the dropdown leaves them to it and
+/// only names the ones that are on; otherwise they sit in a second tab.
 @MainActor
 struct UntypeMenuBarPanel: View {
     @ObservedObject var model: UntypeUIModel
@@ -13,22 +15,43 @@ struct UntypeMenuBarPanel: View {
     var openSettings: () -> Void
     var quit: () -> Void
 
+    private enum Tab: Hashable {
+        case controls
+        case operators
+    }
+
+    @State private var selectedTab: Tab = .controls
+
+    /// The operators tab exists only while the overlay is not kept on screen.
+    private var showsOperatorsTab: Bool { !model.settings.overlayAlwaysVisible }
+    private var tab: Tab { showsOperatorsTab ? selectedTab : .controls }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
                 .padding(.bottom, 10)
+            if showsOperatorsTab {
+                Picker("Section", selection: $selectedTab) {
+                    Text("Controls").tag(Tab.controls)
+                    Text(operatorsTabTitle).tag(Tab.operators)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+            }
             Divider()
-            VStack(alignment: .leading, spacing: 10) {
-                pushToTalkSection
-                Divider()
-                operatorsSection
-                Divider()
-                hotkeysSection
+            Group {
+                switch tab {
+                case .controls: controlsSection
+                case .operators: operatorsSection
+                }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
             Divider()
             VStack(spacing: 0) {
                 actionRow("Transcript", systemImage: "text.alignleft", shortcut: "⌘1", action: openTranscript)
@@ -96,13 +119,14 @@ struct UntypeMenuBarPanel: View {
         }
     }
 
-    // MARK: Push-to-talk and mode
+    // MARK: Controls
 
-    private var pushToTalkSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private static let labelWidth: CGFloat = 52
+
+    private var controlsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("Hotkey")
-                    .font(.system(size: 12, weight: .medium))
+                rowLabel("Hotkey")
                 UntypeKbd(model.settings.hotkey)
                 Spacer(minLength: 6)
                 Toggle("Hotkey", isOn: binding(\.hotkeyEnabled) { UntypeUISettingsPatch(hotkeyEnabled: $0) })
@@ -114,18 +138,20 @@ struct UntypeMenuBarPanel: View {
             }
             .help(model.canReshapeSession ? "Listen for the global hotkey" : "Locked while a turn or a manual session is running")
 
-            Picker("Hotkey mode", selection: binding(\.hotkeyHoldToTalk) { UntypeUISettingsPatch(hotkeyHoldToTalk: $0) }) {
-                Text("Push-to-talk").tag(true)
-                Text("Push-to-listen").tag(false)
+            HStack(spacing: 8) {
+                rowLabel("Trigger")
+                Picker("Hotkey mode", selection: binding(\.hotkeyHoldToTalk) { UntypeUISettingsPatch(hotkeyHoldToTalk: $0) }) {
+                    Text("Push-to-talk").tag(true)
+                    Text("Push-to-listen").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .help("Push-to-talk: hold the hotkey to record, release to submit. Push-to-listen: press once to start, press again to stop and submit.")
 
             HStack(spacing: 8) {
-                Text("Mode")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 44, alignment: .leading)
+                rowLabel("Mode")
                 Picker("Protocol mode", selection: binding(\.protocolMode) { UntypeUISettingsPatch(protocolMode: $0) }) {
                     Text("Dictation").tag("dictation")
                     Text("Agent").tag("agent-protocol")
@@ -133,128 +159,156 @@ struct UntypeMenuBarPanel: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(!model.canReshapeSession)
 
-            HStack(spacing: 8) {
-                Text("Theme")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 44, alignment: .leading)
-                Picker("Appearance", selection: Binding(
-                    get: { model.settings.appearance },
-                    set: { model.updateLayout(appearance: $0) }
-                )) {
-                    Label("System", systemImage: "circle.lefthalf.filled").tag("system")
-                    Label("Light", systemImage: "sun.max").tag("light")
-                    Label("Dark", systemImage: "moon.fill").tag("dark")
+            Text(hotkeyHint)
+                .font(.system(size: 11))
+                .foregroundStyle(model.settings.hotkeyEnabled ? AnyShapeStyle(.secondary) : AnyShapeStyle(UntypeDesignTokens.warnGold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if model.settings.selectionHotkeyEnabled {
+                HStack(spacing: 8) {
+                    UntypeKbd(model.settings.selectionHotkey)
+                    Text("Push-to-Act on the selected text")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .help("Appearance of untype's windows, dropdown and overlay")
+            }
+
+            if !showsOperatorsTab {
+                Divider()
+                operatorsSummary
             }
         }
+    }
+
+    private var hotkeyHint: String {
+        guard model.settings.hotkeyEnabled else {
+            return "The hotkey is off — switch it on to dictate."
+        }
+        return model.settings.hotkeyHoldToTalk
+            ? "Hold the hotkey to record, release to submit."
+            : "Press the hotkey to start, press it again to submit."
+    }
+
+    private func rowLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .medium))
+            .frame(width: Self.labelWidth, alignment: .leading)
     }
 
     // MARK: Operators
 
+    private struct OperatorEntry {
+        let key: OperatorKey
+        let letter: String
+        let title: String
+        let detail: String
+        let isOn: Bool
+    }
+
+    private var operatorEntries: [OperatorEntry] {
+        let s = model.settings
+        return [
+            OperatorEntry(key: .refine, letter: "R", title: "Refine", detail: "Clean up what was said", isOn: s.refine),
+            OperatorEntry(key: .translate, letter: "T", title: "Translate", detail: "Translate the text", isOn: s.translate),
+            OperatorEntry(key: .ask, letter: "A", title: "Ask", detail: "Send what was said to the model as a question", isOn: s.ask),
+            OperatorEntry(key: .followup, letter: "F", title: "Follow-up", detail: "Continue the Ask conversation", isOn: s.followup),
+            OperatorEntry(key: .selection, letter: "S", title: "Selection", detail: "Include the selected text", isOn: s.selection),
+            OperatorEntry(key: .alternative, letter: "L", title: "Alternative LLM", detail: "Use the alternative language model", isOn: s.alternative),
+            OperatorEntry(key: .screenshot, letter: "W", title: "Screenshot", detail: "Send a screenshot of the app's window", isOn: s.screenshot),
+            OperatorEntry(key: .clipboard, letter: "C", title: "Clipboard", detail: "Copy the result to the clipboard", isOn: s.clipboard),
+            OperatorEntry(key: .input, letter: "I", title: "Input", detail: "Type the result into the focused input", isOn: s.focusedInput)
+        ]
+    }
+
+    private var operatorsTabTitle: String {
+        let count = operatorEntries.filter(\.isOn).count
+        return count == 0 ? "Operators" : "Operators · \(count)"
+    }
+
     private var operatorsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("Operators", trailing: "hotkey + key")
-            operatorRow("Refine", key: "R", isOn: model.settings.refine, perTurn: model.settings.isPerTurn(.refine)) { model.toggleOperator(.refine) }
-            operatorRow("Translate", key: "T", isOn: model.settings.translate, perTurn: model.settings.isPerTurn(.translate)) { model.toggleOperator(.translate) }
-            if model.settings.translate {
-                HStack(spacing: 8) {
-                    Text("to")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+            ForEach(operatorEntries, id: \.letter) { entry in
+                operatorRow(entry)
+                if entry.key == .translate, entry.isOn {
+                    translationTargetRow
                         .padding(.leading, 26)
-                    Picker("Translate to", selection: binding(\.translationPolicy) { UntypeUISettingsPatch(translationPolicy: $0) }) {
-                        Text("Opposite language").tag("opposite")
-                        Text("English").tag("to-en")
-                        Text("Greek").tag("to-el")
-                    }
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .disabled(!model.canReshapeSession)
                 }
             }
-            operatorRow("Ask the model", key: "A", isOn: model.settings.ask, perTurn: model.settings.isPerTurn(.ask)) { model.toggleOperator(.ask) }
-            operatorRow("Follow-up (continue the conversation)", key: "F", isOn: model.settings.followup, perTurn: model.settings.isPerTurn(.followup)) { model.toggleOperator(.followup) }
-            operatorRow("Include selected text", key: "S", isOn: model.settings.selection, perTurn: model.settings.isPerTurn(.selection)) { model.toggleOperator(.selection) }
-            operatorRow("Use the alternative LLM", key: "L", isOn: model.settings.alternative, perTurn: model.settings.isPerTurn(.alternative)) { model.toggleOperator(.alternative) }
-            operatorRow("Send a screenshot of the app's window", key: "W", isOn: model.settings.screenshot, perTurn: model.settings.isPerTurn(.screenshot)) { model.toggleOperator(.screenshot) }
-            operatorRow("Clipboard", key: "C", isOn: model.settings.clipboard, perTurn: model.settings.isPerTurn(.clipboard)) { model.toggleOperator(.clipboard) }
-            operatorRow("Type into focused input", key: "I", isOn: model.settings.focusedInput, perTurn: model.settings.isPerTurn(.input)) { model.toggleOperator(.input) }
+            Text("Or hold the hotkey and press the letter.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 2)
         }
     }
 
-    private func operatorRow(_ title: String, key: String, isOn: Bool, perTurn: Bool, toggle: @escaping () -> Void) -> some View {
+    /// Shown instead of the operators tab while the overlay is kept on screen.
+    private var operatorsSummary: some View {
+        let active = operatorEntries.filter(\.isOn)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                rowLabel("On now")
+                Text(active.isEmpty ? "No operators" : active.map(\.title).joined(separator: ", "))
+                    .font(.system(size: 12))
+                    .foregroundStyle(active.isEmpty ? .secondary : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if model.settings.translate {
+                HStack(spacing: 8) {
+                    Text("Translate to")
+                        .font(.system(size: 12, weight: .medium))
+                    translationTargetRow
+                    Spacer(minLength: 0)
+                }
+            }
+            Text("Switch operators on the screen overlay.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var translationTargetRow: some View {
+        Picker("Translate to", selection: binding(\.translationPolicy) { UntypeUISettingsPatch(translationPolicy: $0) }) {
+            Text("Opposite language").tag("opposite")
+            Text("English").tag("to-en")
+            Text("Greek").tag("to-el")
+        }
+        .labelsHidden()
+        .controlSize(.small)
+        .disabled(!model.canReshapeSession)
+        .help("Language Translate turns the text into")
+    }
+
+    private func operatorRow(_ entry: OperatorEntry) -> some View {
         HStack(spacing: 8) {
-            Text(key)
+            Text(entry.letter)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(isOn ? Color.black.opacity(0.8) : Color.secondary)
+                .foregroundStyle(entry.isOn ? Color.black.opacity(0.8) : Color.secondary)
                 .frame(width: 18, height: 18)
                 .background(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isOn ? UntypeDesignTokens.accentAmber : Color.primary.opacity(0.07))
+                        .fill(entry.isOn ? UntypeDesignTokens.accentAmber : Color.primary.opacity(0.07))
                 )
-            Text(title)
+            Text(entry.title)
                 .font(.system(size: 12))
-            if perTurn {
+            if model.settings.isPerTurn(entry.key) {
                 Text("1×")
                     .font(.system(size: 9.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .help("This turn only: switched off again after each push-to-talk turn")
             }
             Spacer(minLength: 6)
-            Toggle(title, isOn: Binding(get: { isOn }, set: { if $0 != isOn { toggle() } }))
+            Toggle(entry.title, isOn: Binding(get: { entry.isOn }, set: { if $0 != entry.isOn { model.toggleOperator(entry.key) } }))
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .controlSize(.small)
                 .tint(UntypeDesignTokens.accentAmber)
         }
-    }
-
-    // MARK: Hotkeys
-
-    private var hotkeysSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            sectionHeader("Hotkeys", trailing: nil)
-            hotkeyLine(model.settings.hotkey,
-                       model.settings.hotkeyHoldToTalk ? "hold to record, release to submit" : "press to start, press again to submit")
-            hotkeyLine("+ R T A F S L W C I", "switch an operator mid-turn")
-            if model.settings.selectionHotkeyEnabled {
-                hotkeyLine(model.settings.selectionHotkey, "Push-to-Act: act on the selected text")
-            }
-            if !model.settings.hotkeyEnabled {
-                Text("The hotkey is off — switch it on above.")
-                    .font(.caption)
-                    .foregroundStyle(UntypeDesignTokens.warnGold)
-            }
-        }
-    }
-
-    private func hotkeyLine(_ keys: String, _ meaning: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            UntypeKbd(keys)
-            Text(meaning)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-
-    private func sectionHeader(_ title: String, trailing: String?) -> some View {
-        HStack {
-            UntypeSectionHeader(title)
-            Spacer()
-            if let trailing {
-                Text(trailing)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-        }
+        .help("\(entry.detail) (hotkey + \(entry.letter))")
     }
 
     // MARK: Actions
