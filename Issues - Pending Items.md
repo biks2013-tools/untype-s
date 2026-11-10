@@ -3,7 +3,7 @@
 ## Pending Items
 
 ### P2 - Menu-bar dropdown tidy-up: on-device check pending (2026-11-10)
-Plan-050 / FR-55, not yet in a released build. Checked only with rendered snapshots. To check in the app: the Controls / Operators tabs with "Keep overlay visible" off; the "On now" summary with it on; an operator switch in the tab takes effect; the dropdown resizes cleanly when the tab changes; push-to-talk still delivers.
+Plan-050 / FR-55, released in build 47. Checked only with rendered snapshots. To check in the app: the Controls / Operators tabs with "Keep overlay visible" off; the "On now" summary with it on; an operator switch in the tab takes effect; the dropdown resizes cleanly when the tab changes; push-to-talk still delivers.
 
 ### P2 - Settings window redesign: on-device check pending (2026-11-10)
 - Plan-049 / FR-54. Check in the installed app: every pane opens from the sidebar; changing a setting still takes effect (theme, an operator, the hotkey); dark theme looks right (snapshots were taken in light only); unsaved prompt edits survive a visit to another pane; push-to-talk still delivers (`focused_input.ok=true`).
@@ -94,6 +94,8 @@ The source project has unit tests but no live provider or UI automation harness.
 - **2026-11-05 — DeepSeek alternative returned empty refine/translate (fixed, build 33).** `deepseek-flash` thinks before answering and its reasoning tokens count against `max_tokens` (1000, inherited from the primary); long selections/dictations exhausted it and the reply had no content. Fix: thinking disabled for DeepSeek rewrite calls (refine, translate, combined); Ask keeps thinking; `finish_reason: length` now reported as truncation.
 
 ### 2026-11-10 - Build 46 released, published, and on Homebrew (v0.1.0-b46)
+- Menu-bar dropdown tidied: Controls / Operators tabs, operators left to the overlay when it is kept visible (plan-050, FR-55). Packaged with `--build 47 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary`; suite 326/326. App and disk image (`--dmg-only`): notarized, `source=Notarized Developer ID`; installed from the same bundle (CFBundleVersion 47). Commit `2537e14`, tag `v0.1.0-b47`, release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b47, downloaded DMG SHA-256 verified (`2098146e…efbf2a2e`), cask `69b0419` → tap `fcef52a`; `brew style` clean. On-device check still pending (see the P2 item).
+
 - Settings window redesigned as a macOS settings window (plan-049, FR-54). Packaged with `--build 46 --sign-identity 2C7D6068C232BA74073D56085DDBB04E5F14DF30 --notary-profile untype-notary`; suite 326/326. App and disk image (`--dmg-only`): notarized, `source=Notarized Developer ID`; installed from the same bundle (CFBundleVersion 46). Commit `f106c2f`, tag `v0.1.0-b46`, release https://github.com/biks2013-tools/untype-s/releases/tag/v0.1.0-b46, downloaded DMG SHA-256 verified (`c0a50205…461ddce0`), cask `828ab99` → tap `268e1a3`; `brew style` clean. On-device check still pending (see the P2 item).
 
 ### 2026-11-10 - Build 45 released, published, and on Homebrew (v0.1.0-b45)
