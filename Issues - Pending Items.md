@@ -3,7 +3,7 @@
 ## Pending Items
 
 ### P2 - Menu-bar dropdown tidy-up: on-device check pending (2026-11-10)
-Plan-050 / FR-55, released in build 47. Checked only with rendered snapshots. To check in the app: the Controls / Operators tabs with "Keep overlay visible" off; the "On now" summary with it on; an operator switch in the tab takes effect; the dropdown resizes cleanly when the tab changes; push-to-talk still delivers.
+Plan-050 / FR-55, released in build 47. Checked only with rendered snapshots. The Overlay "Keep on screen" switch in the dropdown (added after build 47) is also unchecked on device: flipping it should show or hide the idle overlay at once and swap the Operators tab for the "On now" line. To check in the app: the Controls / Operators tabs with "Keep overlay visible" off; the "On now" summary with it on; an operator switch in the tab takes effect; the dropdown resizes cleanly when the tab changes; push-to-talk still delivers.
 
 ### P2 - Settings window redesign: on-device check pending (2026-11-10)
 - Plan-049 / FR-54. Check in the installed app: every pane opens from the sidebar; changing a setting still takes effect (theme, an operator, the hotkey); dark theme looks right (snapshots were taken in light only); unsaved prompt edits survive a visit to another pane; push-to-talk still delivers (`focused_input.ok=true`).
