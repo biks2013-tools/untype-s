@@ -62,7 +62,7 @@ struct UntypePromptSettingsView: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .listStyle(.inset)
     }
 
     private func shortTitle(_ file: PromptFileDescriptor) -> String {

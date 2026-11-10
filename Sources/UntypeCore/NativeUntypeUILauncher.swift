@@ -687,6 +687,12 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
+    /// Settings → General → Reset: the overlay goes back to the bottom
+    /// centre.
+    func resetOverlayPosition() {
+        overlay?.resetPosition()
+    }
+
     /// Saves the Push-to-Act choices so the pop-up opens with them next
     /// time. They are Push-to-Act's own and never touch the push-to-talk
     /// operators, so nothing is reconfigured and the warm session stays.
@@ -2888,7 +2894,7 @@ private final class UntypeOverlayController: ObservableObject {
         startFollowingMouse()
     }
 
-    /// Settings → Appearance → "Keep overlay visible": shows the idle
+    /// Settings → General → "Keep overlay visible": shows the idle
     /// overlay, or hides it when it is idle.
     func applyAlwaysVisible() {
         guard phase == "idle" else {
@@ -3031,7 +3037,7 @@ private final class UntypeOverlayController: ObservableObject {
     }
 
     /// Double-click on the handle: back to the bottom centre.
-    fileprivate func resetPosition() {
+    func resetPosition() {
         dragStart = nil
         model?.setOverlayPosition(nil)
         if let panel, let screen = overlayScreen() {

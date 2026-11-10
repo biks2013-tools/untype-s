@@ -378,7 +378,7 @@ public final class VoiceAgentProtocolController {
         let alternativeMissing = useAlternative && alternativeLLM == nil
         let screenshotMissing = wantsScreenshot && screenshot == nil
         if alternativeMissing, llmOperatorsOn {
-            warn("Alternative LLM operator is enabled, but no alternative LLM is configured (Settings → Alternative LLM, or UNTYPE_ALT_LLM_PROVIDER and UNTYPE_ALT_LLM_MODEL). The text was not processed by an LLM.")
+            warn("Alternative LLM operator is enabled, but no alternative LLM is configured (Settings → Language Models → Alternative, or UNTYPE_ALT_LLM_PROVIDER and UNTYPE_ALT_LLM_MODEL). The text was not processed by an LLM.")
         } else if screenshotMissing, llmOperatorsOn {
             warn("Screenshot operator is enabled, but no screenshot of the app's window was captured. The text was not processed by an LLM.")
         }
