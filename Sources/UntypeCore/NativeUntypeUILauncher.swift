@@ -376,6 +376,9 @@ final class UntypeUIModel: ObservableObject {
     private var workspaceActivationObserver: NSObjectProtocol?
     private var lastExternalFocusedInputApplication: NSRunningApplication?
     private var sessionFocusedInputApplication: NSRunningApplication?
+    /// The app the user was in when a turn's text was delivered to the app
+    /// the dictation started in; it gets the focus back after delivery.
+    private var focusedInputReturnApplication: NSRunningApplication?
     /// Types the current push-to-talk turn into the focused control live.
     private var liveTyper: LiveFocusedInputTyper?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
@@ -591,26 +594,73 @@ final class UntypeUIModel: ObservableObject {
         return await liveTyper.reconcile(with: text)
     }
 
-    func prepareFocusedInputDelivery() {
+    /// Before a turn's text is delivered: makes sure the right app is in
+    /// front. A push-to-talk turn goes to the app it started in, even when
+    /// the user moved to another app meanwhile; that other app is returned,
+    /// to get the focus back after delivery (`finishFocusedInputDelivery`).
+    /// Returns whether an app was activated (the caller waits for it).
+    @discardableResult
+    func prepareFocusedInputDelivery() -> Bool {
+        focusedInputReturnApplication = nil
         guard settings.focusedInput else {
-            return
+            return false
         }
         let frontmost = NSWorkspace.shared.frontmostApplication
         rememberFocusedInputCandidate(frontmost)
+        if sessionOwner == .hotkey,
+           let origin = sessionFocusedInputApplication,
+           isExternalFocusedInputApplication(origin) {
+            if frontmost?.processIdentifier == origin.processIdentifier {
+                return false
+            }
+            let name = origin.localizedName ?? "external app"
+            guard origin.activate(options: []) else {
+                appendEvent("diagnostic.warning: [untype] could not bring back the app the dictation started in: \(name)")
+                return false
+            }
+            if isExternalFocusedInputApplication(frontmost) {
+                focusedInputReturnApplication = frontmost
+            }
+            appendEvent("diagnostic.info: [untype] focused-input target brought back (dictation started there): \(name)")
+            return true
+        }
         if isExternalFocusedInputApplication(frontmost) {
-            return
+            return false
         }
         guard let target = sessionFocusedInputApplication ?? lastExternalFocusedInputApplication,
               isExternalFocusedInputApplication(target)
         else {
             appendEvent("diagnostic.warning: [untype] focused-input target unavailable; focus the target edit control before releasing push-to-talk")
-            return
+            return false
         }
         let activated = target.activate(options: [.activateAllWindows])
         if activated {
             appendEvent("diagnostic.info: [untype] focused-input target restored: \(target.localizedName ?? "external app")")
         } else {
             appendEvent("diagnostic.warning: [untype] could not restore focused-input target: \(target.localizedName ?? "external app")")
+        }
+        return activated
+    }
+
+    /// Whether the app a push-to-talk turn started in is in front.
+    var focusedInputOriginIsFrontmost: Bool {
+        guard let origin = sessionFocusedInputApplication else {
+            return true
+        }
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier == origin.processIdentifier
+    }
+
+    /// After delivery: the app the user had moved to gets the focus back.
+    func finishFocusedInputDelivery() {
+        guard let application = focusedInputReturnApplication else {
+            return
+        }
+        focusedInputReturnApplication = nil
+        guard !application.isTerminated else {
+            return
+        }
+        if application.activate(options: []) {
+            appendEvent("diagnostic.info: [untype] focus returned to \(application.localizedName ?? "the app in use")")
         }
     }
 
@@ -1339,10 +1389,36 @@ final class UntypeUIModel: ObservableObject {
                         }
                     },
                     focusedInputPreparation: {
-                        await MainActor.run {
-                            modelBox.model?.prepareFocusedInputDelivery()
+                        let activated = await MainActor.run {
+                            modelBox.model?.prepareFocusedInputDelivery() ?? false
                         }
                         try? await Task.sleep(nanoseconds: 150_000_000)
+                        guard activated else {
+                            return
+                        }
+                        // The app the dictation started in was brought back:
+                        // wait until it is in front (at most a second more).
+                        var inFront = false
+                        for _ in 0..<20 {
+                            inFront = await MainActor.run(body: { modelBox.model?.focusedInputOriginIsFrontmost ?? true })
+                            if inFront {
+                                break
+                            }
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                        }
+                        if !inFront {
+                            dispatchToUI { [modelBox] in
+                                modelBox.model?.appendEvent("diagnostic.warning: [untype] the app the dictation started in did not come to the front; the text goes to the app in front")
+                            }
+                        }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    },
+                    focusedInputCompletion: {
+                        // Let the last keystrokes land before the focus moves.
+                        try? await Task.sleep(nanoseconds: 150_000_000)
+                        await MainActor.run {
+                            modelBox.model?.finishFocusedInputDelivery()
+                        }
                     },
                     focusedInputReconciliation: { @MainActor text in
                         await modelBox.model?.reconcileLiveInput(text) ?? .notLive
@@ -2839,6 +2915,11 @@ private final class UntypeOverlayController: ObservableObject {
     private var hideTask: Task<Void, Never>?
     private let layout = UntypeOverlayLayout()
     @Published private var phase = "idle"
+    /// The processing line next to the text caret (shown while finalizing,
+    /// where the focused control reports its caret).
+    private let caretIndicator = CaretIndicatorController()
+    /// The processing line is at the caret, so the overlay does not draw it.
+    @Published fileprivate private(set) var processingShownAtCaret = false
     /// A short message shown in place of the waveform (selection hotkey
     /// refusals); nil during push-to-talk.
     @Published private(set) var notice: String?
@@ -2861,6 +2942,29 @@ private final class UntypeOverlayController: ObservableObject {
 
     init(model: UntypeUIModel) {
         self.model = model
+        caretIndicator.onVisibilityChange = { [weak self] visible in
+            self?.processingShownAtCaret = visible
+            self?.applyPanelVisibility()
+        }
+    }
+
+    /// While the processing line is at the caret, the overlay steps back:
+    /// invisible, or (kept on screen) its idle look.
+    private func applyPanelVisibility() {
+        let hidden = phase == "finalizing" && processingShownAtCaret && model?.settings.overlayAlwaysVisible != true
+        let alpha: CGFloat = hidden ? 0 : 1
+        if panel?.alphaValue != alpha {
+            panel?.alphaValue = alpha
+        }
+    }
+
+    private func updateCaretIndicator() {
+        if phase == "finalizing" {
+            caretIndicator.start()
+        } else {
+            caretIndicator.stop()
+        }
+        applyPanelVisibility()
     }
 
     /// Shows the push-to-talk pill. The text itself goes to the focused
@@ -2869,6 +2973,7 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         self.phase = phase
         notice = nil
+        defer { updateCaretIndicator() }
         guard panel?.isVisible != true else {
             // Kept on screen while idle: follow the screen under the mouse,
             // unless the user placed it.
@@ -2936,6 +3041,7 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         phase = "idle"
         notice = nil
+        updateCaretIndicator()
         if model?.settings.overlayAlwaysVisible == true {
             if panel?.isVisible != true {
                 show(phase: "idle")
@@ -2948,6 +3054,7 @@ private final class UntypeOverlayController: ObservableObject {
 
     func destroy() {
         hideTask?.cancel()
+        caretIndicator.stop()
         stopFollowingMouse()
         panel?.close()
         panel = nil
@@ -2977,7 +3084,7 @@ private final class UntypeOverlayController: ObservableObject {
     }
 
     private func followMouse() {
-        guard let panel, panel.isVisible else {
+        guard let panel, panel.isVisible, panel.alphaValue > 0 else {
             setHoveredChip(nil)
             return
         }
@@ -3235,7 +3342,8 @@ private struct UntypeOverlayView: View {
 
     /// Not dictating; on screen only with "Keep overlay visible".
     private var isIdle: Bool {
-        controller.overlayPhase.lowercased() == "idle"
+        let phase = controller.overlayPhase.lowercased()
+        return phase == "idle" || (phase == "finalizing" && controller.processingShownAtCaret)
     }
 
     /// The chip under the mouse, for its tooltip.
