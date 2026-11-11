@@ -351,6 +351,16 @@ public final class VoiceAgentProtocolController {
                 selectionReference = selectionContextTemplate.replacingOccurrences(of: "{selection}", with: selection)
             }
         }
+        // Dictation in the middle of a sentence: Refine processes the whole
+        // sentence (the part before the caret, the dictation, the part after
+        // it) and the output replaces that sentence in the field.
+        if selection == nil, operators.contains(.refine), !operators.contains(.ask), !rawText.isEmpty,
+           let sentence = turnContext?.takeSentence(dictation: rawText) {
+            processInput = sentence.compose(dictation: rawText)
+            if verbose || visibleOperatorDiagnostics {
+                diagnostics.write("[untype] protocol refine: the sentence around the cursor is included (\(sentence.length) characters)", false)
+            }
+        }
         // Screenshot: the image goes with every LLM call of the section and
         // the prompt says so. Operator on but no screenshot captured: no LLM
         // call (the capture already warned why).
