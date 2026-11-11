@@ -179,6 +179,15 @@ struct UntypeSettingsView: View {
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Text("untype \(UntypeAppVersion.current.label)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .help("The version and build of the untype that is running")
+        }
         .background(.regularMaterial)
     }
 
