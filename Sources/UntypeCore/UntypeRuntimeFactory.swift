@@ -148,6 +148,7 @@ public enum UntypeRuntimeFactory {
         diagnosticsOutput: TextOutput,
         eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void,
         focusedInputPreparation: @escaping @Sendable () async -> Void = {},
+        focusedInputCompletion: @escaping @Sendable () async -> Void = {},
         focusedInputReconciliation: @escaping @Sendable (_ text: String) async -> LiveInputReconciliation = { _ in .notLive },
         streamingProgress: (@Sendable (String) -> Void)? = nil,
         turnContext: UntypeTurnContext? = nil,
@@ -212,13 +213,21 @@ public enum UntypeRuntimeFactory {
                 await focusedInputPreparation()
                 // Text typed live during push-to-talk is edited in place with
                 // keystrokes; only turns without live text use regular delivery.
-                switch await focusedInputReconciliation(text) {
-                case .notLive:
-                    return try await focusedInputDelivery.deliver(text)
-                case .completed:
-                    return FocusedInputDeliveryResult.success(method: "live-typed")
-                case .paste(let rest):
-                    return try await livePasteDelivery.deliver(rest)
+                do {
+                    let result: FocusedInputDeliveryResult
+                    switch await focusedInputReconciliation(text) {
+                    case .notLive:
+                        result = try await focusedInputDelivery.deliver(text)
+                    case .completed:
+                        result = FocusedInputDeliveryResult.success(method: "live-typed")
+                    case .paste(let rest):
+                        result = try await livePasteDelivery.deliver(rest)
+                    }
+                    await focusedInputCompletion()
+                    return result
+                } catch {
+                    await focusedInputCompletion()
+                    throw error
                 }
             },
             diagnostics: controllerDiagnostics,

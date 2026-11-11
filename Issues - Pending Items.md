@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P1 - Delivery to the app the dictation started in, processing line at the caret: on-device check pending (2026-11-11)
+Plan-051 / FR-56, FR-57, not yet in a released build. Touches focused-input delivery. Checked with unit tests and probes only (activation from the background; caret rectangle in TextEdit). To check in the app: (1) dictate into app A, switch to app B while holding the hotkey, release: the text lands in A and the focus returns to B, `focused_input.ok=true`; (2) the ordinary case (same app throughout) still delivers; (3) the processing line appears under the caret in a native field and in a browser field, and the overlay shows the wave in a terminal; (4) live typing while switching apps leaves no duplicated or missing text.
+
 ### P2 - Menu-bar dropdown tidy-up: on-device check pending (2026-11-10)
 Plan-050 / FR-55, released in build 47. Checked only with rendered snapshots. The Overlay "Keep on screen" switch in the dropdown (build 48) is also unchecked on device: flipping it should show or hide the idle overlay at once and swap the Operators tab for the "On now" line. To check in the app: the Controls / Operators tabs with "Keep overlay visible" off; the "On now" summary with it on; an operator switch in the tab takes effect; the dropdown resizes cleanly when the tab changes; push-to-talk still delivers.
 

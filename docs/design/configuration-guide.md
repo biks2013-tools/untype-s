@@ -157,6 +157,12 @@ The Settings window (⌘, from the menu-bar dropdown or the main window) is orga
 
 Settings that shape the session are locked while a session is active; the pane header says so.
 
+## Where the Text Goes and the Processing Line
+
+A push-to-talk (or push-to-listen) turn is delivered to the app that was in front when you pressed the hotkey. You can move to another app while dictating: on delivery untype brings the first app forward, inserts the text at its cursor, and returns you to the app you were in. There is no setting for this. If the first app was quit meanwhile, the text goes to the app in front.
+
+While the turn is processed, a small animated line is shown under the text cursor of the focused field, and the overlay does not show the processing wave. This needs the field to report its cursor position through Accessibility; native macOS fields and most browser fields do. Terminals and many Electron apps (Teams, for example) do not, and there the overlay shows the processing wave as before.
+
 ## Keep Overlay Visible
 
 **Keep overlay visible** (Settings → General → Dictation overlay, or menu-bar dropdown → Overlay → Keep on screen; `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off. The setting also shapes the menu-bar dropdown: on, the dropdown only names the operators that are on, because the overlay has the switches; off, the dropdown has an **Operators** tab with the switches.
