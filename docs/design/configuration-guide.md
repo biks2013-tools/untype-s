@@ -167,6 +167,10 @@ While the turn is processed, a small animated line is shown under the text curso
 
 With **Refine** on, when you start dictating with the cursor inside a sentence, untype refines the whole sentence: the words before the cursor, what you dictate, and the words after the cursor. The refined sentence replaces the old one in the field. There is no setting; it follows the Refine operator. It does not apply with Ask on, when text is selected in the field, in terminals, or in password fields. The field must report its text and cursor through Accessibility (native macOS fields do; many browser fields do). Where the sentence cannot be replaced, only the dictated words are inserted and the rest of the sentence stays as it was. A "sentence" runs between sentence punctuation (`. ! ? ; …`) or line breaks; text longer than 1500 characters on one side of the cursor without such punctuation is not treated as a sentence.
 
+## Which Build Is Running
+
+The version and build of the running app are shown at the bottom of the menu-bar dropdown and at the bottom of the Settings sidebar ("untype 0.1.0 · build 51"), and in the first lines of each launch in `~/.tool-agents/untype/events.log`.
+
 ## Keep Overlay Visible
 
 **Keep overlay visible** (Settings → General → Dictation overlay, or menu-bar dropdown → Overlay → Keep on screen; `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off. The setting also shapes the menu-bar dropdown: on, the dropdown only names the operators that are on, because the overlay has the switches; off, the dropdown has an **Operators** tab with the switches.

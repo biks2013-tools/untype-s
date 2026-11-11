@@ -194,40 +194,57 @@ final class SentenceAnchor {
         self.tail = tail
     }
 
-    /// The sentence around the caret of the focused control of `app`. nil
-    /// when there is no such control, it is a terminal or a password field,
-    /// it has a selection, its selection cannot be set, or the caret is not
-    /// inside a sentence. No side effects.
-    static func capture(in app: NSRunningApplication) -> SentenceAnchor? {
+    enum Capture {
+        case captured(SentenceAnchor)
+        /// Why not, for the event log (no text content).
+        case notCaptured(String)
+    }
+
+    /// The sentence around the caret of the focused control of `app`. Not
+    /// captured when there is no such control, it is a terminal or a
+    /// password field, it has a selection, its selection cannot be set, or
+    /// the caret is not inside a sentence. No side effects.
+    static func capture(in app: NSRunningApplication) -> Capture {
         if let bundleIdentifier = app.bundleIdentifier, terminalBundleIdentifiers.contains(bundleIdentifier) {
-            return nil
+            return .notCaptured("terminal")
         }
         guard let element = CaretLocator.focusedElement() else {
-            return nil
+            return .notCaptured("the app reports no focused control")
         }
         AXUIElementSetMessagingTimeout(element, 0.25)
+        let role = string(element, kAXRoleAttribute) ?? "unknown role"
         var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success, pid == app.processIdentifier,
-              string(element, kAXSubroleAttribute) != (kAXSecureTextFieldSubrole as String),
-              let value = string(element, kAXValueAttribute),
-              let range = selectedRange(element), range.length == 0
-        else {
-            return nil
+        guard AXUIElementGetPid(element, &pid) == .success, pid == app.processIdentifier else {
+            return .notCaptured("the focused control belongs to another app")
+        }
+        guard string(element, kAXSubroleAttribute) != (kAXSecureTextFieldSubrole as String) else {
+            return .notCaptured("password field")
+        }
+        guard let value = string(element, kAXValueAttribute) else {
+            return .notCaptured("the focused control (\(role)) reports no text")
+        }
+        guard let range = selectedRange(element) else {
+            return .notCaptured("the focused control (\(role)) reports no cursor position")
+        }
+        guard range.length == 0 else {
+            return .notCaptured("text is selected")
         }
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextRangeAttribute as CFString, &settable) == .success,
-              settable.boolValue,
-              let span = SentenceSpan.around(caret: range.location, in: value)
+              settable.boolValue
         else {
-            return nil
+            return .notCaptured("the selection of the focused control (\(role)) cannot be set")
+        }
+        guard let span = SentenceSpan.around(caret: range.location, in: value) else {
+            return .notCaptured("the cursor is not inside a sentence (\(role), cursor at \(range.location) of \((value as NSString).length))")
         }
         let text = value as NSString
-        return SentenceAnchor(
+        return .captured(SentenceAnchor(
             element: element,
             span: span,
             head: text.substring(to: span.location),
             tail: text.substring(from: span.location + span.length)
-        )
+        ))
     }
 
     /// Selects the sentence as it stands now (with the text typed live at

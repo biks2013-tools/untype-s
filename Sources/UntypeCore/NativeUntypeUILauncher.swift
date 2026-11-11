@@ -75,6 +75,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.model = model
         self.overlay = overlay
         self.hotkeyMonitor = hotkeyMonitor
+        model.appendEvent("diagnostic.info: [untype] running untype \(UntypeAppVersion.current.label)")
         model.configureHotkeyServices()
         overlay.applyAlwaysVisible()
 
@@ -500,6 +501,9 @@ final class UntypeUIModel: ObservableObject {
         case .nothingSelected:
             captureSentenceAroundCaret(in: frontmost)
         case .unsupported:
+            // No readable selection; the control may still report its text
+            // and caret.
+            captureSentenceAroundCaret(in: frontmost)
             guard settings.selection else {
                 return
             }
@@ -577,7 +581,15 @@ final class UntypeUIModel: ObservableObject {
     /// the caret, so Refine processes the whole sentence and the result
     /// replaces it. Only lengths are logged, never the text.
     private func captureSentenceAroundCaret(in app: NSRunningApplication?) {
-        guard settings.focusedInput, let app, let anchor = SentenceAnchor.capture(in: app) else {
+        guard settings.focusedInput, let app else {
+            return
+        }
+        let anchor: SentenceAnchor
+        switch SentenceAnchor.capture(in: app) {
+        case .captured(let captured):
+            anchor = captured
+        case .notCaptured(let reason):
+            appendEvent("diagnostic.info: [untype] sentence around the cursor not captured: \(reason)")
             return
         }
         sentenceAnchor = anchor

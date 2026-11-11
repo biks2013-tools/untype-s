@@ -68,6 +68,13 @@ struct UntypeMenuBarPanel: View {
                     .keyboardShortcut("q", modifiers: [.command])
             }
             .padding(6)
+            Divider()
+            Text("untype \(UntypeAppVersion.current.label)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 6)
+                .help("The version and build of the untype that is running")
         }
         .frame(width: 320)
         .preferredColorScheme(preferredColorScheme)
