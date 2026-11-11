@@ -2992,13 +2992,20 @@ private final class UntypeOverlayController: ObservableObject {
     /// Frames of the chips in the overlay (top-left origin), reported by
     /// the view.
     fileprivate var chipFrames: [String: CGRect] = [:]
+    /// The mouse is over the overlay (anywhere in its frame): the idle
+    /// overlay brightens its chips and shows the drag handle.
+    @Published fileprivate private(set) var pointerInside = false
     /// Follows the mouse while the panel is on screen.
     private var mouseTimer: Timer?
     /// A drag of the handle in progress: where the mouse and the panel
     /// started.
     private var dragStart: (mouse: CGPoint, origin: CGPoint)?
-    /// The letter-free key of the drag handle in `chipFrames`/`hoveredChip`.
-    fileprivate static let handleKey = "handle"
+    /// The key of the hover tray (the idle overlay's draggable background)
+    /// in `hoveredChip`: the whole idle panel outside its chips and controls.
+    fileprivate static let handleKey = "tray"
+    /// Keys of the tray's controls in `chipFrames`/`hoveredChip`.
+    fileprivate static let settingsKey = "settings"
+    fileprivate static let translationKeyPrefix = "translate:"
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -3033,6 +3040,11 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         self.phase = phase
         notice = nil
+        // The handle exists only while idle: a drag cut short by a turn
+        // ends where the panel is.
+        if phase != "idle", dragStart != nil {
+            endDrag()
+        }
         defer { updateCaretIndicator() }
         guard panel?.isVisible != true else {
             // Kept on screen while idle: follow the screen under the mouse,
@@ -3141,22 +3153,27 @@ private final class UntypeOverlayController: ObservableObject {
         mouseTimer?.invalidate()
         mouseTimer = nil
         setHoveredChip(nil)
+        setPointerInside(false)
     }
 
     private func followMouse() {
         guard let panel, panel.isVisible, panel.alphaValue > 0 else {
             setHoveredChip(nil)
+            setPointerInside(false)
             return
         }
         let mouse = NSEvent.mouseLocation
         let frame = panel.frame
+        setPointerInside(frame.contains(mouse))
         guard frame.contains(mouse) else {
             setHoveredChip(nil)
             return
         }
         let location = CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y)
-        let chip = chipFrames.first { $0.value.insetBy(dx: -3, dy: -3).contains(location) }?.key
-        setHoveredChip(chip)
+        // A chip or tray control wins; elsewhere on the idle overlay the
+        // mouse is on the tray (drawn there while the pointer is inside).
+        let control = chipFrames.first { $0.value.insetBy(dx: -3, dy: -3).contains(location) }?.key
+        setHoveredChip(control ?? (phase == "idle" ? Self.handleKey : nil))
     }
 
     /// The place the user dragged the overlay to, while it is still on a
@@ -3212,6 +3229,14 @@ private final class UntypeOverlayController: ObservableObject {
         }
     }
 
+    private func setPointerInside(_ inside: Bool) {
+        // A drag keeps the handle on screen even when it outruns the panel.
+        guard dragStart == nil, pointerInside != inside else {
+            return
+        }
+        pointerInside = inside
+    }
+
     private func setHoveredChip(_ chip: String?) {
         // A drag keeps the mouse even when it outruns the handle.
         guard dragStart == nil else {
@@ -3247,6 +3272,7 @@ private final class UntypeOverlayController: ObservableObject {
         panel.hasShadow = false
         panel.animationBehavior = .utilityWindow
         let hostingView = UntypeOverlayHostingView(rootView: UntypeOverlayView(controller: self))
+        hostingView.controller = self
         hostingView.frame = NSRect(x: 0, y: 0, width: layout.width, height: layout.height)
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
@@ -3321,57 +3347,65 @@ private final class UntypeOverlayController: ObservableObject {
         }
         model?.toggleOperator(key)
     }
+
+    /// The language Translate turns the text into (`TranslationPolicy` raw value).
+    fileprivate var translationPolicy: String {
+        model?.settings.translationPolicy ?? TranslationPolicy.opposite.rawValue
+    }
+
+    /// The tray's translation-direction buttons: the same setting as the
+    /// menu-bar dropdown's "Translate to".
+    fileprivate func setTranslationPolicy(_ policy: TranslationPolicy) {
+        guard let model, model.canReshapeSession, model.settings.translationPolicy != policy.rawValue else {
+            return
+        }
+        model.update(UntypeUISettingsPatch(translationPolicy: policy.rawValue))
+    }
+
+    fileprivate func openSettings() {
+        model?.showSettingsWindow?(nil)
+    }
 }
 
 /// Clicks act at once although the overlay panel is never the key window.
+/// A press on the hover tray outside its controls moves the panel; a
+/// double-click there puts it back in its default place.
 private final class UntypeOverlayHostingView<Content: View>: NSHostingView<Content> {
+    weak var controller: UntypeOverlayController?
+    private var dragging = false
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
-}
 
-/// Mouse handling of the overlay's drag handle: drag moves the panel,
-/// double-click puts it back in its default place.
-private struct UntypeOverlayDragArea: NSViewRepresentable {
-    let controller: UntypeOverlayController
-
-    func makeNSView(context: Context) -> DragView {
-        DragView(controller: controller)
+    override func mouseDown(with event: NSEvent) {
+        guard let controller, controller.hoveredChip == UntypeOverlayController.handleKey else {
+            super.mouseDown(with: event)
+            return
+        }
+        if event.clickCount == 2 {
+            controller.resetPosition()
+        } else {
+            dragging = true
+            controller.beginDrag()
+        }
     }
 
-    func updateNSView(_ view: DragView, context: Context) {}
-
-    final class DragView: NSView {
-        private weak var controller: UntypeOverlayController?
-
-        init(controller: UntypeOverlayController) {
-            self.controller = controller
-            super.init(frame: .zero)
+    override func mouseDragged(with event: NSEvent) {
+        guard dragging else {
+            super.mouseDragged(with: event)
+            return
         }
+        controller?.continueDrag()
+    }
 
-        required init?(coder: NSCoder) {
-            nil
+    override func mouseUp(with event: NSEvent) {
+        guard dragging else {
+            super.mouseUp(with: event)
+            return
         }
-
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-            true
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2 {
-                controller?.resetPosition()
-            } else {
-                controller?.beginDrag()
-            }
-        }
-
-        override func mouseDragged(with event: NSEvent) {
-            controller?.continueDrag()
-        }
-
-        override func mouseUp(with event: NSEvent) {
-            controller?.endDrag()
-        }
+        dragging = false
+        controller?.endDrag()
     }
 }
 
@@ -3395,6 +3429,10 @@ private struct UntypeOverlayView: View {
     private static let traceColor = Color(.sRGB, red: 0.23, green: 0.44, blue: 0.90, opacity: 1)
 
     private static let coordinateSpace = "untype-overlay"
+    /// Opacity of the chips while idle and not hovered.
+    private static let restingChipOpacity = 0.7
+
+    @State private var frames: [String: CGRect] = [:]
 
     private var isRecording: Bool {
         controller.overlayPhase.lowercased() == "recording"
@@ -3414,37 +3452,132 @@ private struct UntypeOverlayView: View {
         return controller.operatorSnapshot.first { $0.label == letter }
     }
 
-    private var tooltip: String? {
-        if controller.hoveredChip == UntypeOverlayController.handleKey {
-            return "Drag to move · double-click to reset"
+    /// What each operator does, one short line under its name.
+    private static let operatorHints: [String: String] = [
+        "R": "Cleans up grammar, punctuation, wording",
+        "T": "Translates into the target language",
+        "A": "Inserts the answer to your question",
+        "F": "Ask continues the last conversation",
+        "S": "Uses the text selected in the app",
+        "L": "Uses your alternative model",
+        "W": "Adds a screenshot of the front window",
+        "C": "Also copies the result to the clipboard",
+        "I": "Types the result where your cursor is"
+    ]
+
+    /// The tray's translation-direction buttons: short label, tooltip.
+    private static let translationChoices: [(policy: TranslationPolicy, label: String, title: String, detail: String)] = [
+        (.opposite, "⇄", "Opposite language", "Greek becomes English, English becomes Greek"),
+        (.toEnglish, "EN", "To English", "Translate always turns the text into English"),
+        (.toGreek, "EL", "To Greek", "Translate always turns the text into Greek")
+    ]
+
+    /// The tooltip: the operator's name and key, and what it does (or the
+    /// tray control under the mouse).
+    private var tooltip: (title: String, detail: String?)? {
+        if controller.hoveredChip == UntypeOverlayController.settingsKey {
+            return ("Settings", nil)
+        }
+        if let key = controller.hoveredChip, key.hasPrefix(UntypeOverlayController.translationKeyPrefix),
+           let choice = Self.translationChoices.first(where: { UntypeOverlayController.translationKeyPrefix + $0.policy.rawValue == key }) {
+            return (choice.title, choice.detail)
         }
         guard let item = hoveredChip else {
             return nil
         }
-        return "\(item.name) (\(item.label)) · \(item.enabled ? "on" : "off") — click to switch \(item.enabled ? "off" : "on")"
+        return ("\(item.name) · \(item.label)", Self.operatorHints[item.label])
     }
 
-    /// The drag handle: a small grip in the top-left corner.
-    private var dragHandle: some View {
-        let hovered = controller.hoveredChip == UntypeOverlayController.handleKey
-        return Image(systemName: "line.3.horizontal")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(Color.white.opacity(hovered ? 0.95 : 0.7))
-            .frame(width: 18, height: 12)
-            .background(Capsule(style: .continuous).fill(Color.black.opacity(hovered ? 0.6 : 0.35)))
-            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
-            .overlay(UntypeOverlayDragArea(controller: controller))
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: UntypeOverlayChipFrames.self,
-                        value: [UntypeOverlayController.handleKey: proxy.frame(in: .named(Self.coordinateSpace))]
-                    )
-                }
+    /// The hover tray appears only on an idle overlay under the mouse:
+    /// while dictating or processing, the overlay is not moved or set up.
+    private var showsTray: Bool {
+        controller.overlayPhase.lowercased() == "idle" && controller.pointerInside
+    }
+
+    /// The idle overlay rests a little dimmer until the mouse is over it.
+    private var chipOpacity: Double {
+        isIdle && !controller.pointerInside ? Self.restingChipOpacity : 1
+    }
+
+    /// The tooltip's top-left corner: centred over the hovered chip (under
+    /// it when there is no room above, as for the tray's top row), kept
+    /// inside the overlay.
+    private func tooltipX(width: CGFloat, over anchor: CGRect) -> CGFloat {
+        min(max(2, anchor.midX - width / 2), controller.overlaySize.width - 2 - width)
+    }
+
+    private func tooltipY(height: CGFloat, over anchor: CGRect) -> CGFloat {
+        let above = anchor.minY - 3 - height
+        return above >= 0 ? above : anchor.maxY + 3
+    }
+
+    /// Reports a hit-testable frame under `key` (see `followMouse`).
+    private func hitFrame(_ key: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: UntypeOverlayChipFrames.self,
+                value: [key: proxy.frame(in: .named(Self.coordinateSpace))]
             )
-            .padding(.top, 4)
-            .padding(.leading, 4)
-            .accessibilityLabel("Move the overlay")
+        }
+    }
+
+    /// The tray's dark rounded background; dragging it moves the overlay
+    /// (`UntypeOverlayHostingView`).
+    private var trayBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.black.opacity(0.5))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+            )
+            .padding(1)
+            .accessibilityLabel("Drag to move the overlay, double-click to reset its place")
+    }
+
+    /// The tray's top row: translation direction on the left, Settings on
+    /// the right.
+    private var trayControls: some View {
+        HStack(spacing: 4) {
+            Text("Translate")
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.6))
+                .padding(.trailing, 2)
+            ForEach(Self.translationChoices, id: \.policy) { choice in
+                let selected = controller.translationPolicy == choice.policy.rawValue
+                Button {
+                    controller.setTranslationPolicy(choice.policy)
+                } label: {
+                    Text(choice.label)
+                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(selected ? Color.black.opacity(0.85) : Color.white.opacity(0.8))
+                        .frame(width: 24, height: 15)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(selected ? Color.white.opacity(0.9) : Color.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+                .contentShape(Capsule(style: .continuous))
+                .background(hitFrame(UntypeOverlayController.translationKeyPrefix + choice.policy.rawValue))
+                .accessibilityLabel("Translate: \(choice.title)\(selected ? ", selected" : "")")
+            }
+            Spacer(minLength: 0)
+            Button {
+                controller.openSettings()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(controller.hoveredChip == UntypeOverlayController.settingsKey ? 0.95 : 0.7))
+                    .frame(width: 18, height: 15)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .background(hitFrame(UntypeOverlayController.settingsKey))
+            .accessibilityLabel("Open Settings")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     var body: some View {
@@ -3459,14 +3592,15 @@ private struct UntypeOverlayView: View {
                     .padding(.vertical, 4)
                     .background(Capsule(style: .continuous).fill(Color.black.opacity(0.7)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if showsTray {
+                trayControls
+                    .transition(.opacity)
             } else if isIdle {
-                // A flat, dim line: nothing is being recorded or processed.
-                Canvas { canvas, size in
-                    drawTrace([0, 0], in: &canvas, size: size)
-                }
-                .opacity(0.45)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityHidden(true)
+                // Nothing is being recorded or processed: no trace, the
+                // chips keep their place.
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityHidden(true)
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
                     let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
@@ -3488,39 +3622,55 @@ private struct UntypeOverlayView: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Capsule(style: .continuous))
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: UntypeOverlayChipFrames.self,
-                                value: [item.label: proxy.frame(in: .named(Self.coordinateSpace))]
-                            )
-                        }
-                    )
+                    .background(hitFrame(item.label))
                 }
             }
+            .opacity(chipOpacity)
         }
-        .padding(.vertical, 2)
+        .padding(.top, 2)
+        .padding(.bottom, 5)
         .frame(width: controller.overlaySize.width, height: controller.overlaySize.height)
+        .background {
+            if showsTray {
+                trayBackground
+                    .transition(.opacity)
+            }
+        }
         .accessibilityElement(children: .contain)
         .overlay(alignment: .topLeading) {
-            dragHandle
-        }
-        .overlay(alignment: .top) {
-            if let tooltip {
-                Text(tooltip)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+            if let tooltip, let anchor = controller.hoveredChip.flatMap({ frames[$0] }) {
+                VStack(spacing: 1) {
+                    Text(tooltip.title)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    if let detail = tooltip.detail {
+                        Text(detail)
+                            .font(.system(size: 9.5, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                    }
+                }
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(Capsule(style: .continuous).fill(Color.black.opacity(0.75)))
-                    .padding(.top, 4)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.black.opacity(0.75)))
+                    // Placed by its own measured size (alignment guides see it).
+                    .alignmentGuide(.leading) { -tooltipX(width: $0.width, over: anchor) }
+                    .alignmentGuide(.top) { -tooltipY(height: $0.height, over: anchor) }
+                    .frame(
+                        width: controller.overlaySize.width,
+                        height: controller.overlaySize.height,
+                        alignment: .topLeading
+                    )
                     .allowsHitTesting(false)
             }
         }
+        .animation(.easeOut(duration: 0.15), value: controller.pointerInside)
         .coordinateSpace(name: Self.coordinateSpace)
-        .onPreferenceChange(UntypeOverlayChipFrames.self) { controller.chipFrames = $0 }
+        .onPreferenceChange(UntypeOverlayChipFrames.self) { value in
+            controller.chipFrames = value
+            frames = value
+        }
         .accessibilityLabel(isIdle ? "untype operators" : isRecording ? "Push to talk, listening" : "Push to talk, processing")
     }
 
