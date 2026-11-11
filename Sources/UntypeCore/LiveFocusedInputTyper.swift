@@ -221,6 +221,18 @@ final class LiveFocusedInputTyper {
         return .completed
     }
 
+    /// Returns when every keystroke posted so far has been sent.
+    func flush() async {
+        await poster.applyAndWait(LiveInputEdit(deleteCount: 0, insert: ""))
+    }
+
+    /// Forgets the live text without editing it (it is being replaced
+    /// together with the sentence around it).
+    func discard() {
+        typed = ""
+        transcript = LiveTranscriptText()
+    }
+
     private var targetIsFrontmost: Bool {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID
     }

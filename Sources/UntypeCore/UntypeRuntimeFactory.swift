@@ -150,6 +150,7 @@ public enum UntypeRuntimeFactory {
         focusedInputPreparation: @escaping @Sendable () async -> Void = {},
         focusedInputCompletion: @escaping @Sendable () async -> Void = {},
         focusedInputReconciliation: @escaping @Sendable (_ text: String) async -> LiveInputReconciliation = { _ in .notLive },
+        focusedInputSentenceDelivery: @escaping @Sendable (_ text: String) async -> SentenceDeliveryPlan = { _ in .notUsed },
         streamingProgress: (@Sendable (String) -> Void)? = nil,
         turnContext: UntypeTurnContext? = nil,
         askConversation: AskConversation = AskConversation()
@@ -213,15 +214,29 @@ public enum UntypeRuntimeFactory {
                 await focusedInputPreparation()
                 // Text typed live during push-to-talk is edited in place with
                 // keystrokes; only turns without live text use regular delivery.
-                do {
-                    let result: FocusedInputDeliveryResult
+                let deliverReconciled: (String) async throws -> FocusedInputDeliveryResult = { text in
                     switch await focusedInputReconciliation(text) {
                     case .notLive:
-                        result = try await focusedInputDelivery.deliver(text)
+                        return try await focusedInputDelivery.deliver(text)
                     case .completed:
-                        result = FocusedInputDeliveryResult.success(method: "live-typed")
+                        return FocusedInputDeliveryResult.success(method: "live-typed")
                     case .paste(let rest):
-                        result = try await livePasteDelivery.deliver(rest)
+                        return try await livePasteDelivery.deliver(rest)
+                    }
+                }
+                do {
+                    let result: FocusedInputDeliveryResult
+                    // A turn refined together with the sentence around the
+                    // caret replaces that sentence (selected in the field);
+                    // when it cannot be selected, only the dictation part
+                    // is delivered.
+                    switch await focusedInputSentenceDelivery(text) {
+                    case .notUsed:
+                        result = try await deliverReconciled(text)
+                    case .regionSelected:
+                        result = try await focusedInputDelivery.deliver(text)
+                    case .dictationOnly(let part):
+                        result = try await deliverReconciled(part)
                     }
                     await focusedInputCompletion()
                     return result

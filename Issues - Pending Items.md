@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P1 - Whole-sentence refinement when dictating mid-sentence: on-device check pending (2026-11-11)
+Plan-052 / FR-58, not released yet. Touches focused-input delivery. Checked with unit tests only; the Accessibility capture and the selection of the sentence can only be checked in the app. To check with Refine on, in TextEdit, Notes and a browser text field: (1) put the cursor in the middle of a sentence and dictate a few words: the whole sentence comes back refined, once, with the neighbouring sentences untouched, `focused_input.ok=true`; (2) the same at the end of an unfinished sentence; (3) dictation on an empty line and in a terminal behaves as before; (4) in an app where the sentence cannot be selected (e.g. Teams) only the dictated words are inserted and the event log shows the warning. Open point: apps that change live-typed text (autocorrect) inside the sentence are handled, but an app that changes the text before or after the sentence during dictation falls back to the dictated words only.
+
 ### P1 - Delivery to the app the dictation started in, processing line at the caret: on-device check pending (2026-11-11)
 Plan-051 / FR-56, FR-57, released in build 49. Touches focused-input delivery. Checked with unit tests and probes only (activation from the background; caret rectangle in TextEdit). To check in the app: (1) dictate into app A, switch to app B while holding the hotkey, release: the text lands in A and the focus returns to B, `focused_input.ok=true`; (2) the ordinary case (same app throughout) still delivers; (3) the processing line appears under the caret in a native field and in a browser field, and the overlay shows the wave in a terminal; (4) live typing while switching apps leaves no duplicated or missing text.
 

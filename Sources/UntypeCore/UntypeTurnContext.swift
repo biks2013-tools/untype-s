@@ -32,6 +32,8 @@ public final class UntypeTurnContext: @unchecked Sendable {
     private var storedRole: SelectionRole = .material
     private var storedScreenshot: WindowScreenshot?
     private var pendingScreenshot: Task<WindowScreenshot?, Never>?
+    private var storedSentence: SentenceSpan?
+    private var storedSentenceDictation: String?
 
     public init(
         selectedText: String? = nil,
@@ -79,6 +81,40 @@ public final class UntypeTurnContext: @unchecked Sendable {
             storedRole = selectionRole
             storedScreenshot = nil
             pendingScreenshot = nil
+            storedSentence = nil
+            storedSentenceDictation = nil
+        }
+    }
+
+    /// The sentence around the caret at press time (nil: none).
+    public func setSentence(_ span: SentenceSpan?) {
+        lock.withLock {
+            storedSentence = span
+            storedSentenceDictation = nil
+        }
+    }
+
+    /// The sentence around the caret, handed out once: the section that
+    /// takes it processes the whole sentence with `dictation` at the caret,
+    /// and its output replaces the sentence in the field.
+    public func takeSentence(dictation: String) -> SentenceSpan? {
+        lock.withLock {
+            guard let span = storedSentence else {
+                return nil
+            }
+            storedSentence = nil
+            storedSentenceDictation = dictation
+            return span
+        }
+    }
+
+    /// The dictation of the section that took the sentence, handed out once
+    /// to the delivery of that section's output. nil: the text being
+    /// delivered is not a whole sentence.
+    public func takeSentenceDelivery() -> String? {
+        lock.withLock {
+            defer { storedSentenceDictation = nil }
+            return storedSentenceDictation
         }
     }
 

@@ -381,6 +381,8 @@ final class UntypeUIModel: ObservableObject {
     private var focusedInputReturnApplication: NSRunningApplication?
     /// Types the current push-to-talk turn into the focused control live.
     private var liveTyper: LiveFocusedInputTyper?
+    /// The sentence around the caret at press time (see `SentenceAnchor`).
+    private var sentenceAnchor: SentenceAnchor?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
     /// Per-turn inputs (the selected text) and the Ask conversation; both
     /// outlive the per-turn runtimes, which read them.
@@ -496,7 +498,7 @@ final class UntypeUIModel: ObservableObject {
         case .selected(let text):
             applyCapturedSelection(text, via: "accessibility")
         case .nothingSelected:
-            break
+            captureSentenceAroundCaret(in: frontmost)
         case .unsupported:
             guard settings.selection else {
                 return
@@ -569,6 +571,55 @@ final class UntypeUIModel: ObservableObject {
             appendEvent("diagnostic.info: [untype] no selected text found")
         }
         liveTyper?.resume()
+    }
+
+    /// Dictation in the middle of a sentence: remembers the sentence around
+    /// the caret, so Refine processes the whole sentence and the result
+    /// replaces it. Only lengths are logged, never the text.
+    private func captureSentenceAroundCaret(in app: NSRunningApplication?) {
+        guard settings.focusedInput, let app, let anchor = SentenceAnchor.capture(in: app) else {
+            return
+        }
+        sentenceAnchor = anchor
+        turnContext.setSentence(anchor.span)
+        appendEvent("diagnostic.info: [untype] sentence around the cursor captured (\(anchor.span.before.count) characters before, \(anchor.span.after.count) after)")
+    }
+
+    /// Called by focused-input delivery with the final (processed) text.
+    /// When that text is a whole sentence (the dictation refined with the
+    /// sentence around the caret), selects the sentence in the field so the
+    /// insertion replaces it. When the sentence cannot be selected, the
+    /// dictation part alone is delivered instead.
+    func prepareSentenceDelivery(_ text: String) async -> SentenceDeliveryPlan {
+        guard let dictation = turnContext.takeSentenceDelivery() else {
+            return .notUsed
+        }
+        let anchor = sentenceAnchor
+        sentenceAnchor = nil
+        if let anchor {
+            // Every live keystroke must have landed in the field first.
+            await liveTyper?.flush()
+            var length = anchor.valueLength()
+            for _ in 0..<6 {
+                try? await Task.sleep(for: .milliseconds(50))
+                let next = anchor.valueLength()
+                if next == length {
+                    break
+                }
+                length = next
+            }
+            if anchor.selectRegion() {
+                liveTyper?.discard()
+                appendEvent("diagnostic.info: [untype] the sentence around the cursor is replaced with the refined sentence")
+                return .regionSelected
+            }
+        }
+        if let part = anchor?.span.dictationOnly(from: text) {
+            appendEvent("diagnostic.warning: [untype] the sentence around the cursor could not be selected in the field; only the dictated part is delivered")
+            return .dictationOnly(part)
+        }
+        appendEvent("diagnostic.warning: [untype] the sentence around the cursor could not be selected in the field; the dictation is delivered as spoken")
+        return .dictationOnly(dictation)
     }
 
     /// Live typing needs focused-input delivery on and an external app in
@@ -1148,6 +1199,7 @@ final class UntypeUIModel: ObservableObject {
         captureFocusedInputTarget(reason: "hotkey-press")
         turnContext.begin(selectionRole: settings.selectionRoleValue)
         selectionCopyTask = nil
+        sentenceAnchor = nil
         startLiveTyping()
         captureSelectedText()
         captureWindowScreenshot()
@@ -1338,6 +1390,11 @@ final class UntypeUIModel: ObservableObject {
         guard runtime == nil, sessionOwner == nil else {
             return
         }
+        if owner != .hotkey {
+            // A sentence captured for a push-to-talk turn never carries over.
+            sentenceAnchor = nil
+            turnContext.setSentence(nil)
+        }
         sessionState = "starting"
         isRunning = true
         audioStatus = "waiting"
@@ -1422,6 +1479,9 @@ final class UntypeUIModel: ObservableObject {
                     },
                     focusedInputReconciliation: { @MainActor text in
                         await modelBox.model?.reconcileLiveInput(text) ?? .notLive
+                    },
+                    focusedInputSentenceDelivery: { @MainActor text in
+                        await modelBox.model?.prepareSentenceDelivery(text) ?? .notUsed
                     },
                     streamingProgress: { accumulated in
                         // DISPLAY ONLY: progressively update the already-existing
