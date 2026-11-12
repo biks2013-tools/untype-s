@@ -94,6 +94,7 @@ public struct LiveTranscriptText: Equatable, Sendable {
 final class LiveKeyboardPoster: @unchecked Sendable {
     private let queue = DispatchQueue(label: "untype.live-input-typing")
     private static let deleteKeyCode: CGKeyCode = 51
+    private static let returnKeyCode: CGKeyCode = 36
     private static let maxUnitsPerEvent = 20
 
     func apply(_ edit: LiveInputEdit) {
@@ -109,6 +110,16 @@ final class LiveKeyboardPoster: @unchecked Sendable {
                 continuation.resume()
             }
         }
+    }
+
+    /// Presses Return once in the app in front (a hands-free turn finished
+    /// with Enter: sends the message just typed). Marked like the live
+    /// keystrokes, so untype's own key taps let it through.
+    static func postReturn() {
+        guard let source = CGEventSource(stateID: .privateState) else {
+            return
+        }
+        postKey(source: source, keyCode: returnKeyCode, units: nil)
     }
 
     private static func post(_ edit: LiveInputEdit) {
