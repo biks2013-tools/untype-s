@@ -4,7 +4,7 @@
 The overlay must be very easy to work with, self-explanatory, compact and exact. Renaming a meeting must show what it was renamed to, and the name must be confirmed either with the button or with Return.
 
 ## What the user sees
-- **Saved card.** A green caption says what happened ("Meeting saved", "Renamed", "Ended · 3 min silence", "Not renamed"); under it the meeting's name in full, on up to two lines (its date until it has a name). Two labelled buttons: **Open** (the transcript) and **Name** (**Rename** once it has a name). The card stays 12 s, and for as long as the mouse is on it.
+- **Saved card.** A green caption says what happened ("Meeting saved", "Renamed", "Ended · 3 min silence", "Not renamed"); under it the meeting's name in full, on up to two lines (its date until it has a name). Two labelled buttons: **Open** (the meeting folder in Finder, with the transcript selected; changed 2026-11-12, it opened the transcript before) and **Name** (**Rename** once it has a name). The card stays 12 s, and for as long as the mouse is on it.
 - **Naming card.** "Listening" with level bars; under it "Say the topic and who was there", replaced by the words as they are heard. **Done ↩** uses them, **Cancel esc** keeps the current name; Return and Esc do the same as the buttons. Listening also ends by itself after a 4 s pause.
 - **After Done.** The card answers at once with "Making the name…" and keeps the words, then becomes the saved card with "Renamed" and the new name.
 
