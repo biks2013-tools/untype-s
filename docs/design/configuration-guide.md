@@ -39,17 +39,41 @@ The native UI can write provider credentials into `~/.tool-agents/untype/.env` s
 - The editor shows and edits the user-level file only; values coming from `<cwd>/.env` or the shell environment are not displayed, although the status line still reports them as the effective source when they win the precedence chain.
 - Secret values never reach the event log or diagnostics; the saved event names only the affected keys.
 
-## Hotkey Modes (native UI)
+## Push-to-Talk Hotkey (native UI)
 
-`ui-state.json` (`~/.tool-agents/untype/ui-state.json`) stores `hotkeyHoldToTalk` next to `hotkeyEnabled` and `hotkey`:
+`ui-state.json` (`~/.tool-agents/untype/ui-state.json`) stores:
 
 | Setting | Values | Default | Meaning |
 |---|---|---|---|
 | `hotkeyEnabled` | `true` / `false` | `false` | Whether the global hotkey is monitored at all (menu-bar dropdown → Hotkey switch, or Settings → Push-to-Talk → Enable push-to-talk). |
-| `hotkeyHoldToTalk` | `true` / `false` | `true` | `true`: push-to-talk, hold the hotkey to record and release to submit. `false`: push-to-listen, press once to start recording and press again to stop and submit. Menu-bar dropdown → Trigger, the main window's top-bar switch, and Settings → General → Push to talk → "Hold to talk". |
-| `hotkey` | key chord, e.g. `Control+\`` | `Control+\`` | The hotkey itself. |
+| `hotkey` | key chord, e.g. `Control+\``, `F16` | `Control+\`` | The hotkey itself. |
 
-Both modes run the same pipeline after the recording ends: refinement, translation, clipboard, and focused-input delivery according to the operator toggles. Missing `hotkeyHoldToTalk` in an older state file loads the default (push-to-talk).
+One hotkey serves both ways of dictating:
+
+| You do | What happens |
+|---|---|
+| **Hold** the hotkey (0.4 s or longer), talk, release | The text is typed into the focused field (push-to-talk). |
+| **Tap** the hotkey (released within 0.4 s) | Recording goes on hands-free. The overlay shows `Enter send · tap again type · Esc cancel`. |
+| … then **Enter** | Recording stops, the text is typed, then untype presses Return in that field: a terminal (Claude Code) submits it, a chat app sends it, a document gets a new line. |
+| … then **the hotkey** | Recording stops and the text is typed only. |
+| … then **Esc** | Recording stops and nothing is delivered; the text typed live is removed. |
+
+Every way runs the same pipeline after the recording ends: refinement, translation, clipboard, and focused-input delivery according to the operator toggles. Return is pressed only when the text was delivered to the app the turn started in; with focused-input delivery off, Enter only ends the turn. Enter and Esc with a modifier pass through to the app. The 0.4 s threshold is fixed (`HotkeyTapOrHold.tapThreshold`). A `hotkeyHoldToTalk` key in an older `ui-state.json` is ignored.
+
+### Two-key chord through Hammerspoon (optional)
+
+`integrations/hammerspoon/untype-ptt.lua` lets two ordinary keys pressed together act as the hotkey, so no dedicated key is needed. With it, the keys beside Enter (`'` and `\` on the ABC layout, matched by physical position, so any input layout works) drive untype; either key alone still types normally.
+
+- **How it works:** while both keys are down, the module holds F16 down for the untype process; when they come up, it releases F16. untype tells a tap from a hold and catches Enter and Esc, so a tap of the chord starts a hands-free turn and a second tap finishes it (type only). F16 is posted straight to untype, because posted the ordinary way it would reach only the app in front.
+- **Requirements:** [Hammerspoon](https://www.hammerspoon.org) with Accessibility granted, and untype's hotkey set to plain `F16`.
+- **Install:** link the module into Hammerspoon's folder and load it from `~/.hammerspoon/init.lua`, then reload Hammerspoon:
+  ```sh
+  ln -s "$PWD/integrations/hammerspoon/untype-ptt.lua" ~/.hammerspoon/untype-ptt.lua
+  echo 'require("untype-ptt")' >> ~/.hammerspoon/init.lua
+  ```
+  The link keeps one copy, so a change to the module in the repository takes effect on the next Hammerspoon reload.
+- **Settings in the module:** `QUOTE_KEY` / `BACKSLASH_KEY` (the two key codes), `CHORD_SECONDS` (0.07: the second key must follow the first within this time to count as a chord), `KEY` / `KEY_CODE` (the hotkey sent to untype, `f16` / 106), `BUNDLE_ID` (`com.local.untype`).
+- **Must stay in step with untype:** the module passes press and release through unchanged and keeps no tap logic of its own. A module that holds F16 down after a tap hides the release from untype, and then a tap never starts a hands-free turn.
 
 ## Claude as the LLM Provider (`anthropic`, `azure-anthropic`)
 
@@ -126,7 +150,7 @@ DeepSeek's own API, not a deployment on Azure: OpenAI-compatible Chat Completion
   - **Model**: Primary (the main LLM), Alternative and Alternative 2 (the alternative LLMs, shown only when configured); `L` cycles them.
   - **Operators**: Refine `R`, Translate `T`, Ask `A`, Follow-up `F`, Screenshot `W`, Clipboard `C`.
   - **Translation**: `1` Greek ↔ English (opposite), `2` → English, `3` → Greek.
-- **Remembered choices** (build 38): Push-to-Act has its own choices, separate from the push-to-talk / push-to-listen operators. Every Run saves the pop-up's model, operators and translation direction as `pushToAct` in `ui-state.json`, and the next pop-up opens with them; Esc saves nothing. Changing them never changes the push-to-talk operators, and vice versa. Before the first run the pop-up starts from the push-to-talk operators. A remembered model that is no longer configured opens as Primary.
+- **Remembered choices** (build 38): Push-to-Act has its own choices, separate from the push-to-talk operators. Every Run saves the pop-up's model, operators and translation direction as `pushToAct` in `ui-state.json`, and the next pop-up opens with them; Esc saves nothing. Changing them never changes the push-to-talk operators, and vice versa. Before the first run the pop-up starts from the push-to-talk operators. A remembered model that is no longer configured opens as Primary.
 - Picking a translation direction (click or `1`–`3`) also turns **Translate** on: choosing a language means "translate to it". The direction is highlighted only while Translate is on.
 - Click or press the letters/digits to change them; **Enter** runs, **Esc** cancels (so does clicking elsewhere or pressing the push-to-talk hotkey). Enter does nothing while none of R/T/A is on.
 - What the run does:
@@ -159,7 +183,7 @@ Settings that shape the session are locked while a session is active; the pane h
 
 ## Where the Text Goes and the Processing Line
 
-A push-to-talk (or push-to-listen) turn is delivered to the app that was in front when you pressed the hotkey. You can move to another app while dictating: on delivery untype brings the first app forward, inserts the text at its cursor, and returns you to the app you were in. There is no setting for this. If the first app was quit meanwhile, the text goes to the app in front.
+A push-to-talk turn (held or hands-free) is delivered to the app that was in front when you pressed the hotkey. You can move to another app while dictating: on delivery untype brings the first app forward, inserts the text at its cursor, and returns you to the app you were in. There is no setting for this. If the first app was quit meanwhile, the text goes to the app in front.
 
 While the turn is processed, a small animated line is shown under the text cursor of the focused field, and the overlay does not show the processing wave. This needs the field to report its cursor position through Accessibility; native macOS fields and most browser fields do. Terminals and many Electron apps (Teams, for example) do not, and there the overlay shows the processing wave as before.
 
@@ -173,16 +197,42 @@ The version and build of the running app are shown at the bottom of the menu-bar
 
 ## Keep Overlay Visible
 
-**Keep overlay visible** (Settings → General → Dictation overlay, or menu-bar dropdown → Overlay → Keep on screen; `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows a flat dim line and the operator chips, which you can click to switch an operator (hover for its name and state). Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off. The setting also shapes the menu-bar dropdown: on, the dropdown only names the operators that are on, because the overlay has the switches; off, the dropdown has an **Operators** tab with the switches.
+**Keep overlay visible** (Settings → General → Dictation overlay, or menu-bar dropdown → Overlay → Keep on screen; `overlayAlwaysVisible` in `~/.tool-agents/untype/ui-state.json`, default **off**; no CLI flag or environment variable, like the theme) keeps the push-to-talk overlay at the bottom of the screen when you are not dictating. Idle, it shows only the operator chips, slightly dimmed, which you can click to switch an operator; hovering a chip brightens them, shows the chip's name and what it does, and opens the tray (translation target for each language chosen in Settings, ⏺ record meeting, Settings); the empty area above the chips does not react. Off: the overlay appears only while dictating or processing. An older `ui-state.json` without the key loads with it off.
 
-**Overlay position** (build 45): drag the small grip in the overlay's top-left corner to move it anywhere; untype remembers the place as `overlayPosition` (`{"x":…, "y":…}`, the bottom-left corner in screen points) in `ui-state.json` and shows the overlay there from then on. Double-click the grip to put it back at the bottom centre (the key is removed). Without the key, or when the saved place is on a display that is no longer connected, the overlay appears at the bottom centre of the screen under the mouse.
+**Pinned chips** (`pinnedOperators` in `~/.tool-agents/untype/ui-state.json`, default empty; set from the overlay, no Settings field, CLI flag or environment variable): with the mouse on a chip of the open tray, click the pin on its corner to pin or unpin it. At rest the overlay shows only the pinned chips plus any chip that is on; with the mouse on the overlay, or while dictating, it shows all of them. Empty (the default, and an older `ui-state.json` without the key): all chips always show. Letters other than R, T, A, F, S, L, W, C, I are an error when the state is loaded. The setting also shapes the menu-bar dropdown: on, the dropdown only names the operators that are on, because the overlay has the switches; off, the dropdown has an **Operators** tab with the switches.
+
+**Overlay position**: hover the overlay and drag its tray to move it anywhere; untype remembers the place as `overlayPosition` (`{"x":…, "y":…}`, the bottom-left corner in screen points) in `ui-state.json` and shows the overlay there from then on. Double-click the tray to put it back at the bottom centre (the key is removed). Without the key, or when the saved place is on a display that is no longer connected, the overlay appears at the bottom centre of the screen under the mouse.
+
+## Meeting Recording
+
+Records both sides of a call (your microphone and the sound of every other app, such as Teams or Zoom) into a transcript. Start and stop it from the overlay's tray (⏺ / ⏹) or the menu-bar dropdown (**Meeting → Record meeting**). It uses the same Soniox key and model as dictation (`SONIOX_API_KEY`, the speech provider must be Soniox) and the primary LLM for the English transcript; there are no extra keys and no environment variables. The settings are in Settings → General → Meeting recording and are stored as `meeting` in `~/.tool-agents/untype/ui-state.json`:
+
+| Setting | Key | Default | Options |
+|---|---|---|---|
+| Transcript language | `meeting.language` | `en` | `en`: `transcript.txt` in English (lines not in English are translated by the primary LLM at the end; lines already in English are kept). `original`: `transcript.txt` as spoken. |
+| Auto-stop after silence | `meeting.silenceMinutes` | `3` | Minutes without speech on either side that end the recording; `0` never stops by itself. |
+| Folder | `meeting.folder` | `~/Documents/untype Meetings` | Any folder; each meeting gets a subfolder named after its start (`2026-11-11 14.30`). |
+| Use my Outlook calendar | `meeting.calendarCLI` | not set (off) | Path of the `nbg-m365` CLI that reads the Outlook calendar. Turning the switch on in Settings finds the CLI of the `nbg-m365` Claude Code plugin (`~/.claude/plugins/cache/*/nbg-m365/<version>/bin/nbg-m365-mac-arm64`, newest version) and stores its path; when it is not installed the switch stays off and Settings says so. Off: no reminders, no names from the calendar. |
+
+An older `ui-state.json` without `meeting` loads the defaults. An unknown `meeting.language` is an error when a recording starts.
+
+Each meeting folder holds `transcript.txt` (the chosen language, `[00:12:07] Speaker 2: …`), `transcript.original.txt` (as spoken, with the language per line, written live during the meeting) and `transcript.jsonl` (time, side, speaker, language, text, English). Your microphone is labelled **You**; the people on the call are **Speaker 1, 2, …** (Soniox speaker diarization). No audio is kept. When a recording ends, the overlay offers **Open transcript ›** and **✎ Name** for 10 seconds: click ✎ and say what the meeting was about and with whom; the primary LLM turns it into a short English title and the folder and main transcript are renamed to `2026-11-11 14.30 – Budget review with Maria.txt` (the other files keep their names).
+
+**Permissions**: Microphone, and **Screen & System Audio Recording** (System Settings → Privacy & Security), which macOS requires to capture other apps' sound (no picture is taken). untype asks for it the first time; after allowing it, start the recording again.
+
+**Outlook calendar** (`meeting.calendarCLI` set): untype reads today's meetings with the `nbg-m365` CLI every 5 minutes (the CLI keeps its own Microsoft 365 sign-in; untype never handles the token). If the CLI is not signed in, Settings shows the error and the Events tab logs it; sign in with `nbg-m365-mac-arm64 login` in a terminal (or the `nbg-m365-auth` skill in Claude Code). A meeting counts when it is online (a Teams link) or someone else is invited, it is not cancelled, and you organize it or accepted it (tentatively too); declined and unanswered invitations do not count.
+
+- **Reminder.** When a Teams meeting that counts starts, the overlay shows **Starting now · Teams · N people** (later **Started 12 min ago · …**), the meeting's subject, **Record** and **Dismiss**. It stays for the whole meeting until you click Record or Dismiss (Dismiss is final for that meeting, unless the meeting is moved to another time); it steps aside while you dictate or another card is shown and comes back afterwards, and it is not shown while a meeting is being recorded.
+- **Name.** A recording that starts during a meeting that counts, or up to 10 minutes before it, is named after that meeting when it is saved (also when it runs past the meeting's end; when two meetings qualify, the one it overlaps most). The primary LLM makes the title from the subject and the required participants (`Accounting reconciliation · Athanasios Karamitsios, Georgios Fotopoulos`, or `… · 17 people` when there are more than three); without an answer from the LLM the cleaned subject is used. `transcript.txt` and `transcript.original.txt` start with a header (subject, calendar time, organizer, required participants, optional ones) and `meeting.json` keeps the calendar entry. **Rename** on the saved card still replaces the name.
+
+**Headphones** are recommended: through speakers, the microphone also hears the other people, so their words can appear a second time as **You**.
 
 ## Voice Commands On/Off
 
 **Voice commands** (Settings → Speech → Protocol, `voiceCommands` in `~/.tool-agents/untype/ui-state.json`; CLI `--voice-commands` / `--no-voice-commands`; env `UNTYPE_VOICE_COMMANDS`, values `true/false/yes/no/on/off/1/0`; default **on**) decides whether untype listens for spoken commands.
 
 - **On:** the spoken markers work as configured: the command phrase (`command translate on`, `command status` …), section end (`command send` and the guard phrase `τέλος εντολής`), section cancel (`command cancel`) and `literal phrase`.
-- **Off:** none of them is recognised. Everything you say is dictated text, including the words "command send". Turns are delivered on hotkey release (push-to-talk) or on the second press (push-to-listen); operators are changed with the hotkey letters, the dropdown or Settings.
+- **Off:** none of them is recognised. Everything you say is dictated text, including the words "command send". Turns are delivered on hotkey release after a hold, or on Enter / the hotkey after a tap; operators are changed with the hotkey letters, the dropdown or Settings.
 - Use Off when you dictate text that naturally contains the command words, or to rule out accidental operator changes.
 - The setting applies from the next session: changing it restarts the warm push-to-talk session. It cannot be changed while a manual session is running. Priority: CLI flag > `UNTYPE_VOICE_COMMANDS` (shell, then `.env` files) > UI setting > default `true`. The native UI passes the UI setting as the CLI flag, so in the app the Settings toggle decides.
 

@@ -54,10 +54,6 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var microphoneStatus: String
     public var accessibilityStatus: String
     public var hotkeyEnabled: Bool
-    /// `true`: push-to-talk (hold the hotkey to record, release to submit).
-    /// `false`: push-to-listen (press once to start recording, press again to
-    /// stop and submit). Requires `hotkeyEnabled` either way.
-    public var hotkeyHoldToTalk: Bool
     public var hotkey: String
     /// Selection hotkey: processes the text selected in the active app with
     /// the active refine/translate/Ask operators and replaces it (no
@@ -83,6 +79,23 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Master switch of the experimental operators (`OperatorKey.experimental`).
     /// Off: they are not offered anywhere and are kept switched off.
     public var experimentalOperators: Bool = false
+    /// Meeting recording: transcript language, auto-stop, folder.
+    public var meeting: MeetingPreferences = MeetingPreferences()
+    /// Operator chips (letters, e.g. "R", "I") the idle overlay shows at
+    /// rest; empty: all of them.
+    public var pinnedOperators: [String] = []
+
+    /// The overlay's operator letters, in chip order.
+    public static let operatorLetters = ["R", "T", "A", "F", "S", "L", "W", "X", "C", "I"]
+
+    /// Known letters only, upper case, in chip order, once each.
+    static func normalizePinnedOperators(_ letters: [String]) throws -> [String] {
+        let wanted = Set(letters.map { $0.uppercased() })
+        if let unknown = wanted.subtracting(operatorLetters).sorted().first {
+            throw UntypeError.invalidConfiguration("Unknown operator in pinnedOperators: \(unknown). Use \(operatorLetters.joined(separator: ", ")).")
+        }
+        return operatorLetters.filter(wanted.contains)
+    }
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
@@ -122,7 +135,6 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         microphoneStatus: "unknown",
         accessibilityStatus: "unknown",
         hotkeyEnabled: false,
-        hotkeyHoldToTalk: true,
         hotkey: "Control+`",
         selectionHotkeyEnabled: true,
         selectionHotkey: UntypeUISettings.defaultSelectionHotkey,
@@ -179,6 +191,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         next.appearance = try normalizeAppearance(appearance)
         next.selectionRole = try normalizeSelectionRole(selectionRole)
         next.perTurnOperators = try normalizePerTurnOperators(perTurnOperators)
+        next.pinnedOperators = try Self.normalizePinnedOperators(pinnedOperators)
         let altProvider = altLlmProvider.trimmingCharacters(in: .whitespacesAndNewlines)
         next.altLlmProvider = altProvider.isEmpty ? "" : try normalizeLLMProvider(altProvider)
         next.altLlmModel = altLlmModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -301,9 +314,6 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let hotkeyEnabled = patch.hotkeyEnabled {
             next.hotkeyEnabled = hotkeyEnabled
         }
-        if let hotkeyHoldToTalk = patch.hotkeyHoldToTalk {
-            next.hotkeyHoldToTalk = hotkeyHoldToTalk
-        }
         if let hotkey = patch.hotkey {
             next.hotkey = hotkey
         }
@@ -342,6 +352,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let experimentalOperators = patch.experimentalOperators {
             next.experimentalOperators = experimentalOperators
+        }
+        if let meeting = patch.meeting {
+            next.meeting = meeting
+        }
+        if let pinnedOperators = patch.pinnedOperators {
+            next.pinnedOperators = pinnedOperators
         }
         return try next.normalized()
     }
@@ -449,7 +465,6 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var alt2LlmProvider: String?
     public var alt2LlmModel: String?
     public var hotkeyEnabled: Bool?
-    public var hotkeyHoldToTalk: Bool?
     public var hotkey: String?
     public var selectionHotkeyEnabled: Bool?
     public var selectionHotkey: String?
@@ -467,6 +482,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     /// true: forget `overlayPosition` (back to the default place).
     public var resetOverlayPosition: Bool?
     public var experimentalOperators: Bool?
+    public var meeting: MeetingPreferences?
+    public var pinnedOperators: [String]?
 
     public init(
         provider: String? = nil,
@@ -499,7 +516,6 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         alt2LlmProvider: String? = nil,
         alt2LlmModel: String? = nil,
         hotkeyEnabled: Bool? = nil,
-        hotkeyHoldToTalk: Bool? = nil,
         hotkey: String? = nil,
         selectionHotkeyEnabled: Bool? = nil,
         selectionHotkey: String? = nil,
@@ -515,7 +531,9 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         pushToAct: PushToActPreferences? = nil,
         overlayPosition: UntypeOverlayPosition? = nil,
         resetOverlayPosition: Bool? = nil,
-        experimentalOperators: Bool? = nil
+        experimentalOperators: Bool? = nil,
+        meeting: MeetingPreferences? = nil,
+        pinnedOperators: [String]? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -547,7 +565,6 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.alt2LlmProvider = alt2LlmProvider
         self.alt2LlmModel = alt2LlmModel
         self.hotkeyEnabled = hotkeyEnabled
-        self.hotkeyHoldToTalk = hotkeyHoldToTalk
         self.hotkey = hotkey
         self.selectionHotkeyEnabled = selectionHotkeyEnabled
         self.selectionHotkey = selectionHotkey
@@ -564,6 +581,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.overlayPosition = overlayPosition
         self.resetOverlayPosition = resetOverlayPosition
         self.experimentalOperators = experimentalOperators
+        self.meeting = meeting
+        self.pinnedOperators = pinnedOperators
     }
 }
 
@@ -820,7 +839,6 @@ public enum UntypeUISettingsStore {
             microphoneStatus: current.microphoneStatus,
             accessibilityStatus: current.accessibilityStatus,
             hotkeyEnabled: current.hotkeyEnabled,
-            hotkeyHoldToTalk: current.hotkeyHoldToTalk,
             hotkey: current.hotkey,
             selectionHotkeyEnabled: current.selectionHotkeyEnabled,
             selectionHotkey: current.selectionHotkey,
@@ -835,7 +853,9 @@ public enum UntypeUISettingsStore {
             overlayAlwaysVisible: current.overlayAlwaysVisible,
             pushToAct: current.pushToAct,
             overlayPosition: current.overlayPosition,
-            experimentalOperators: current.experimentalOperators
+            experimentalOperators: current.experimentalOperators,
+            meeting: current.meeting,
+            pinnedOperators: current.pinnedOperators
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -896,7 +916,6 @@ private struct PersistedUISettings: Codable {
     let alt2LlmProvider: String?
     let alt2LlmModel: String?
     let hotkeyEnabled: Bool
-    let hotkeyHoldToTalk: Bool?
     let hotkey: String
     let selectionHotkeyEnabled: Bool?
     let selectionHotkey: String?
@@ -912,6 +931,8 @@ private struct PersistedUISettings: Codable {
     let pushToAct: PushToActPreferences?
     let overlayPosition: UntypeOverlayPosition?
     let experimentalOperators: Bool?
+    let meeting: MeetingPreferences?
+    let pinnedOperators: [String]?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -944,7 +965,6 @@ private struct PersistedUISettings: Codable {
         case alt2LlmProvider
         case alt2LlmModel
         case hotkeyEnabled
-        case hotkeyHoldToTalk
         case hotkey
         case selectionHotkeyEnabled
         case selectionHotkey
@@ -960,6 +980,8 @@ private struct PersistedUISettings: Codable {
         case pushToAct
         case overlayPosition
         case experimentalOperators
+        case meeting
+        case pinnedOperators
     }
 
     init(settings: UntypeUISettings) {
@@ -993,7 +1015,6 @@ private struct PersistedUISettings: Codable {
         self.alt2LlmProvider = settings.alt2LlmProvider
         self.alt2LlmModel = settings.alt2LlmModel
         self.hotkeyEnabled = settings.hotkeyEnabled
-        self.hotkeyHoldToTalk = settings.hotkeyHoldToTalk
         self.hotkey = settings.hotkey
         self.selectionHotkeyEnabled = settings.selectionHotkeyEnabled
         self.selectionHotkey = settings.selectionHotkey
@@ -1009,6 +1030,8 @@ private struct PersistedUISettings: Codable {
         self.pushToAct = settings.pushToAct
         self.overlayPosition = settings.overlayPosition
         self.experimentalOperators = settings.experimentalOperators
+        self.meeting = settings.meeting
+        self.pinnedOperators = settings.pinnedOperators
     }
 
     func toRuntimeSettings(path: String) throws -> UntypeUISettings {
@@ -1045,7 +1068,6 @@ private struct PersistedUISettings: Codable {
                 alt2LlmProvider: alt2LlmProvider ?? defaults.alt2LlmProvider,
                 alt2LlmModel: alt2LlmModel ?? defaults.alt2LlmModel,
                 hotkeyEnabled: hotkeyEnabled,
-                hotkeyHoldToTalk: hotkeyHoldToTalk ?? defaults.hotkeyHoldToTalk,
                 hotkey: hotkey,
                 selectionHotkeyEnabled: selectionHotkeyEnabled ?? defaults.selectionHotkeyEnabled,
                 selectionHotkey: selectionHotkey ?? defaults.selectionHotkey,
@@ -1060,7 +1082,9 @@ private struct PersistedUISettings: Codable {
                 overlayAlwaysVisible: overlayAlwaysVisible ?? defaults.overlayAlwaysVisible,
                 pushToAct: pushToAct,
                 overlayPosition: overlayPosition,
-                experimentalOperators: experimentalOperators ?? defaults.experimentalOperators
+                experimentalOperators: experimentalOperators ?? defaults.experimentalOperators,
+                meeting: meeting ?? MeetingPreferences(),
+                pinnedOperators: pinnedOperators ?? []
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")
@@ -1377,4 +1401,61 @@ private func settingsDiagnosticLine(_ error: Error) -> String {
 
 private func iso8601Now() -> String {
     ISO8601DateFormatter().string(from: Date())
+}
+
+/// Meeting recording settings (Settings → General → Meeting recording).
+public struct MeetingPreferences: Codable, Equatable, Sendable {
+    public static let defaultSilenceMinutes = 3
+
+    /// `MeetingTranscriptLanguage` raw value.
+    public var language: String
+    /// Auto-stop after this many minutes without speech (0: never).
+    public var silenceMinutes: Int
+    /// Folder of the meeting folders (nil: `~/Documents/untype Meetings`).
+    public var folder: String?
+    /// The `nbg-m365` CLI that reads the Outlook calendar (nil: the calendar
+    /// is not used — no meeting names from the calendar, no reminders).
+    public var calendarCLI: String?
+
+    public init(
+        language: String = MeetingTranscriptLanguage.english.rawValue,
+        silenceMinutes: Int = Self.defaultSilenceMinutes,
+        folder: String? = nil,
+        calendarCLI: String? = nil
+    ) {
+        self.language = language
+        self.silenceMinutes = silenceMinutes
+        self.folder = folder
+        self.calendarCLI = calendarCLI
+    }
+
+    /// The calendar CLI when the calendar is on.
+    public var calendarCLIURL: URL? {
+        guard let calendarCLI, !calendarCLI.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: (calendarCLI as NSString).expandingTildeInPath)
+    }
+
+    public var transcriptLanguage: MeetingTranscriptLanguage {
+        get throws {
+            guard let value = MeetingTranscriptLanguage(rawValue: language) else {
+                throw UntypeError.invalidConfiguration("Unknown meeting transcript language '\(language)'. Use 'en' or 'original'.")
+            }
+            return value
+        }
+    }
+
+    public static var defaultFolder: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("untype Meetings", isDirectory: true)
+    }
+
+    public var folderURL: URL {
+        guard let folder, !folder.isEmpty else {
+            return Self.defaultFolder
+        }
+        return URL(fileURLWithPath: (folder as NSString).expandingTildeInPath, isDirectory: true)
+    }
 }

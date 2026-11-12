@@ -58,6 +58,10 @@
 - Since build 7 (2026-09-12) `untype.app` MUST be packaged with `scripts/package-macos-app.sh --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" --notary-profile untype-notary` (see `docs/design/deployment-guide.md`, "production procedure"); never redeploy an `--unsigned` (ad-hoc) bundle, because an ad-hoc signature changes the TCC designated requirement on every build and silently revokes the macOS **Accessibility** grant (symptom: `focused_input_failed` / `accessibility_not_trusted` in the latency log). If a grant is lost anyway (e.g. after the certificate is renewed), the recovery is `tccutil reset Accessibility com.local.untype`, relaunch, re-add in System Settings → Privacy & Security → Accessibility. Never reset Input Monitoring when only Accessibility is broken — that breaks push-to-talk. After every redeploy, ask the user to verify `focused_input.ok=true` in the latency log.
 </project-guardrails>
 
+## Tools
+
+- `scripts/install-local-build.sh` — builds untype, signs it with the personal "untype Local Signing" certificate (stable signature, so macOS permissions survive rebuilds), installs it in `/Applications` and relaunches it. Docs: `docs/tools/install-local-build.md`.
+
 ## Document Archiving Strategy
 
 | Category | Archive branch | Pointer note | Contents |

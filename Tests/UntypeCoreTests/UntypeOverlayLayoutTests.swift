@@ -77,3 +77,29 @@ private func pcm16(_ samples: [Int16]) -> Data {
     #expect(drop > rise)
     #expect(UntypeWaveform.smoothed(previous: 3, target: 9, elapsed: 0) == 3)
 }
+
+private func summary(
+    refine: Bool = false, translate: Bool = false, ask: Bool = false, followup: Bool = false,
+    selection: Bool = false, alternative: Bool = false, screenshot: Bool = false,
+    clipboard: Bool = false, focusedInput: Bool = false, policy: String = "to-en"
+) -> UntypeOverlaySummary {
+    UntypeOverlaySummary(
+        refine: refine, translate: translate, ask: ask, followup: followup, selection: selection,
+        alternative: alternative, screenshot: screenshot, clipboard: clipboard, focusedInput: focusedInput,
+        translationPolicy: policy
+    )
+}
+
+@Test func overlaySummarySaysWhatADictationDoes() {
+    #expect(summary(focusedInput: true) == summary(focusedInput: true))
+    #expect(summary(focusedInput: true).action == "Types exactly what you say")
+    #expect(summary(focusedInput: true).detail == "Typed at cursor")
+    #expect(summary(refine: true, clipboard: true, focusedInput: true).action == "Refines your words")
+    #expect(summary(refine: true, clipboard: true, focusedInput: true).detail == "Typed at cursor, copied")
+    #expect(summary(refine: true, translate: true, policy: "to-el").action == "Refines and translates to Greek")
+    #expect(summary(translate: true, alternative: true, policy: "opposite").action == "Translates to the other language · alt model")
+    #expect(summary(ask: true, followup: true).action == "Answers your question, continuing the chat")
+    #expect(summary(alternative: true).action == "Types exactly what you say")
+    #expect(summary().detail == "Shown in the untype window only")
+    #expect(summary(selection: true, screenshot: true, clipboard: true).detail == "With selection + screenshot → copied")
+}

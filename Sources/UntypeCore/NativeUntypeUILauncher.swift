@@ -78,6 +78,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         model.appendEvent("diagnostic.info: [untype] running untype \(UntypeAppVersion.current.label)")
         model.configureHotkeyServices()
         overlay.applyAlwaysVisible()
+        model.startCalendarWatch()
 
         let content = UntypeRootView(model: model)
         let initialCompact = model.settings.compactWindow
@@ -357,6 +358,33 @@ final class UntypeUIModel: ObservableObject {
     private var sessionOwner: UntypeUISessionOwner?
     private var hotkeySessionControl: HotkeySessionControl?
 
+    /// Meeting recording (both sides of a call, separate from push-to-talk).
+    let meetingRecorder = MeetingRecorder()
+    @Published private(set) var meetingRecording = false
+    /// Starting, or saving the transcript after the stop.
+    @Published private(set) var meetingBusy = false
+    @Published private(set) var lastMeetingFolder: URL?
+    /// Listens to the spoken name of a saved meeting.
+    let meetingNamer = MeetingNamer()
+    private var namingFolder: URL?
+    private var namingLLM: LLMConfig?
+
+    /// Today's Outlook meetings (Settings → Meeting recording → "Use my
+    /// Outlook calendar"), refreshed every few minutes.
+    private(set) var calendarMeetings: [CalendarMeeting] = []
+    /// What the calendar is doing, for Settings ("6 meetings today", an error).
+    @Published private(set) var calendarStatus = ""
+    private var calendarMe: String?
+    private var calendarTimer: Timer?
+    private var calendarRefreshedAt: Date?
+    private var calendarRefreshing = false
+    private var reminderQueue = MeetingReminderQueue()
+    /// The calendar meeting the current recording was started for (from
+    /// the reminder's Record), and when the recording started.
+    private var recordingCalendarMeeting: CalendarMeeting?
+    private var recordingStartedAt: Date?
+    private static let calendarRefreshInterval: TimeInterval = 5 * 60
+
     /// Microphone samples of the current push-to-talk turn, for the overlay trace.
     var microphoneWaveform: UntypeWaveformBuffer? {
         hotkeySessionControl?.waveform
@@ -370,6 +398,19 @@ final class UntypeUIModel: ObservableObject {
     /// A press that arrived while `runtimeStopInFlight`: it starts its turn
     /// as soon as the previous one is delivered, instead of being lost.
     private var hotkeyPressQueued = false
+    /// When the hotkey went down (system uptime), to tell a tap from a hold.
+    private var hotkeyPressedAt: TimeInterval?
+    /// A tap started this turn: it records hands-free until Enter (type and
+    /// send), the hotkey again (type only) or Esc (discard).
+    @Published private(set) var hotkeyHandsFree = false
+    /// The turn was finished with Enter: Return is pressed in the field once
+    /// its text is delivered.
+    private var sendAfterDelivery = false
+    private lazy var handsFreeKeys = UntypeReturnEscapeKeyTap { [weak self] confirm in
+        dispatchToUI { [weak self] in
+            self?.finishHandsFreeTurn(confirm ? .typeAndSend : .discard, source: confirm ? "enter" : "esc")
+        }
+    }
     /// A Push-to-Act run is reading the selection, showing its pop-up or processing.
     private var selectionHotkeyInFlight = false
     private var lastAudioEventCategory: String?
@@ -751,8 +792,19 @@ final class UntypeUIModel: ObservableObject {
         return NSWorkspace.shared.frontmostApplication?.processIdentifier == origin.processIdentifier
     }
 
-    /// After delivery: the app the user had moved to gets the focus back.
-    func finishFocusedInputDelivery() {
+    /// After delivery: a turn finished with Enter gets Return pressed in the
+    /// field (sending the message), then the app the user had moved to gets
+    /// the focus back.
+    func finishFocusedInputDelivery(delivered: Bool) {
+        if sendAfterDelivery {
+            sendAfterDelivery = false
+            if delivered, focusedInputOriginIsFrontmost {
+                LiveKeyboardPoster.postReturn()
+                appendEvent("diagnostic.info: [untype] Return pressed after delivery (turn finished with Enter)")
+            } else {
+                appendEvent("diagnostic.warning: [untype] Return not pressed: the text was not delivered to the app the dictation started in")
+            }
+        }
         guard let application = focusedInputReturnApplication else {
             return
         }
@@ -818,6 +870,37 @@ final class UntypeUIModel: ObservableObject {
             if overlayAlwaysVisible != nil {
                 overlay?.applyAlwaysVisible()
             }
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    /// The pin on an overlay chip: pinned chips are the ones the idle
+    /// overlay shows at rest.
+    func togglePinnedOperator(_ letter: String) {
+        var pinned = settings.pinnedOperators
+        if let index = pinned.firstIndex(of: letter) {
+            pinned.remove(at: index)
+        } else {
+            pinned.append(letter)
+        }
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(pinnedOperators: pinned))
+            try UntypeUISettingsStore.save(settings)
+            overlay?.refreshOperators()
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    /// Settings → General → Meeting recording. Nothing else is
+    /// reconfigured; the next meeting uses the new values.
+    func setMeetingPreferences(_ meeting: MeetingPreferences) {
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(meeting: meeting))
+            try UntypeUISettingsStore.save(settings)
+            overlay?.refreshOperators()
+            appendEvent("config.saved: meeting recording settings")
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
         }
@@ -921,24 +1004,100 @@ final class UntypeUIModel: ObservableObject {
         return "Stop Listening"
     }
 
-    /// Hotkey pressed. Push-to-talk (hold) mode starts recording; the release
-    /// event stops it. Push-to-listen (toggle) mode starts recording on the
-    /// first press and stops it on the next press; releases are ignored.
+    /// Hotkey pressed: recording starts at once. In a hands-free turn the
+    /// press finishes it instead (the text is typed only).
     func handleHotkeyPress(source: String = "hotkey") {
         cancelPushToActPanel()
-        if !settings.hotkeyHoldToTalk, hotkeyPressed {
-            stopHotkeySession(source: source)
+        if hotkeyHandsFree {
+            finishHandsFreeTurn(.typeOnly, source: source)
             return
         }
+        hotkeyPressedAt = ProcessInfo.processInfo.systemUptime
         startHotkeySession(source: source)
     }
 
-    /// Hotkey released. Only push-to-talk (hold) mode reacts.
+    /// Hotkey released. After a hold the turn is submitted (push-to-talk);
+    /// after a tap it keeps recording hands-free.
     func handleHotkeyRelease(source: String = "hotkey") {
-        guard settings.hotkeyHoldToTalk else {
+        guard !hotkeyHandsFree else {
+            return
+        }
+        let pressedAt = hotkeyPressedAt
+        hotkeyPressedAt = nil
+        if hotkeyPressed, let pressedAt,
+           HotkeyTapOrHold.isTap(heldFor: ProcessInfo.processInfo.systemUptime - pressedAt) {
+            beginHandsFreeTurn(source: source)
             return
         }
         stopHotkeySession(source: source)
+    }
+
+    /// A tap: the turn goes on recording; Enter, Esc and the hotkey end it.
+    private func beginHandsFreeTurn(source: String) {
+        hotkeyHandsFree = true
+        let keysCaught = handsFreeKeys.start()
+        overlay?.setHandsFreeHint(keysCaught
+            ? "Enter send · tap again type · Esc cancel"
+            : "Tap again to finish")
+        appendEvent("diagnostic.info: [untype] push-to-talk tapped: recording hands-free until Enter (type and send), \(settings.hotkey) (type only) or Esc (discard) (\(source))")
+        if !keysCaught {
+            appendEvent("diagnostic.warning: [untype] Enter and Esc cannot be caught (macOS did not allow the key tap); press \(settings.hotkey) to finish the turn")
+        }
+    }
+
+    /// Ends a hands-free turn the way the user chose.
+    func finishHandsFreeTurn(_ finish: HotkeyTurnFinish, source: String) {
+        guard hotkeyHandsFree else {
+            return
+        }
+        endHandsFree()
+        appendEvent("diagnostic.info: [untype] hands-free turn finished: \(finish.rawValue) (\(source))")
+        switch finish {
+        case .typeOnly:
+            stopHotkeySession(source: source)
+        case .typeAndSend:
+            sendAfterDelivery = settings.focusedInput
+            stopHotkeySession(source: source)
+        case .discard:
+            discardHotkeySession(source: source)
+        }
+    }
+
+    private func endHandsFree() {
+        guard hotkeyHandsFree else {
+            return
+        }
+        hotkeyHandsFree = false
+        handsFreeKeys.stop()
+        overlay?.setHandsFreeHint(nil)
+    }
+
+    /// Esc in a hands-free turn: nothing is submitted, and the text typed
+    /// live into the field is removed.
+    private func discardHotkeySession(source: String) {
+        if hotkeyPressQueued {
+            hotkeyPressQueued = false
+            hotkeyPressed = false
+            appendEvent("diagnostic.info: [untype] push-to-talk discarded before it started (\(source))")
+            return
+        }
+        guard hotkeyPressed else {
+            return
+        }
+        hotkeyPressed = false
+        captureState = "finalizing"
+        hotkeySessionControl?.close()
+        if let typer = liveTyper {
+            liveTyper = nil
+            typer.hold()
+            Task { @MainActor in
+                _ = await typer.reconcile(with: "")
+            }
+        }
+        appendEvent("diagnostic.info: [untype] push-to-talk discarded (\(source))")
+        restartWarmSessionAfterStop = settings.hotkeyEnabled
+        stopSession(reason: "ui-hotkey-discard", submitPending: false)
+        overlay?.showNotice("Discarded", seconds: 1)
     }
 
     /// Push-to-Act (selection hotkey) pressed: the text selected in the app
@@ -1219,13 +1378,9 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
-    var hotkeyModeLabel: String {
-        settings.hotkeyHoldToTalk ? "push-to-talk" : "push-to-listen"
-    }
-
     func startHotkeySession(source: String = "hotkey") {
         guard settings.hotkeyEnabled else {
-            appendEvent("diagnostic.warning: [untype] \(hotkeyModeLabel) ignored because the hotkey is disabled")
+            appendEvent("diagnostic.warning: [untype] push-to-talk ignored because the hotkey is disabled")
             return
         }
         guard sessionOwner != .manual else {
@@ -1239,10 +1394,11 @@ final class UntypeUIModel: ObservableObject {
             hotkeyPressQueued = true
             hotkeyPressed = true
             clearWarmSessionRecycleTimer()
-            appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) queued until the previous turn is delivered (\(source))")
+            appendEvent("diagnostic.info: [untype] push-to-talk queued until the previous turn is delivered (\(source))")
             return
         }
         hotkeyPressed = true
+        sendAfterDelivery = false
         captureState = "recording"
         latestTranscript = ""
         timeline.clearPartial()
@@ -1263,7 +1419,7 @@ final class UntypeUIModel: ObservableObject {
         if runtime != nil, sessionOwner == .hotkey, sessionState == TranscriptionSessionState.stopped.rawValue {
             // The runtime ended on its own before its stop event was handled;
             // never record into it.
-            appendEvent("diagnostic.warning: [untype] \(hotkeyModeLabel) found a stopped session; starting a new one")
+            appendEvent("diagnostic.warning: [untype] push-to-talk found a stopped session; starting a new one")
             runtime = nil
             sessionOwner = nil
         }
@@ -1271,14 +1427,14 @@ final class UntypeUIModel: ObservableObject {
             clearWarmSessionRewarmTimer()
             startSession(owner: .hotkey, audioGate: control)
         }
-        appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) started (\(source))")
+        appendEvent("diagnostic.info: [untype] push-to-talk started (\(source))")
     }
 
     func stopHotkeySession(source: String = "hotkey") {
         if hotkeyPressQueued {
             hotkeyPressQueued = false
             hotkeyPressed = false
-            appendEvent("diagnostic.warning: [untype] \(hotkeyModeLabel) released before the previous turn was delivered; nothing was recorded (\(source))")
+            appendEvent("diagnostic.warning: [untype] push-to-talk released before the previous turn was delivered; nothing was recorded (\(source))")
             return
         }
         guard hotkeyPressed else {
@@ -1288,7 +1444,7 @@ final class UntypeUIModel: ObservableObject {
         hotkeyPressed = false
         captureState = "finalizing"
         hotkeySessionControl?.close()
-        appendEvent("diagnostic.info: [untype] \(hotkeyModeLabel) stopped (\(source))")
+        appendEvent("diagnostic.info: [untype] push-to-talk stopped (\(source))")
         restartWarmSessionAfterStop = settings.hotkeyEnabled
         stopSession(reason: "ui-hotkey-release", submitPending: true, releaseMarker: releaseMarker)
         // The processing wave stays until the turn is delivered (the stop
@@ -1528,11 +1684,12 @@ final class UntypeUIModel: ObservableObject {
                         }
                         try? await Task.sleep(nanoseconds: 100_000_000)
                     },
-                    focusedInputCompletion: {
-                        // Let the last keystrokes land before the focus moves.
+                    focusedInputCompletion: { delivered in
+                        // Let the last keystrokes land before Return is
+                        // pressed or the focus moves.
                         try? await Task.sleep(nanoseconds: 150_000_000)
                         await MainActor.run {
-                            modelBox.model?.finishFocusedInputDelivery()
+                            modelBox.model?.finishFocusedInputDelivery(delivered: delivered)
                         }
                     },
                     focusedInputReconciliation: { @MainActor text in
@@ -1628,7 +1785,11 @@ final class UntypeUIModel: ObservableObject {
                 self.isRunning = false
                 self.hotkeyPressed = false
                 self.runtimeStopInFlight = false
-                if reason == "ui-hotkey-release" {
+                self.sendAfterDelivery = false
+                if self.sessionOwner == nil, !self.hotkeyPressQueued {
+                    self.endHandsFree()
+                }
+                if reason == "ui-hotkey-release" || reason == "ui-hotkey-discard" {
                     self.resetPerTurnOperators()
                 }
                 if self.hotkeyPressQueued {
@@ -1655,6 +1816,7 @@ final class UntypeUIModel: ObservableObject {
         hotkeySessionControl = nil
         sessionFocusedInputApplication = nil
         hotkeyPressed = false
+        endHandsFree()
         sessionState = "idle"
         captureState = "idle"
         audioStatus = "idle"
@@ -1905,6 +2067,413 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
+    /// The overlay's and the dropdown's record button: starts a meeting
+    /// recording, or stops the one in progress and saves its transcript.
+    func toggleMeetingRecording() {
+        if meetingRecorder.isRecording {
+            meetingBusy = true
+            overlay?.showNotice("Saving the meeting transcript…")
+            Task { await meetingRecorder.stop(reason: .user) }
+            return
+        }
+        guard !meetingBusy else {
+            return
+        }
+        let options: MeetingRecordingOptions
+        do {
+            options = try meetingOptions()
+        } catch {
+            meetingStartFailed(error)
+            return
+        }
+        meetingBusy = true
+        recordingStartedAt = Date()
+        if let me = calendarMe, let meeting = recordingCalendarMeeting
+            ?? MeetingCalendar.meeting(forRecordingFrom: Date(), to: Date(), in: calendarMeetings, me: me) {
+            reminderQueue.handle(meeting)
+        }
+        if overlay?.reminderMeetingID != nil {
+            overlay?.hideNow()
+        }
+        // The red trace shows at once; the audio fills it as soon as the
+        // capture runs.
+        overlay?.setMeeting(start: Date())
+        meetingRecorder.onEvent = { [weak self] line in
+            self?.appendEvent(line)
+        }
+        meetingRecorder.onFinished = { [weak self] reason, folder in
+            self?.meetingFinished(reason: reason, folder: folder)
+        }
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                try await meetingRecorder.start(options: options)
+                meetingBusy = false
+                meetingRecording = true
+                overlay?.setMeeting(start: meetingRecorder.startDate)
+            } catch {
+                meetingBusy = false
+                overlay?.setMeeting(start: nil)
+                meetingStartFailed(error)
+            }
+        }
+    }
+
+    private func meetingOptions() throws -> MeetingRecordingOptions {
+        let config = try ConfigResolver(requireProtocolOutputForHybrid: false).resolve(argv: try settings.sessionArguments())
+        return try MeetingRecordingOptions(
+            config: config,
+            folderRoot: settings.meeting.folderURL,
+            silenceMinutes: settings.meeting.silenceMinutes,
+            language: try settings.meeting.transcriptLanguage
+        )
+    }
+
+    /// ✎ on the saved notice: listen to a description of the meeting, turn
+    /// it into a short title and rename the folder and its transcript.
+    func nameMeeting(_ folder: URL) {
+        guard !meetingNamer.isListening else {
+            return
+        }
+        let options: MeetingRecordingOptions
+        do {
+            options = try meetingOptions()
+        } catch {
+            appendEvent("diagnostic.warning: [untype] meeting naming could not start: \(error.localizedDescription)")
+            overlay?.showNotice("Naming could not start — see Events")
+            return
+        }
+        namingFolder = folder
+        namingLLM = options.llm
+        meetingNamer.onDone = { [weak self] spoken in
+            self?.namingHeard(spoken)
+        }
+        meetingNamer.onHeard = { [weak self] text in
+            self?.overlay?.setNamingHeard(text)
+        }
+        overlay?.showNaming()
+        Task { [weak self] in
+            do {
+                try await self?.meetingNamer.start(options: options)
+            } catch {
+                self?.appendEvent("diagnostic.warning: [untype] meeting naming could not start: \(error.localizedDescription)")
+                self?.overlay?.showNotice("Naming could not start — see Events")
+            }
+        }
+    }
+
+    func finishMeetingNaming() {
+        Task { await meetingNamer.finish() }
+    }
+
+    func cancelMeetingNaming() {
+        Task { await meetingNamer.cancel() }
+    }
+
+    private func namingHeard(_ spoken: String?) {
+        guard let folder = namingFolder else {
+            return
+        }
+        guard let spoken, let llm = namingLLM else {
+            showSavedNotice(folder, headline: "Not renamed")
+            return
+        }
+        overlay?.showNamingWorking(heard: spoken)
+        Task { [weak self] in
+            let title = await MeetingNamer.title(from: spoken, llm: llm)
+            guard let self else {
+                return
+            }
+            do {
+                let renamed = try MeetingNaming.rename(folder: folder, title: title)
+                lastMeetingFolder = renamed
+                namingFolder = nil
+                appendEvent("diagnostic.info: [untype] meeting named: \(renamed.lastPathComponent)")
+                showSavedNotice(renamed, headline: "Renamed")
+            } catch {
+                appendEvent("diagnostic.warning: [untype] meeting could not be renamed: \(error.localizedDescription)")
+                overlay?.showNotice("Could not rename the meeting — see Events")
+            }
+        }
+    }
+
+    /// The saved card: what happened, the meeting's name in full (its date
+    /// until it has one), Open and Name / Rename.
+    private func showSavedNotice(_ folder: URL, headline: String) {
+        let transcript = MeetingNaming.mainTranscript(in: folder)
+        let name = folder.lastPathComponent
+        let title = name.components(separatedBy: MeetingNaming.separator).dropFirst().joined(separator: MeetingNaming.separator)
+        let shown = title.isEmpty ? (MeetingNaming.friendlyDate(of: name) ?? name) : title
+        overlay?.showNotice(headline, detail: shown, seconds: 12, action: {
+            NSWorkspace.shared.open(transcript)
+        }, renameAction: { [weak self] in
+            self?.nameMeeting(folder)
+        }, renameLabel: title.isEmpty ? "Name" : "Rename")
+    }
+
+    func openMeetingsFolder() {
+        let folder = lastMeetingFolder ?? settings.meeting.folderURL
+        try? FileManager.default.createDirectory(at: settings.meeting.folderURL, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
+    }
+
+    private func meetingStartFailed(_ error: Error) {
+        recordingCalendarMeeting = nil
+        recordingStartedAt = nil
+        let message = error.localizedDescription
+        appendEvent("diagnostic.warning: [untype] meeting recording could not start: \(message)")
+        if case MeetingError.screenRecordingPermission = error {
+            overlay?.showNotice("Allow Screen & System Audio Recording for untype, then try again")
+        } else {
+            overlay?.showNotice("Meeting recording could not start — see Events")
+        }
+    }
+
+    private func meetingFinished(reason: MeetingStopReason, folder: URL?) {
+        meetingBusy = false
+        meetingRecording = false
+        lastMeetingFolder = folder ?? lastMeetingFolder
+        overlay?.setMeeting(start: nil)
+        let headline: String
+        switch reason {
+        case .user:
+            headline = "Meeting saved"
+        case .silence(let minutes):
+            headline = "Ended · \(minutes) min silence"
+        case .failure:
+            headline = "Stopped by an error"
+        }
+        let calendarMeeting = recordingCalendarMeeting
+        let startedAt = recordingStartedAt
+        recordingCalendarMeeting = nil
+        recordingStartedAt = nil
+        guard let folder, FileManager.default.fileExists(atPath: MeetingNaming.mainTranscript(in: folder).path) else {
+            overlay?.showNotice(headline)
+            return
+        }
+        guard settings.meeting.calendarCLIURL != nil, let startedAt,
+              !folder.lastPathComponent.contains(MeetingNaming.separator) else {
+            showSavedNotice(folder, headline: headline)
+            return
+        }
+        overlay?.showNotice("Naming it from your calendar…", seconds: 30)
+        Task { [weak self] in
+            await self?.nameFromCalendar(folder, startedAt: startedAt, endedAt: Date(), chosen: calendarMeeting, headline: headline)
+        }
+    }
+
+    /// A recording made during a meeting of the calendar takes that
+    /// meeting's name (the model refines the subject and the required
+    /// participants) and starts with a header saying what it was. The user
+    /// can still rename it from the saved card.
+    private func nameFromCalendar(_ folder: URL, startedAt: Date, endedAt: Date, chosen: CalendarMeeting?, headline: String) async {
+        if chosen == nil {
+            await refreshCalendar()
+        }
+        guard let me = calendarMe,
+              let meeting = chosen ?? MeetingCalendar.meeting(forRecordingFrom: startedAt, to: endedAt, in: calendarMeetings, me: me) else {
+            showSavedNotice(folder, headline: headline)
+            return
+        }
+        let title = await calendarTitle(meeting, me: me)
+        do {
+            let header = MeetingCalendar.transcriptHeader(meeting, me: me)
+            for name in ["transcript.txt", "transcript.original.txt"] {
+                let file = folder.appendingPathComponent(name)
+                if let text = try? String(contentsOf: file, encoding: .utf8) {
+                    try (header + text).write(to: file, atomically: true, encoding: .utf8)
+                }
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(meeting).write(to: folder.appendingPathComponent("meeting.json"))
+            let renamed = try MeetingNaming.rename(folder: folder, title: title)
+            lastMeetingFolder = renamed
+            appendEvent("diagnostic.info: [untype] meeting named from the calendar: \(renamed.lastPathComponent)")
+            showSavedNotice(renamed, headline: headline)
+        } catch {
+            appendEvent("diagnostic.warning: [untype] meeting could not be named from the calendar: \(error.localizedDescription)")
+            showSavedNotice(folder, headline: headline)
+        }
+    }
+
+    private func calendarTitle(_ meeting: CalendarMeeting, me: String) async -> String {
+        let plain = MeetingCalendar.plainTitle(meeting, me: me)
+        guard let llm = try? meetingOptions().llm,
+              let model = try? LLMRefinerFactory.makeTranslator(config: llm, systemPrompt: MeetingCalendar.titlePrompt) else {
+            return plain
+        }
+        defer { model.dispose() }
+        guard let answer = try? await model.refine(MeetingCalendar.titleRequest(meeting, me: me)) else {
+            appendEvent("diagnostic.warning: [untype] the calendar title model did not answer; using the calendar subject")
+            return plain
+        }
+        let title = MeetingNaming.sanitize(answer.split(separator: "\n").first.map(String.init) ?? answer)
+        return title.isEmpty ? plain : title
+    }
+
+    // MARK: Outlook calendar (reminders and names)
+
+    /// Starts (or stops, when the calendar is off) reading the calendar and
+    /// checking for meetings that start.
+    func startCalendarWatch() {
+        calendarTimer?.invalidate()
+        calendarTimer = nil
+        calendarMeetings = []
+        calendarMe = nil
+        calendarRefreshedAt = nil
+        guard settings.meeting.calendarCLIURL != nil else {
+            calendarStatus = ""
+            if overlay?.reminderMeetingID != nil {
+                overlay?.hideNow()
+            }
+            return
+        }
+        calendarStatus = "Reading the calendar…"
+        let timer = Timer(timeInterval: 15, repeats: true) { _ in
+            dispatchToUI { [weak self] in
+                self?.calendarTick()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        calendarTimer = timer
+        calendarTick()
+    }
+
+    private func calendarTick() {
+        let now = Date()
+        let stale = calendarRefreshedAt.map {
+            now.timeIntervalSince($0) >= Self.calendarRefreshInterval || !Calendar.current.isDate($0, inSameDayAs: now)
+        } ?? true
+        if stale, !calendarRefreshing {
+            Task { [weak self] in
+                await self?.refreshCalendar()
+                self?.checkReminder()
+            }
+        }
+        checkReminder()
+    }
+
+    func refreshCalendar() async {
+        guard let url = settings.meeting.calendarCLIURL, !calendarRefreshing else {
+            return
+        }
+        calendarRefreshing = true
+        defer {
+            calendarRefreshing = false
+            calendarRefreshedAt = Date()
+        }
+        let cli = OutlookCalendarCLI(executable: url)
+        do {
+            if calendarMe == nil {
+                calendarMe = try await cli.signedInAddress()
+            }
+            let meetings = try await cli.meetings(on: Date())
+            guard settings.meeting.calendarCLIURL == url else {
+                return
+            }
+            calendarMeetings = meetings
+            calendarStatus = calendarSummary(meetings)
+        } catch {
+            let message = error.localizedDescription
+            if calendarStatus != message {
+                appendEvent("diagnostic.warning: [untype] calendar: \(message)")
+            }
+            calendarStatus = message
+        }
+    }
+
+    private func calendarSummary(_ meetings: [CalendarMeeting]) -> String {
+        guard let me = calendarMe else {
+            return ""
+        }
+        let attended = meetings.filter { MeetingCalendar.isAttended($0, me: me) }
+        let format = DateFormatter()
+        format.dateFormat = "HH:mm"
+        let next = attended.filter { $0.end > Date() }.min { $0.start < $1.start }
+        let count = attended.count == 1 ? "1 meeting today" : "\(attended.count) meetings today"
+        guard let next else {
+            return count
+        }
+        return "\(count) · next: \(MeetingCalendar.cleanSubject(next.subject)) at \(format.string(from: next.start))"
+    }
+
+    /// Shows the "starting now" card when a meeting starts (waiting while
+    /// a dictation or another card is on screen), and takes it away when
+    /// it is no longer due.
+    private func checkReminder() {
+        guard let overlay, let me = calendarMe else {
+            return
+        }
+        let due = reminderQueue.current(
+            now: Date(),
+            meetings: calendarMeetings,
+            me: me,
+            recording: meetingRecorder.isRecording || meetingBusy
+        )
+        if let due {
+            let caption = MeetingCalendar.reminderCaption(due, now: Date())
+            if overlay.reminderMeetingID == due.id {
+                overlay.updateReminderCaption(caption)
+            } else if overlay.overlayPhase == "idle", !hotkeyPressed {
+                overlay.showReminder(
+                    id: due.id,
+                    caption: caption,
+                    title: MeetingCalendar.cleanSubject(due.subject),
+                    detail: MeetingCalendar.reminderDetail(due, me: me)
+                )
+                appendEvent("diagnostic.info: [untype] meeting reminder: \(due.subject)")
+            }
+        } else if overlay.reminderMeetingID != nil {
+            overlay.hideNow()
+        }
+    }
+
+    /// Record on the reminder: the recording is that meeting.
+    func recordRemindedMeeting() {
+        guard let id = overlay?.reminderMeetingID, let meeting = calendarMeetings.first(where: { $0.id == id }) else {
+            overlay?.hideNow()
+            return
+        }
+        reminderQueue.handle(meeting)
+        appendEvent("diagnostic.info: [untype] meeting reminder: Record (\(meeting.subject))")
+        overlay?.hideNow()
+        guard !meetingRecorder.isRecording, !meetingBusy else {
+            return
+        }
+        recordingCalendarMeeting = meeting
+        toggleMeetingRecording()
+    }
+
+    func dismissReminder() {
+        if let id = overlay?.reminderMeetingID, let meeting = calendarMeetings.first(where: { $0.id == id }) {
+            reminderQueue.handle(meeting)
+            appendEvent("diagnostic.info: [untype] meeting reminder: dismissed (\(meeting.subject))")
+        }
+        overlay?.hideNow()
+    }
+
+    /// Settings → Meeting recording → "Use my Outlook calendar". Turning it
+    /// on finds the `nbg-m365` CLI of the Claude Code plugin.
+    func setCalendarEnabled(_ enabled: Bool) {
+        var meeting = settings.meeting
+        if enabled {
+            guard let cli = OutlookCalendarCLI.discover() else {
+                calendarStatus = "The nbg-m365 CLI was not found: install the nbg-m365 Claude Code plugin and sign in."
+                appendEvent("diagnostic.warning: [untype] calendar: \(calendarStatus)")
+                return
+            }
+            meeting.calendarCLI = cli.path
+        } else {
+            meeting.calendarCLI = nil
+        }
+        setMeetingPreferences(meeting)
+        startCalendarWatch()
+    }
+
     fileprivate func appendEvent(_ line: String) {
         guard events.last != line else {
             return
@@ -2139,26 +2708,6 @@ private struct UntypeRootView: View {
             }
             .keyboardShortcut("r", modifiers: [.command])
 
-            HStack(spacing: 6) {
-                Image(systemName: model.settings.hotkeyHoldToTalk ? "hand.tap.fill" : "mic.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(UntypeDesignTokens.accentAmber)
-                Text(model.settings.hotkeyHoldToTalk ? "Push-to-talk" : "Push-to-listen")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                Toggle("Push-to-talk", isOn: pushToTalkBinding)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .tint(UntypeDesignTokens.accentAmber)
-            }
-            .padding(.leading, 2)
-            .help(model.settings.hotkeyHoldToTalk
-                  ? "Push-to-talk: hold \(model.settings.hotkey) to record, release to submit. Switch off for push-to-listen: press once to start, press again to stop and submit."
-                  : "Push-to-listen: press \(model.settings.hotkey) once to start recording, press it again to stop and submit. Switch on for push-to-talk (hold to record).")
-            .accessibilityLabel("Push-to-talk mode")
-
-            Divider().frame(height: 16)
-
             Button {
                 model.refreshCredentials()
             } label: {
@@ -2213,17 +2762,6 @@ private struct UntypeRootView: View {
         Binding(
             get: { model.settings.appearance },
             set: { model.updateLayout(appearance: $0) }
-        )
-    }
-
-    /// Top-bar hotkey mode switch: on = push-to-talk (hold to record, release
-    /// to submit), off = push-to-listen (press to start, press again to stop
-    /// and submit). Changing the mode does not reconfigure the hotkey monitor
-    /// or restart the warm session, so it is safe at any time.
-    private var pushToTalkBinding: Binding<Bool> {
-        Binding(
-            get: { model.settings.hotkeyHoldToTalk },
-            set: { model.update(UntypeUISettingsPatch(hotkeyHoldToTalk: $0)) }
         )
     }
 
@@ -3049,7 +3587,16 @@ private final class UntypeOverlayController: ObservableObject {
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
     private let layout = UntypeOverlayLayout()
-    @Published private var phase = "idle"
+    @Published private var phase = "idle" {
+        didSet {
+            // Return and Esc belong to the app in front again as soon as
+            // the overlay stops listening to a meeting's name.
+            if phase != "naming" {
+                namingKeys.stop()
+                namingKeysActive = false
+            }
+        }
+    }
     /// The processing line next to the text caret (shown while finalizing,
     /// where the focused control reports its caret).
     private let caretIndicator = CaretIndicatorController()
@@ -3070,6 +3617,50 @@ private final class UntypeOverlayController: ObservableObject {
     /// The mouse is over the overlay (anywhere in its frame): the idle
     /// overlay brightens its chips and shows the drag handle.
     @Published fileprivate private(set) var pointerInside = false
+    /// Start of the meeting being recorded (nil: none): the idle overlay
+    /// then draws the meeting audio in red and stays on screen.
+    @Published fileprivate private(set) var meetingStart: Date?
+    /// The hover tray is open: it opens when the mouse is on an operator
+    /// chip of the idle overlay and closes when the mouse leaves the overlay
+    /// (or ⏺ starts a meeting, so the red trace shows at once). The empty
+    /// area above the chips never opens it, so it stays click-through.
+    @Published fileprivate private(set) var trayOpen = false
+    /// What a click on the notice does (nil: the notice is not clickable).
+    @Published fileprivate private(set) var noticeAction: (() -> Void)?
+    /// The second line of a link notice (the meeting's name).
+    @Published fileprivate private(set) var noticeDetail: String?
+    /// Name / Rename on the saved card (nil: no such button).
+    @Published fileprivate private(set) var noticeRenameAction: (() -> Void)?
+    /// That button's word: "Name" until the meeting has a name, then "Rename".
+    @Published fileprivate private(set) var noticeRenameLabel = "Name"
+    /// The words heard so far while naming a meeting.
+    @Published fileprivate private(set) var namingHeard = ""
+    /// The calendar meeting the "starting now" card is about (nil: no card).
+    @Published private(set) var reminderMeetingID: String?
+    @Published fileprivate private(set) var reminderCaption = "Starting now"
+    @Published fileprivate private(set) var reminderTitle = ""
+    @Published fileprivate private(set) var reminderDetail = ""
+    /// Listening has ended; the name is being made from the words.
+    @Published fileprivate private(set) var namingWorking = false
+    /// Cancel was chosen; the listening is being closed.
+    @Published fileprivate private(set) var namingCancelling = false
+    /// Return confirms and Esc cancels while naming (the keys are caught).
+    @Published fileprivate private(set) var namingKeysActive = false
+    /// A hands-free dictation turn: how to finish it, over the trace.
+    @Published fileprivate private(set) var handsFreeHint: String?
+    private lazy var namingKeys = UntypeReturnEscapeKeyTap { [weak self] confirm in
+        dispatchToUI { [weak self] in
+            if confirm {
+                self?.finishNaming()
+            } else {
+                self?.cancelNaming()
+            }
+        }
+    }
+    private var displayedNamingGain: Float = 1
+    private var lastNamingTraceUpdate: TimeInterval?
+    private var displayedMeetingGain: Float = 1
+    private var lastMeetingTraceUpdate: TimeInterval?
     /// Follows the mouse while the panel is on screen.
     private var mouseTimer: Timer?
     /// A drag of the handle in progress: where the mouse and the panel
@@ -3080,7 +3671,16 @@ private final class UntypeOverlayController: ObservableObject {
     fileprivate static let handleKey = "tray"
     /// Keys of the tray's controls in `chipFrames`/`hoveredChip`.
     fileprivate static let settingsKey = "settings"
+    fileprivate static let meetingKey = "meeting"
+    fileprivate static let noticeKey = "notice"
+    fileprivate static let renameKey = "rename"
+    fileprivate static let namingDoneKey = "naming.done"
+    fileprivate static let namingCancelKey = "naming.cancel"
+    fileprivate static let reminderRecordKey = "reminder.record"
+    fileprivate static let reminderDismissKey = "reminder.dismiss"
     fileprivate static let translationKeyPrefix = "translate:"
+    /// The pin shown on a hovered chip: `pin:R`.
+    fileprivate static let pinKeyPrefix = "pin:"
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -3115,6 +3715,10 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         self.phase = phase
         notice = nil
+        noticeAction = nil
+        noticeRenameAction = nil
+        noticeDetail = nil
+        reminderMeetingID = nil
         // The handle exists only while idle: a drag cut short by a turn
         // ends where the panel is.
         if phase != "idle", dragStart != nil {
@@ -3152,7 +3756,7 @@ private final class UntypeOverlayController: ObservableObject {
         guard phase == "idle" else {
             return
         }
-        if model?.settings.overlayAlwaysVisible == true {
+        if model?.settings.overlayAlwaysVisible == true || meetingStart != nil {
             show(phase: "idle")
         } else {
             hideNow()
@@ -3163,23 +3767,185 @@ private final class UntypeOverlayController: ObservableObject {
         operatorVersion += 1
     }
 
+    /// Shown over the recording trace while a tapped turn records
+    /// hands-free; nil removes it.
+    func setHandsFreeHint(_ hint: String?) {
+        if handsFreeHint != hint {
+            handsFreeHint = hint
+        }
+    }
+
+    /// A meeting recording started (its start) or ended (nil).
+    func setMeeting(start: Date?) {
+        meetingStart = start
+        if start != nil {
+            trayOpen = false
+        }
+        displayedMeetingGain = 1
+        lastMeetingTraceUpdate = nil
+        if start != nil {
+            if panel?.isVisible != true {
+                show(phase: "idle")
+            }
+        } else if phase == "idle", model?.settings.overlayAlwaysVisible != true {
+            hideNow()
+        }
+    }
+
     func refreshTheme() {
         operatorVersion += 1
     }
 
-    /// Shows the pill with `text` (and the operator chips) for a moment.
-    func showNotice(_ text: String) {
+    /// Shows the pill with `text` (and the operator chips) for a moment;
+    /// with an `action`, the pill is a link that runs it.
+    func showNotice(
+        _ text: String,
+        detail: String? = nil,
+        seconds: Double = 2.5,
+        action: (() -> Void)? = nil,
+        renameAction: (() -> Void)? = nil,
+        renameLabel: String = "Name"
+    ) {
         show(phase: "notice")
         notice = text
-        hideAfterDelay(nanoseconds: 2_500_000_000)
+        noticeDetail = detail
+        noticeAction = action
+        noticeRenameAction = renameAction
+        noticeRenameLabel = renameLabel
+        hideAfterDelay(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+
+    fileprivate func performRenameAction() {
+        noticeRenameAction?()
+    }
+
+    /// A meeting of the calendar starts: its name, Record and Dismiss. The
+    /// model takes the card away (recorded, dismissed, or no longer due).
+    func showReminder(id: String, caption: String, title: String, detail: String) {
+        trayOpen = false
+        show(phase: "reminder")
+        reminderCaption = caption
+        reminderTitle = title
+        reminderDetail = detail
+        reminderMeetingID = id
+    }
+
+    func updateReminderCaption(_ caption: String) {
+        if reminderCaption != caption {
+            reminderCaption = caption
+        }
+    }
+
+    fileprivate func recordReminder() {
+        model?.recordRemindedMeeting()
+    }
+
+    fileprivate func dismissReminder() {
+        model?.dismissReminder()
+    }
+
+    /// Listening to the spoken name of a meeting: stays until it ends.
+    /// Return confirms and Esc cancels, like the card's two buttons.
+    func showNaming() {
+        show(phase: "naming")
+        namingHeard = ""
+        namingWorking = false
+        namingCancelling = false
+        displayedNamingGain = 1
+        lastNamingTraceUpdate = nil
+        namingKeysActive = namingKeys.start()
+    }
+
+    /// The words recognized so far, shown on the naming card as they come.
+    func setNamingHeard(_ text: String) {
+        guard phase == "naming", !namingWorking, namingHeard != text else {
+            return
+        }
+        namingHeard = text
+    }
+
+    /// Listening is over: the card keeps the words and says the name is
+    /// being made (until the saved card replaces it).
+    func showNamingWorking(heard: String) {
+        if phase != "naming" {
+            show(phase: "naming")
+        }
+        namingHeard = heard
+        namingCancelling = false
+        beginNamingWork()
+        hideAfterDelay(nanoseconds: 30_000_000_000)
+    }
+
+    private func beginNamingWork() {
+        namingWorking = true
+        namingKeys.stop()
+        namingKeysActive = false
+    }
+
+    /// Done (or Return): the card answers at once, before the last words
+    /// come back from the recognizer.
+    fileprivate func finishNaming() {
+        guard phase == "naming", !namingWorking else {
+            return
+        }
+        beginNamingWork()
+        model?.finishMeetingNaming()
+    }
+
+    fileprivate func cancelNaming() {
+        guard phase == "naming", !namingWorking else {
+            return
+        }
+        namingCancelling = true
+        beginNamingWork()
+        model?.cancelMeetingNaming()
+    }
+
+    fileprivate func namingTrace(count: Int, at time: TimeInterval) -> [Float] {
+        let elapsed = lastNamingTraceUpdate.map { time - $0 } ?? 0
+        lastNamingTraceUpdate = time
+        guard let samples = model?.meetingNamer.waveform.window(count: count, at: time) else {
+            return []
+        }
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        displayedNamingGain = UntypeWaveform.smoothed(
+            previous: displayedNamingGain,
+            target: UntypeWaveform.gain(forPeak: peak),
+            elapsed: elapsed
+        )
+        return samples.map { min(1, max(-1, $0 * displayedNamingGain)) }
+    }
+
+    /// The translation targets offered in the tray: the dictation languages
+    /// chosen in Settings.
+    fileprivate var translationLanguages: [String] {
+        model?.settings.languages ?? []
+    }
+
+    fileprivate func performNoticeAction() {
+        let action = noticeAction
+        hideNow()
+        action?()
     }
 
     func hideAfterDelay(nanoseconds: UInt64 = 1_200_000_000) {
         hideTask?.cancel()
         hideTask = Task.detached { [weak self] in
             try? await Task.sleep(nanoseconds: nanoseconds)
+            // A replaced timer (a newer notice) must not hide the overlay.
+            guard !Task.isCancelled else {
+                return
+            }
             dispatchToUI { [weak self] in
-                self?.hideNow()
+                guard let self else {
+                    return
+                }
+                // A card with buttons stays while the mouse is on it.
+                if noticeAction != nil, pointerInside {
+                    hideAfterDelay(nanoseconds: 2_000_000_000)
+                    return
+                }
+                hideNow()
             }
         }
     }
@@ -3188,8 +3954,12 @@ private final class UntypeOverlayController: ObservableObject {
         hideTask?.cancel()
         phase = "idle"
         notice = nil
+        noticeAction = nil
+        noticeRenameAction = nil
+        noticeDetail = nil
+        reminderMeetingID = nil
         updateCaretIndicator()
-        if model?.settings.overlayAlwaysVisible == true {
+        if model?.settings.overlayAlwaysVisible == true || meetingStart != nil {
             if panel?.isVisible != true {
                 show(phase: "idle")
             }
@@ -3201,6 +3971,7 @@ private final class UntypeOverlayController: ObservableObject {
 
     func destroy() {
         hideTask?.cancel()
+        namingKeys.stop()
         caretIndicator.stop()
         stopFollowingMouse()
         panel?.close()
@@ -3247,8 +4018,19 @@ private final class UntypeOverlayController: ObservableObject {
         let location = CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y)
         // A chip or tray control wins; elsewhere on the idle overlay the
         // mouse is on the tray (drawn there while the pointer is inside).
-        let control = chipFrames.first { $0.value.insetBy(dx: -3, dy: -3).contains(location) }?.key
-        setHoveredChip(control ?? (phase == "idle" ? Self.handleKey : nil))
+        // With the tray closed only the chips and the (invisible) Record spot
+        // react; the tray's other controls wait until it is open.
+        let touched = chipFrames.filter { key, frame in
+            let hidden = !trayOpen && (key.hasPrefix(Self.translationKeyPrefix) || key == Self.settingsKey || key.hasPrefix(Self.pinKeyPrefix))
+            return !hidden && frame.insetBy(dx: -3, dy: -3).contains(location)
+        }.map(\.key)
+        // A pin sits on its chip's corner and wins over it.
+        let control = touched.first { $0.hasPrefix(Self.pinKeyPrefix) } ?? touched.sorted().first
+        if phase == "idle", !trayOpen, let control,
+           control.count == 1 || (control == Self.meetingKey && meetingStart == nil) {
+            trayOpen = true
+        }
+        setHoveredChip(control ?? (phase == "idle" && trayOpen ? Self.handleKey : nil))
     }
 
     /// The place the user dragged the overlay to, while it is still on a
@@ -3310,6 +4092,9 @@ private final class UntypeOverlayController: ObservableObject {
             return
         }
         pointerInside = inside
+        if !inside {
+            trayOpen = false
+        }
     }
 
     private func setHoveredChip(_ chip: String?) {
@@ -3395,6 +4180,36 @@ private final class UntypeOverlayController: ObservableObject {
         return samples.map { min(1, max(-1, $0 * displayedGain)) }
     }
 
+    /// One frame of the meeting trace: the microphone and the call's sound
+    /// together, with the same automatic gain as the dictation trace.
+    fileprivate func meetingTrace(count: Int, at time: TimeInterval) -> [Float] {
+        let elapsed = lastMeetingTraceUpdate.map { time - $0 } ?? 0
+        lastMeetingTraceUpdate = time
+        guard let recorder = model?.meetingRecorder else {
+            return []
+        }
+        let mic = recorder.micWaveform.window(count: count, at: time)
+        let call = recorder.callWaveform.window(count: count, at: time)
+        let samples = (0..<max(mic.count, call.count)).map { index in
+            (index < mic.count ? mic[index] : 0) + (index < call.count ? call[index] : 0)
+        }
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        displayedMeetingGain = UntypeWaveform.smoothed(
+            previous: displayedMeetingGain,
+            target: UntypeWaveform.gain(forPeak: peak),
+            elapsed: elapsed
+        )
+        return samples.map { min(1, max(-1, $0 * displayedMeetingGain)) }
+    }
+
+    fileprivate var meetingSilenceMinutes: Int {
+        model?.settings.meeting.silenceMinutes ?? MeetingPreferences.defaultSilenceMinutes
+    }
+
+    fileprivate func toggleMeeting() {
+        model?.toggleMeetingRecording()
+    }
+
     /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/L/W/X/C/I
     /// keys, or a click on the chip), shown under the trace.
     fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
@@ -3417,6 +4232,34 @@ private final class UntypeOverlayController: ObservableObject {
         return all.filter { item in
             OperatorKey.hotkeyKey(item.label).map(settings.isAvailable) ?? true
         }
+    }
+
+    /// What a dictation does with the operators as they are now.
+    fileprivate var summary: UntypeOverlaySummary? {
+        guard let settings = model?.settings else {
+            return nil
+        }
+        return UntypeOverlaySummary(
+            refine: settings.refine,
+            translate: settings.translate,
+            ask: settings.ask,
+            followup: settings.followup,
+            selection: settings.selection,
+            alternative: settings.alternative,
+            screenshot: settings.screenshot,
+            clipboard: settings.clipboard,
+            focusedInput: settings.focusedInput,
+            translationPolicy: settings.translationPolicy
+        )
+    }
+
+    /// The chips the idle overlay shows at rest (empty: all).
+    fileprivate var pinnedOperators: [String] {
+        model?.settings.pinnedOperators ?? []
+    }
+
+    fileprivate func togglePin(letter: String) {
+        model?.togglePinnedOperator(letter)
     }
 
     /// A click on an operator chip: the same as its key while holding
@@ -3510,7 +4353,7 @@ private struct UntypeOverlayView: View {
 
     private static let coordinateSpace = "untype-overlay"
     /// Opacity of the chips while idle and not hovered.
-    private static let restingChipOpacity = 0.7
+    private static let restingChipOpacity = 0.9
 
     @State private var frames: [String: CGRect] = [:]
 
@@ -3547,37 +4390,123 @@ private struct UntypeOverlayView: View {
     ]
 
     /// The tray's translation-direction buttons: short label, tooltip.
-    private static let translationChoices: [(policy: TranslationPolicy, label: String, title: String, detail: String)] = [
-        (.opposite, "⇄", "Opposite language", "Greek becomes English, English becomes Greek"),
-        (.toEnglish, "EN", "To English", "Translate always turns the text into English"),
-        (.toGreek, "EL", "To Greek", "Translate always turns the text into Greek")
+    private static let translationChoices: [(policy: TranslationPolicy, language: String, label: String, title: String, detail: String)] = [
+        (.toEnglish, "en", "EN", "To English", "Translate turns the text into English"),
+        (.toGreek, "el", "EL", "To Greek", "Translate turns the text into Greek")
     ]
 
-    /// The tooltip: the operator's name and key, and what it does (or the
+    /// The targets for the languages chosen in Settings (both with "auto").
+    private var offeredTranslationChoices: [(policy: TranslationPolicy, language: String, label: String, title: String, detail: String)] {
+        let languages = controller.translationLanguages
+        return Self.translationChoices.filter { languages.contains($0.language) || languages.contains("auto") }
+    }
+
+    private static let meetingColor = Color(.sRGB, red: 0.92, green: 0.26, blue: 0.24, opacity: 1)
+
+    private var isMeeting: Bool {
+        controller.meetingStart != nil
+    }
+
+    /// The tooltip: the operator's name and what it does (or the
     /// tray control under the mouse).
     private var tooltip: (title: String, detail: String?)? {
         if controller.hoveredChip == UntypeOverlayController.settingsKey {
             return ("Settings", nil)
         }
+        // The cards' buttons are labelled (and show their key): a tooltip
+        // would only cover the card.
+        if controller.hoveredChip == UntypeOverlayController.meetingKey {
+            return isMeeting
+                ? ("Stop meeting recording", "Saves the transcript")
+                : ("Record meeting", "Both sides of the call · stops after \(controller.meetingSilenceMinutes) min of silence")
+        }
         if let key = controller.hoveredChip, key.hasPrefix(UntypeOverlayController.translationKeyPrefix),
            let choice = Self.translationChoices.first(where: { UntypeOverlayController.translationKeyPrefix + $0.policy.rawValue == key }) {
             return (choice.title, choice.detail)
         }
+        if let key = controller.hoveredChip, key.hasPrefix(UntypeOverlayController.pinKeyPrefix) {
+            let letter = String(key.dropFirst(UntypeOverlayController.pinKeyPrefix.count))
+            let name = controller.operatorSnapshot.first { $0.label == letter }?.name ?? letter
+            return controller.pinnedOperators.contains(letter)
+                ? ("Unpin \(name)", "Shown only when the mouse is on the overlay")
+                : ("Pin \(name)", "Always shown, also at rest")
+        }
         guard let item = hoveredChip else {
             return nil
         }
-        return ("\(item.name) · \(item.label)", Self.operatorHints[item.label])
+        return (item.name, Self.operatorHints[item.label])
     }
 
     /// The hover tray appears only on an idle overlay under the mouse:
     /// while dictating or processing, the overlay is not moved or set up.
     private var showsTray: Bool {
-        controller.overlayPhase.lowercased() == "idle" && controller.pointerInside
+        controller.overlayPhase.lowercased() == "idle" && controller.trayOpen
     }
 
-    /// The idle overlay rests a little dimmer until the mouse is over it.
+    /// A card (saved, naming) or a notice has the attention.
+    private var showsCard: Bool {
+        controller.overlayPhase == "naming" || controller.overlayPhase == "reminder" || controller.notice != nil
+    }
+
+    /// The chips rest (a touch dimmer, still readable on any window behind)
+    /// on the idle overlay until the mouse opens the tray, and under a card.
+    private var chipsRest: Bool {
+        (isIdle && !controller.trayOpen) || showsCard
+    }
+
     private var chipOpacity: Double {
-        isIdle && !controller.pointerInside ? Self.restingChipOpacity : 1
+        chipsRest ? Self.restingChipOpacity : 1
+    }
+
+    /// At rest (idle or under a card, the mouse away from the overlay) only
+    /// the pinned chips show, and any chip that is on; while dictating, or
+    /// as soon as the mouse enters the overlay, all of them.
+    private var chipsCollapsed: Bool {
+        (isIdle || showsCard) && !controller.trayOpen && !controller.pointerInside
+    }
+
+    private var shownOperators: [(label: String, name: String, enabled: Bool)] {
+        let all = controller.operatorSnapshot
+        let pinned = controller.pinnedOperators
+        guard chipsCollapsed, !pinned.isEmpty else {
+            return all
+        }
+        return all.filter { pinned.contains($0.label) || $0.enabled }
+    }
+
+    /// The pin on the hovered chip's corner (only in the open tray).
+    private func pinBadge(_ letter: String) -> some View {
+        let key = UntypeOverlayController.pinKeyPrefix + letter
+        let pinned = controller.pinnedOperators.contains(letter)
+        let hovered = controller.hoveredChip == key
+        return Button {
+            controller.togglePin(letter: letter)
+        } label: {
+            Image(systemName: pinned ? "pin.fill" : "pin")
+                .font(.system(size: 6.5, weight: .bold))
+                .foregroundStyle(pinned ? Color.black.opacity(0.85) : Color.white)
+                .frame(width: 13, height: 13)
+                .background(Circle().fill(pinned ? Color.white : Color(white: 0.08)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(hovered ? 0.95 : 0.5), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Circle())
+        .background(hitFrame(key))
+        .offset(x: 8, y: -9)
+        .accessibilityLabel(pinned ? "Unpin" : "Pin")
+    }
+
+    /// The tray's two lines: the control under the mouse (what it is, what
+    /// it does), otherwise what a dictation does now.
+    private var trayStatus: (title: String, detail: String?)? {
+        if let item = hoveredChip {
+            let pinned = controller.pinnedOperators.contains(item.label) ? " · pinned" : ""
+            return (item.name + pinned, Self.operatorHints[item.label])
+        }
+        if let tooltip {
+            return tooltip
+        }
+        return controller.summary.map { ($0.action, $0.detail) }
     }
 
     /// The tooltip's top-left corner: centred over the hovered chip (under
@@ -3602,28 +4531,354 @@ private struct UntypeOverlayView: View {
         }
     }
 
+    // MARK: Cards (recording a meeting, saved, naming)
+
+    private static let savedColor = Color(.sRGB, red: 0.30, green: 0.80, blue: 0.46, opacity: 1)
+
+    /// The shared card: one dark pill holding a status and its buttons.
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 7) {
+            content()
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .frame(height: 36)
+        .background(Capsule(style: .continuous).fill(Color(white: 0.08).opacity(0.94)))
+        .overlay(Capsule(style: .continuous).strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// A softly pulsing status dot.
+    private func pulsingDot(_ color: Color, at time: TimeInterval) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: 7, height: 7)
+            .opacity(0.55 + 0.45 * (0.5 + 0.5 * sin(time * 4)))
+            .shadow(color: color.opacity(0.7), radius: 3)
+    }
+
+    /// The trace as a few rounded level bars, centred on the middle line.
+    private func levelBars(_ trace: [Float], color: Color, bars: Int = 16) -> some View {
+        Canvas { canvas, size in
+            guard trace.count >= bars else {
+                return
+            }
+            let width: CGFloat = 2.5
+            let gap = (size.width - CGFloat(bars) * width) / CGFloat(bars - 1)
+            let bucket = trace.count / bars
+            for index in 0..<bars {
+                let slice = trace[(index * bucket)..<((index + 1) * bucket)]
+                let level = CGFloat(slice.reduce(Float(0)) { max($0, abs($1)) })
+                let height = max(3, level * size.height)
+                let rect = CGRect(x: CGFloat(index) * (width + gap), y: (size.height - height) / 2, width: width, height: height)
+                canvas.fill(Path(roundedRect: rect, cornerRadius: width / 2), with: .color(color))
+            }
+        }
+    }
+
+    /// Headline and a dimmer second line.
+    private func cardText(_ headline: String, _ detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(headline)
+                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color.white)
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.6))
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+
+    private func roundButton(_ symbol: String, key: String, fill: Color, label: String, action: @escaping () -> Void) -> some View {
+        let hovered = controller.hoveredChip == key
+        return Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9.5, weight: .heavy))
+                .foregroundStyle(Color.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(fill))
+                .overlay(Circle().fill(Color.white.opacity(hovered ? 0.18 : 0)))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Circle())
+        .background(hitFrame(key))
+        .accessibilityLabel(label)
+    }
+
+    private static func elapsed(_ seconds: Int) -> String {
+        seconds >= 3600
+            ? String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+            : String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    /// Recording a meeting: pulsing red dot, elapsed time, level bars, stop.
+    private var meetingCard: some View {
+        card {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                let now = ProcessInfo.processInfo.systemUptime
+                let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
+                let seconds = Int(context.date.timeIntervalSince(controller.meetingStart ?? context.date))
+                HStack(spacing: 7) {
+                    pulsingDot(Self.meetingColor, at: now)
+                    cardText(Self.elapsed(max(0, seconds)), "Recording")
+                        .frame(width: 52, alignment: .leading)
+                    levelBars(controller.meetingTrace(count: count, at: now), color: Self.meetingColor)
+                        .frame(width: 76, height: 18)
+                }
+            }
+            roundButton("stop.fill", key: UntypeOverlayController.meetingKey, fill: Self.meetingColor, label: "Stop recording the meeting") {
+                controller.toggleMeeting()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Recording a meeting")
+    }
+
+    /// The taller card (saved, naming): room for two lines of text next to
+    /// two stacked, labelled buttons.
+    private func tallCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            content()
+        }
+        .padding(.leading, 11)
+        .padding(.trailing, 5)
+        .frame(height: 51)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.08).opacity(0.94)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+        .padding(.horizontal, 3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// A small status line (what the card is about) over its main text.
+    private func cardCaption(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(color)
+            .lineLimit(1)
+    }
+
+    /// The card's main text: up to two lines, shrinking a little before it
+    /// is cut, so a name is read in full.
+    private func cardBody(_ text: String, color: Color = .white, truncation: Text.TruncationMode = .tail) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(color)
+            .lineLimit(2)
+            .minimumScaleFactor(0.82)
+            .truncationMode(truncation)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// A labelled button of the tall cards, with the key that does the same
+    /// (`keySymbol`, an SF Symbol, or `keyText`).
+    private func pillButton(
+        _ title: String,
+        keySymbol: String? = nil,
+        keyText: String? = nil,
+        key: String,
+        fill: Color,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        let hovered = controller.hoveredChip == key
+        return Button(action: action) {
+            HStack(spacing: 3) {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                if let keySymbol {
+                    Image(systemName: keySymbol)
+                        .font(.system(size: 7.5, weight: .heavy))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                }
+                if let keyText {
+                    Text(keyText)
+                        .font(.system(size: 8, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                }
+            }
+            .frame(width: 62, height: 19)
+            .background(Capsule(style: .continuous).fill(fill))
+            .overlay(Capsule(style: .continuous).fill(Color.white.opacity(hovered ? 0.16 : 0)))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Capsule(style: .continuous))
+        .background(hitFrame(key))
+        .accessibilityLabel(label)
+    }
+
+    private static let quietFill = Color.white.opacity(0.14)
+
+    /// Saved or renamed: what happened, the meeting's name in full, Open and
+    /// Name / Rename.
+    private func savedCard(_ headline: String) -> some View {
+        tallCard {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(Self.savedColor)
+                    cardCaption(headline, color: Self.savedColor)
+                }
+                if let name = controller.noticeDetail {
+                    cardBody(name)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 4) {
+                pillButton("Open", key: UntypeOverlayController.noticeKey, fill: Self.quietFill, label: "Open the transcript") {
+                    controller.performNoticeAction()
+                }
+                if controller.noticeRenameAction != nil {
+                    let word = controller.noticeRenameLabel
+                    pillButton(word, key: UntypeOverlayController.renameKey, fill: Self.quietFill, label: "\(word) the meeting by voice") {
+                        controller.performRenameAction()
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel([headline, controller.noticeDetail].compactMap { $0 }.joined(separator: ": "))
+    }
+
+    /// A meeting of the calendar is on: "Starting now" (then "Started 12 min
+    /// ago"), its name and who is invited; it stays for the whole meeting.
+    /// Record starts recording it, Dismiss puts the card away for good.
+    private var reminderCard: some View {
+        tallCard {
+            VStack(alignment: .leading, spacing: 2) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
+                    HStack(spacing: 5) {
+                        pulsingDot(Self.meetingColor, at: ProcessInfo.processInfo.systemUptime)
+                        cardCaption("\(controller.reminderCaption) · \(controller.reminderDetail)", color: Color.white.opacity(0.75))
+                    }
+                }
+                cardBody(controller.reminderTitle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 4) {
+                pillButton("Record", key: UntypeOverlayController.reminderRecordKey, fill: Self.meetingColor.opacity(0.9), label: "Record this meeting") {
+                    controller.recordReminder()
+                }
+                pillButton("Dismiss", key: UntypeOverlayController.reminderDismissKey, fill: Self.quietFill, label: "Dismiss the reminder") {
+                    controller.dismissReminder()
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(controller.reminderCaption): \(controller.reminderTitle), \(controller.reminderDetail)")
+    }
+
+    /// Naming a meeting by voice: the words appear as they are heard; Done
+    /// (Return) uses them, Cancel (Esc) keeps the current name. After that
+    /// the card keeps the words while the name is made.
+    private var namingView: some View {
+        let heard = controller.namingHeard
+        let busy = controller.namingWorking
+        return tallCard {
+            VStack(alignment: .leading, spacing: 2) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
+                    let now = ProcessInfo.processInfo.systemUptime
+                    let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
+                    HStack(spacing: 5) {
+                        pulsingDot(busy ? UntypeDesignTokens.accentAmber : Self.traceColor, at: now)
+                        if busy {
+                            cardCaption(controller.namingCancelling ? "Cancelling…" : "Making the name…", color: Color.white.opacity(0.75))
+                        } else {
+                            cardCaption("Listening", color: Color.white.opacity(0.75))
+                            levelBars(controller.namingTrace(count: count, at: now), color: Self.traceColor, bars: 12)
+                                .frame(width: 44, height: 10)
+                        }
+                    }
+                }
+                if heard.isEmpty {
+                    cardBody(busy ? "…" : "Say the topic and who was there", color: Color.white.opacity(0.55))
+                } else {
+                    // The newest words stay in view.
+                    cardBody(heard, truncation: .head)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !busy {
+                VStack(spacing: 4) {
+                    pillButton(
+                        "Done",
+                        keySymbol: controller.namingKeysActive ? "return" : nil,
+                        key: UntypeOverlayController.namingDoneKey,
+                        fill: Self.savedColor.opacity(0.85),
+                        label: "Use this name"
+                    ) {
+                        controller.finishNaming()
+                    }
+                    pillButton(
+                        "Cancel",
+                        keyText: controller.namingKeysActive ? "esc" : nil,
+                        key: UntypeOverlayController.namingCancelKey,
+                        fill: Self.quietFill,
+                        label: "Cancel, keep the current name"
+                    ) {
+                        controller.cancelNaming()
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(busy ? "Making the meeting's name" : "Listening to the meeting's name")
+    }
+
     /// The tray's dark rounded background; dragging it moves the overlay
     /// (`UntypeOverlayHostingView`).
     private var trayBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color.black.opacity(0.5))
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color(white: 0.08).opacity(0.94))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
             .padding(1)
             .accessibilityLabel("Drag to move the overlay, double-click to reset its place")
     }
 
-    /// The tray's top row: translation direction on the left, Settings on
-    /// the right.
+    /// The tray: its row of controls and, under it, two lines that say what
+    /// a dictation does now (or what the control under the mouse is).
     private var trayControls: some View {
+        VStack(spacing: 0) {
+            trayControlRow
+            Spacer(minLength: 0)
+            if let status = trayStatus {
+                VStack(spacing: 1) {
+                    Text(status.title)
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.white)
+                    Text(status.detail ?? " ")
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.top, 7)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// The tray's top row: translation direction on the left, Record and
+    /// Settings on the right.
+    private var trayControlRow: some View {
         HStack(spacing: 4) {
             Text("Translate")
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.white.opacity(0.6))
                 .padding(.trailing, 2)
-            ForEach(Self.translationChoices, id: \.policy) { choice in
+            ForEach(offeredTranslationChoices, id: \.policy) { choice in
                 let selected = controller.translationPolicy == choice.policy.rawValue
                 Button {
                     controller.setTranslationPolicy(choice.policy)
@@ -3644,6 +4899,25 @@ private struct UntypeOverlayView: View {
             }
             Spacer(minLength: 0)
             Button {
+                controller.toggleMeeting()
+            } label: {
+                let hovered = controller.hoveredChip == UntypeOverlayController.meetingKey
+                HStack(spacing: 3) {
+                    Image(systemName: isMeeting ? "stop.fill" : "circle.fill")
+                        .font(.system(size: 7, weight: .bold))
+                    Text(isMeeting ? "Stop" : "Record")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 8)
+                .frame(height: 17)
+                .background(Capsule(style: .continuous).fill(Self.meetingColor.opacity(hovered ? 1 : 0.85)))
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .background(hitFrame(UntypeOverlayController.meetingKey))
+            .accessibilityLabel(isMeeting ? "Stop meeting recording" : "Record meeting")
+            Button {
                 controller.openSettings()
             } label: {
                 Image(systemName: "gearshape.fill")
@@ -3657,13 +4931,17 @@ private struct UntypeOverlayView: View {
             .accessibilityLabel("Open Settings")
         }
         .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     var body: some View {
         VStack(spacing: 6) {
-            if let notice = controller.notice {
+            if controller.overlayPhase == "naming" {
+                namingView
+            } else if controller.overlayPhase == "reminder" {
+                reminderCard
+            } else if let notice = controller.notice, controller.noticeAction != nil {
+                savedCard(notice)
+            } else if let notice = controller.notice {
                 Text(notice)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.white)
@@ -3676,26 +4954,41 @@ private struct UntypeOverlayView: View {
             } else if showsTray {
                 trayControls
                     .transition(.opacity)
+            } else if isIdle && isMeeting {
+                meetingCard
             } else if isIdle {
-                // Nothing is being recorded or processed: no trace, the
-                // chips keep their place.
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Nothing is being recorded or processed: no trace. The tray's
+                // row is laid out invisibly so the Record spot opens the tray.
+                trayControls
+                    .opacity(0)
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
                     let count = Int(Self.visibleSeconds * UntypeWaveformBuffer.pointsPerSecond)
                     let trace = controller.oscilloscopeTrace(count: count, at: ProcessInfo.processInfo.systemUptime)
                     Canvas { canvas, size in
-                        drawTrace(trace, in: &canvas, size: size)
+                        drawTrace(trace, in: &canvas, size: size, color: Self.traceColor.opacity(isRecording ? 1 : 0.7))
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityHidden(true)
+                .overlay(alignment: .top) {
+                    if isRecording, let hint = controller.handsFreeHint {
+                        Text(hint)
+                            .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.white)
+                            .lineLimit(1)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule(style: .continuous).fill(Color.black.opacity(0.7)))
+                            .accessibilityLabel(hint)
+                    }
+                }
             }
 
             HStack(spacing: 6) {
-                ForEach(controller.operatorSnapshot, id: \.label) { item in
+                ForEach(shownOperators, id: \.label) { item in
                     Button {
                         controller.toggleOperator(letter: item.label)
                     } label: {
@@ -3704,9 +4997,16 @@ private struct UntypeOverlayView: View {
                     .buttonStyle(.plain)
                     .contentShape(Capsule(style: .continuous))
                     .background(hitFrame(item.label))
+                    .overlay(alignment: .topTrailing) {
+                        if showsTray, controller.hoveredChip == item.label
+                            || controller.hoveredChip == UntypeOverlayController.pinKeyPrefix + item.label {
+                            pinBadge(item.label)
+                        }
+                    }
                 }
             }
             .opacity(chipOpacity)
+            .animation(.easeOut(duration: 0.15), value: chipsCollapsed)
         }
         .padding(.top, 2)
         .padding(.bottom, 5)
@@ -3719,7 +5019,9 @@ private struct UntypeOverlayView: View {
         }
         .accessibilityElement(children: .contain)
         .overlay(alignment: .topLeading) {
-            if let tooltip, let anchor = controller.hoveredChip.flatMap({ frames[$0] }) {
+            // The open tray explains the control under the mouse in its
+            // own two lines, so nothing floats over it.
+            if !showsTray, let tooltip, let anchor = controller.hoveredChip.flatMap({ frames[$0] }) {
                 VStack(spacing: 1) {
                     Text(tooltip.title)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -3746,7 +5048,7 @@ private struct UntypeOverlayView: View {
                     .allowsHitTesting(false)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: controller.pointerInside)
+        .animation(.easeOut(duration: 0.15), value: controller.trayOpen)
         .coordinateSpace(name: Self.coordinateSpace)
         .onPreferenceChange(UntypeOverlayChipFrames.self) { value in
             controller.chipFrames = value
@@ -3755,20 +5057,25 @@ private struct UntypeOverlayView: View {
         .accessibilityLabel(isIdle ? "untype operators" : isRecording ? "Push to talk, listening" : "Push to talk, processing")
     }
 
-    /// On: solid amber with a dark letter. Off: a dim outline. Both carry a
+    /// On: solid amber with a dark letter. Off: dark with a white letter and
+    /// a light outline, readable on light and dark windows alike. Both carry a
     /// shadow so they stay readable over any window behind the panel.
     private func operatorChip(_ letter: String, name: String, enabled: Bool) -> some View {
         Text(letter)
             .font(.system(size: 10, weight: .heavy, design: .rounded))
-            .foregroundStyle(enabled ? Color.black.opacity(0.85) : Color.white.opacity(0.75))
+            .foregroundStyle(enabled ? Color.black.opacity(0.85) : Color.white.opacity(0.95))
             .frame(width: 20, height: 16)
             .background(
                 Capsule(style: .continuous)
-                    .fill(enabled ? UntypeDesignTokens.accentAmber : Color.black.opacity(0.35))
+                    .fill(enabled ? UntypeDesignTokens.accentAmber : Color(white: 0.12).opacity(0.72))
             )
             .overlay(
                 Capsule(style: .continuous)
                     .strokeBorder(enabled ? Color.clear : Color.white.opacity(0.45), lineWidth: 1)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.white.opacity(controller.hoveredChip == letter ? 0.95 : 0), lineWidth: 1.5)
             )
             .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
             .accessibilityLabel("\(name) \(enabled ? "on" : "off")")
@@ -3776,7 +5083,7 @@ private struct UntypeOverlayView: View {
 
     /// A thin line through every point; a faint shadow keeps it readable on
     /// both light and dark windows behind the transparent panel.
-    private func drawTrace(_ trace: [Float], in canvas: inout GraphicsContext, size: CGSize) {
+    private func drawTrace(_ trace: [Float], in canvas: inout GraphicsContext, size: CGSize, color: Color) {
         guard trace.count > 1 else {
             return
         }
@@ -3795,7 +5102,7 @@ private struct UntypeOverlayView: View {
         canvas.addFilter(.shadow(color: .black.opacity(0.35), radius: 1.5))
         canvas.stroke(
             path,
-            with: .color(Self.traceColor.opacity(isRecording ? 1 : 0.7)),
+            with: .color(color),
             style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
         )
     }
@@ -4072,9 +5379,7 @@ struct UntypeOnboardingView: View {
                         }
                         .buttonStyle(.borderless)
                     }
-                    Text(model.settings.hotkeyHoldToTalk
-                         ? "Hold to record, release to submit. Auto-warms a new provider session after each turn."
-                         : "Press to start recording, press again to stop and submit. Auto-warms a new provider session after each turn.")
+                    Text("Hold to record, release to submit; or tap, then Enter sends, the hotkey types only, Esc discards. Auto-warms a new provider session after each turn.")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4554,6 +5859,7 @@ private final class UntypeHotkeyMonitor {
                 }
                 return self.handle(event: event, source: "local-monitor", suppress: true) ? nil : event
             }
+            model?.appendEvent("diagnostic.info: [untype] hotkey monitor: \(model?.hotkeyMonitorStatus ?? "unknown") (\(settings.hotkey))")
         } catch {
             model?.hotkeyMonitorStatus = "invalid hotkey"
             model?.events.append("diagnostic.warning: \(error.localizedDescription)")
@@ -4585,6 +5891,11 @@ private final class UntypeHotkeyMonitor {
         // or operator toggle.
         if let cgEvent = event.cgEvent, isUntypeSyntheticKeyboardEvent(cgEvent) {
             return false
+        }
+        if event.type == .keyDown, !event.isARepeat, descriptor.matches(event) {
+            dispatch(.trace("\(source) down"))
+        } else if event.type == .keyUp || event.type == .flagsChanged, descriptor.releases(event) {
+            dispatch(.trace("\(source) \(event.type == .keyUp ? "up" : "flags")"))
         }
         if event.type == .keyDown {
             if event.isARepeat, descriptor.matches(event) {
@@ -4642,6 +5953,8 @@ private final class UntypeHotkeyMonitor {
             case .warning(let message):
                 model.hotkeyMonitorStatus = "event tap warning"
                 model.events.append("diagnostic.warning: \(message)")
+            case .trace(let message):
+                model.appendEvent("diagnostic.info: [untype] hotkey raw: \(message)")
             }
         }
     }
@@ -4726,11 +6039,13 @@ private final class UntypeCarbonHotkeyMonitor {
         }
         switch GetEventKind(event) {
         case UInt32(kEventHotKeyPressed):
+            emit(.trace("carbon-hotkey down"))
             if state.markPressed() {
                 emit(.press(source: "carbon-hotkey"))
             }
             return noErr
         case UInt32(kEventHotKeyReleased):
+            emit(.trace("carbon-hotkey up"))
             if state.markReleased() {
                 emit(.release(source: "carbon-hotkey"))
             }
@@ -4755,6 +6070,9 @@ private enum UntypeHotkeyEvent: Sendable {
     case toggleOperator(OperatorKey, source: String)
     case selectionHotkey(source: String)
     case warning(String)
+    /// Every raw down/up of the hotkey a listener sees, before deduplication,
+    /// so a release that never arrives can be traced to the listener.
+    case trace(String)
 }
 
 private final class UntypeHotkeySharedState: @unchecked Sendable {
@@ -4883,6 +6201,11 @@ private final class UntypeQuartzHotkeyEventTap {
         if isUntypeSyntheticKeyboardEvent(event) {
             return false
         }
+        if type == .keyDown, descriptor.matches(event), event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            emit(.trace("quartz-event-tap down"))
+        } else if type == .keyUp || type == .flagsChanged, descriptor.releases(event) {
+            emit(.trace("quartz-event-tap \(type == .keyUp ? "up" : "flags")"))
+        }
         if type == .keyDown {
             if descriptor.matches(event), event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
                 return true
@@ -4917,6 +6240,106 @@ private final class UntypeQuartzHotkeyEventTap {
         }
         return false
     }
+}
+
+/// Return and Esc caught before the app in front sees them (the overlay
+/// never takes the keyboard focus), only while they have a meaning for
+/// untype: naming a meeting, or finishing a hands-free dictation turn.
+/// Independent of the push-to-talk hotkey monitors; every other key, and
+/// any key with a modifier, passes through untouched.
+private final class UntypeReturnEscapeKeyTap {
+    /// `true`: Return or Enter (confirm); `false`: Esc (cancel).
+    private let onKey: @Sendable (Bool) -> Void
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    /// Keys whose press was caught, so their release is caught too.
+    private var caught: Set<Int64> = []
+    private static let returnKeys: Set<Int64> = [36, 76]
+    private static let escapeKey: Int64 = 53
+
+    init(onKey: @escaping @Sendable (Bool) -> Void) {
+        self.onKey = onKey
+    }
+
+    /// False when macOS does not allow the tap: the buttons still work.
+    func start() -> Bool {
+        if eventTap != nil {
+            return true
+        }
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.keyUp.rawValue)
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: untypeNamingKeyTapCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            return false
+        }
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            return false
+        }
+        eventTap = tap
+        runLoopSource = source
+        caught = []
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
+
+    func stop() {
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        if let eventTap {
+            CFMachPortInvalidate(eventTap)
+        }
+        runLoopSource = nil
+        eventTap = nil
+        caught = []
+    }
+
+    /// True when the event is swallowed.
+    fileprivate func handle(type: CGEventType, event: CGEvent) -> Bool {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+            }
+            return false
+        }
+        if isUntypeSyntheticKeyboardEvent(event) {
+            return false
+        }
+        let key = event.getIntegerValueField(.keyboardEventKeycode)
+        if type == .keyUp {
+            return caught.remove(key) != nil
+        }
+        guard type == .keyDown, Self.returnKeys.contains(key) || key == Self.escapeKey else {
+            return false
+        }
+        // With a modifier it is some app's shortcut, not an answer.
+        guard event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty else {
+            return false
+        }
+        caught.insert(key)
+        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            onKey(key != Self.escapeKey)
+        }
+        return true
+    }
+}
+
+private let untypeNamingKeyTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
+    guard let userInfo else {
+        return Unmanaged.passUnretained(event)
+    }
+    let tap = Unmanaged<UntypeReturnEscapeKeyTap>.fromOpaque(userInfo).takeUnretainedValue()
+    if tap.handle(type: type, event: event) {
+        return nil
+    }
+    return Unmanaged.passUnretained(event)
 }
 
 private let untypeHotkeyEventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
