@@ -250,6 +250,22 @@ struct UntypeSettingsView: View {
         }
     }
 
+    private func chooseMeetingFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = model.settings.meeting.folderURL
+        panel.prompt = "Use Folder"
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        var meeting = model.settings.meeting
+        meeting.folder = url.path
+        model.setMeetingPreferences(meeting)
+    }
+
     // MARK: General
 
     @ViewBuilder
@@ -284,7 +300,65 @@ struct UntypeSettingsView: View {
         } header: {
             Text("Dictation overlay")
         } footer: {
-            caption("The overlay shows the waveform and the operator chips. Kept visible, the chips can be clicked at any time. Drag its grip to move it; double-click the grip to reset.")
+            caption("The overlay shows the waveform and the operator chips. Kept visible, the chips can be clicked at any time. Hover it for the tray: drag the tray to move the overlay; double-click it to reset.")
+        }
+
+        Section {
+            Picker("Transcript language", selection: Binding(
+                get: { model.settings.meeting.language },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.language = value
+                    model.setMeetingPreferences(meeting)
+                }
+            )) {
+                ForEach(MeetingTranscriptLanguage.allCases, id: \.rawValue) { language in
+                    Text(language.title).tag(language.rawValue)
+                }
+            }
+            Stepper(value: Binding(
+                get: { model.settings.meeting.silenceMinutes },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.silenceMinutes = value
+                    model.setMeetingPreferences(meeting)
+                }
+            ), in: 0...60) {
+                LabeledContent("Auto-stop after silence") {
+                    Text(model.settings.meeting.silenceMinutes == 0 ? "Off" : "\(model.settings.meeting.silenceMinutes) min")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            LabeledContent("Folder") {
+                HStack(spacing: 8) {
+                    Text(model.settings.meeting.folderURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose…") {
+                        chooseMeetingFolder()
+                    }
+                    Button("Open") {
+                        model.openMeetingsFolder()
+                    }
+                }
+            }
+            Toggle("Use my Outlook calendar", isOn: Binding(
+                get: { model.settings.meeting.calendarCLIURL != nil },
+                set: { model.setCalendarEnabled($0) }
+            ))
+            if !model.calendarStatus.isEmpty {
+                LabeledContent("Calendar") {
+                    Text(model.calendarStatus)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+            }
+        } header: {
+            Text("Meeting recording")
+        } footer: {
+            caption("Hover the overlay and click ⏺ to record both sides of a call (your microphone and the call's sound). Each meeting gets a folder with transcript.txt, transcript.original.txt (as spoken) and transcript.jsonl. Needs Screen & System Audio Recording permission; headphones avoid the call being heard twice. With the Outlook calendar on (read through the nbg-m365 CLI), the overlay says when a Teams meeting you accepted starts, with a Record button, and a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
         }
 
         Section("Current session") {
@@ -321,14 +395,8 @@ struct UntypeSettingsView: View {
                 }
             }
             .disabled(sessionShapingDisabled)
-            Picker("Recording", selection: binding(\.hotkeyHoldToTalk)) {
-                Text("Hold to talk").tag(true)
-                Text("Press to start and stop").tag(false)
-            }
         } footer: {
-            caption(model.settings.hotkeyHoldToTalk
-                ? "Push-to-talk: hold the hotkey to record, release to submit."
-                : "Push-to-listen: press the hotkey to start, press again to stop and submit.")
+            caption("Hold the hotkey to record and release to submit. Tap it to keep recording hands-free, then press Enter to type the text and send it, the hotkey to type it only, or Esc to discard.")
         }
 
         Section {
@@ -758,8 +826,6 @@ struct UntypeSettingsView: View {
             return UntypeUISettingsPatch(voiceCommands: value as? Bool)
         case \UntypeUISettings.hotkeyEnabled:
             return UntypeUISettingsPatch(hotkeyEnabled: value as? Bool)
-        case \UntypeUISettings.hotkeyHoldToTalk:
-            return UntypeUISettingsPatch(hotkeyHoldToTalk: value as? Bool)
         case \UntypeUISettings.hotkey:
             return UntypeUISettingsPatch(hotkey: value as? String)
         case \UntypeUISettings.selectionHotkeyEnabled:

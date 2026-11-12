@@ -293,7 +293,7 @@ cat > "$INFO_PLIST" <<EOF
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>
-  <string>untype records microphone audio only while you start listening or hold the push-to-talk hotkey, then sends it to the configured transcription provider.</string>
+  <string>untype records microphone audio only while you start listening, hold the push-to-talk hotkey or record a meeting, then sends it to the configured transcription provider.</string>
 EOF
 
 if [[ -n "$ICON_PATH" ]]; then
