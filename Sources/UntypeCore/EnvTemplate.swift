@@ -169,6 +169,9 @@ public enum UntypeEnvTemplate {
     # Screenshot: a screenshot of the active app's window goes with the request
     # (needs a vision model and Screen Recording permission) and is copied to the clipboard.
     # UNTYPE_SCREENSHOT_DEFAULT=
+    # Window text: the text of the active app's window (also what is scrolled
+    # out of view) goes with the request as reference.
+    # UNTYPE_WINDOWTEXT_DEFAULT=
     # Output cap for Ask answers (separate from UNTYPE_LLM_MAX_OUTPUT_TOKENS). Default: 8000.
     # UNTYPE_ASK_MAX_OUTPUT_TOKENS=
 

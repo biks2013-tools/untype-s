@@ -211,6 +211,26 @@ struct UntypeMenuBarPanel: View {
             }
             .help("Keep the dictation overlay on screen when you are not dictating. Also in Settings → General.")
 
+            HStack(spacing: 8) {
+                Text("Experimental")
+                    .font(.system(size: 12, weight: .medium))
+                    .fixedSize()
+                Text("Operators F, S, W, X")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                Toggle("Experimental operators", isOn: Binding(
+                    get: { model.settings.experimentalOperators },
+                    set: { model.update(UntypeUISettingsPatch(experimentalOperators: $0)) }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .controlSize(.small)
+                .tint(UntypeDesignTokens.accentAmber)
+            }
+            .help("Offer the experimental operators: Follow-up (F), Selection (S), Screenshot (W) and Window text (X). Off: they are switched off and hidden. Also in Settings → Operators.")
+
             if !showsOperatorsTab {
                 operatorsSummary
             }
@@ -249,6 +269,11 @@ struct UntypeMenuBarPanel: View {
 
     private var operatorEntries: [OperatorEntry] {
         let s = model.settings
+        return allOperatorEntries.filter { s.isAvailable($0.key) }
+    }
+
+    private var allOperatorEntries: [OperatorEntry] {
+        let s = model.settings
         return [
             OperatorEntry(key: .refine, letter: "R", title: "Refine", detail: "Clean up what was said", isOn: s.refine),
             OperatorEntry(key: .translate, letter: "T", title: "Translate", detail: "Translate the text", isOn: s.translate),
@@ -257,6 +282,7 @@ struct UntypeMenuBarPanel: View {
             OperatorEntry(key: .selection, letter: "S", title: "Selection", detail: "Include the selected text", isOn: s.selection),
             OperatorEntry(key: .alternative, letter: "L", title: "Alternative LLM", detail: "Use the alternative language model", isOn: s.alternative),
             OperatorEntry(key: .screenshot, letter: "W", title: "Screenshot", detail: "Send a screenshot of the app's window", isOn: s.screenshot),
+            OperatorEntry(key: .windowText, letter: "X", title: "Window text", detail: "Send the text of the app's window", isOn: s.windowText),
             OperatorEntry(key: .clipboard, letter: "C", title: "Clipboard", detail: "Copy the result to the clipboard", isOn: s.clipboard),
             OperatorEntry(key: .input, letter: "I", title: "Input", detail: "Type the result into the focused input", isOn: s.focusedInput)
         ]

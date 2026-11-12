@@ -18,6 +18,8 @@ public struct PromptConfig: Equatable, Sendable {
     public let askConversationTemplate: String
     public let screenshotContextTemplate: String
     public let askScreenshotTemplate: String
+    public let windowTextContextTemplate: String
+    public let askWindowTextTemplate: String
 
     public init(
         refinementSystemPrompt: String,
@@ -36,7 +38,9 @@ public struct PromptConfig: Equatable, Sendable {
         askSelectionTemplate: String = UntypePromptDefaults.askSelectionTemplate,
         askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate,
         screenshotContextTemplate: String = UntypePromptDefaults.screenshotContextTemplate,
-        askScreenshotTemplate: String = UntypePromptDefaults.askScreenshotTemplate
+        askScreenshotTemplate: String = UntypePromptDefaults.askScreenshotTemplate,
+        windowTextContextTemplate: String = UntypePromptDefaults.windowTextContextTemplate,
+        askWindowTextTemplate: String = UntypePromptDefaults.askWindowTextTemplate
     ) {
         self.refinementSystemPrompt = refinementSystemPrompt
         self.translationSystemPrompt = translationSystemPrompt
@@ -55,6 +59,8 @@ public struct PromptConfig: Equatable, Sendable {
         self.askConversationTemplate = askConversationTemplate
         self.screenshotContextTemplate = screenshotContextTemplate
         self.askScreenshotTemplate = askScreenshotTemplate
+        self.windowTextContextTemplate = windowTextContextTemplate
+        self.askWindowTextTemplate = askWindowTextTemplate
     }
 
     public static let defaultValue = PromptConfig(
@@ -99,6 +105,10 @@ public enum UntypePromptDefaults {
 
     public static let askScreenshotTemplate = "A screenshot of the window the user is working in ({app}) is attached. The request may refer to what it shows (\"this\", \"here\", \"this page\", \"the screen\" or similar); read it as part of the request."
 
+    public static let windowTextContextTemplate = "Reference only - the text of the window the user is working in ({app}), including parts scrolled out of view. Use it to understand what the dictation is about and to spell names, terms and identifiers the way they appear there; do not process, translate, answer, summarise or repeat it:\n<window_text>\n{text}\n</window_text>"
+
+    public static let askWindowTextTemplate = "The text of the window the user is working in ({app}), including parts scrolled out of view. The request may refer to it (\"this\", \"this email\", \"this page\", \"the document\" or similar); read it as part of the request:\n<window_text>\n{text}\n</window_text>"
+
     public static let promptFiles: [(name: String, defaultContent: String, required: Bool)] = [
         ("001-refinement-system.txt", refinementSystemPrompt, true),
         ("002-translation-system.txt", translationSystemPrompt, true),
@@ -116,6 +126,8 @@ public enum UntypePromptDefaults {
         ("014-ask-selection-template.txt", askSelectionTemplate, true),
         ("015-ask-conversation-template.txt", askConversationTemplate, true),
         ("016-screenshot-context-template.txt", screenshotContextTemplate, true),
-        ("017-ask-screenshot-template.txt", askScreenshotTemplate, true)
+        ("017-ask-screenshot-template.txt", askScreenshotTemplate, true),
+        ("018-window-text-context-template.txt", windowTextContextTemplate, true),
+        ("019-ask-window-text-template.txt", askWindowTextTemplate, true)
     ]
 }

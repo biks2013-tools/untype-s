@@ -353,6 +353,17 @@ public struct ConfigResolver: Sendable {
             envName: "UNTYPE_SCREENSHOT_DEFAULT"
         ) ?? false
 
+        let windowTextDefault = try parseBoolean(
+            resolveString(
+                flagValue: parsed.value(for: "--windowtext-default"),
+                chain: chain,
+                envKey: "UNTYPE_WINDOWTEXT_DEFAULT",
+                defaultValue: "off"
+            ),
+            flagName: "--windowtext-default",
+            envName: "UNTYPE_WINDOWTEXT_DEFAULT"
+        ) ?? false
+
         let translationPolicyRaw = resolveString(
             flagValue: parsed.value(for: "--translation-policy"),
             chain: chain,
@@ -397,7 +408,8 @@ public struct ConfigResolver: Sendable {
                 followup: followupDefault,
                 selection: selectionDefault,
                 alternative: alternativeDefault,
-                screenshot: screenshotDefault
+                screenshot: screenshotDefault,
+                windowText: windowTextDefault
             ),
             translationPolicy: translationPolicy,
             protocolOutput: protocolOutput?.isEmpty == true ? nil : protocolOutput,
@@ -411,6 +423,7 @@ public struct ConfigResolver: Sendable {
                 selection: configuredSource(parsed.value(for: "--selection-default"), chain: chain, envKey: "UNTYPE_SELECTION_DEFAULT"),
                 alternative: configuredSource(parsed.value(for: "--alternative-default"), chain: chain, envKey: "UNTYPE_ALTERNATIVE_DEFAULT"),
                 screenshot: configuredSource(parsed.value(for: "--screenshot-default"), chain: chain, envKey: "UNTYPE_SCREENSHOT_DEFAULT"),
+                windowText: configuredSource(parsed.value(for: "--windowtext-default"), chain: chain, envKey: "UNTYPE_WINDOWTEXT_DEFAULT"),
                 translationPolicy: configuredSource(parsed.value(for: "--translation-policy"), chain: chain, envKey: "UNTYPE_TRANSLATION_POLICY")
             )
         )
@@ -611,6 +624,8 @@ public struct ConfigResolver: Sendable {
         let askConversationTemplate = try placeholderPrompt(values, "015-ask-conversation-template.txt", requires: ["{history}"], directory: directory)
         let screenshotContextTemplate = try placeholderPrompt(values, "016-screenshot-context-template.txt", requires: ["{app}"], directory: directory)
         let askScreenshotTemplate = try placeholderPrompt(values, "017-ask-screenshot-template.txt", requires: ["{app}"], directory: directory)
+        let windowTextContextTemplate = try placeholderPrompt(values, "018-window-text-context-template.txt", requires: ["{app}", "{text}"], directory: directory)
+        let askWindowTextTemplate = try placeholderPrompt(values, "019-ask-window-text-template.txt", requires: ["{app}", "{text}"], directory: directory)
 
         let sonioxContext = optionalPrompt(values["004-soniox-transcription-context.txt"])
         let elevenLabsPreviousText = optionalPrompt(values["005-elevenlabs-previous-text.txt"])
@@ -674,7 +689,9 @@ public struct ConfigResolver: Sendable {
             askSelectionTemplate: askSelectionTemplate,
             askConversationTemplate: askConversationTemplate,
             screenshotContextTemplate: screenshotContextTemplate,
-            askScreenshotTemplate: askScreenshotTemplate
+            askScreenshotTemplate: askScreenshotTemplate,
+            windowTextContextTemplate: windowTextContextTemplate,
+            askWindowTextTemplate: askWindowTextTemplate
         )
     }
 
@@ -1299,7 +1316,7 @@ struct ParsedArguments: Sendable {
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",
-                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--followup-default", "--selection-default", "--alternative-default", "--screenshot-default", "--protocol-output",
+                "--translation-policy", "--clipboard-default", "--input-default", "--ask-default", "--followup-default", "--selection-default", "--alternative-default", "--screenshot-default", "--windowtext-default", "--protocol-output",
                 "--llm-provider", "--llm-model", "--alt-llm-provider", "--alt-llm-model", "--alt2-llm-provider", "--alt2-llm-model", "--llm-max-output-tokens", "--ask-max-output-tokens", "--llm-reasoning-effort",
                 "--release-latency-log-path":
                 let value: String

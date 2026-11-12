@@ -121,6 +121,17 @@ enum SelectedTextReader {
         }
     }
 
+    /// Presses a key `times` times in the app in front (marked as untype's
+    /// own keys, so the hotkey monitors ignore them).
+    static func pressKey(keyCode: CGKeyCode, flags: CGEventFlags, times: Int) async {
+        for index in 0..<times {
+            postKey(keyCode: keyCode, flags: flags)
+            if index % 20 == 19 {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+    }
+
     /// The element and range of the current Accessibility selection, so the
     /// selection can be replaced later even if focus has moved (Push-to-Act
     /// shows a pop-up in between). nil when the focused element does not

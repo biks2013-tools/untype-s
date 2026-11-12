@@ -137,6 +137,7 @@ public struct UntypeCommand {
       --selection-default <on|off>            Initial selection operator state: include the text selected in the active app (native UI). Env: UNTYPE_SELECTION_DEFAULT.
       --alternative-default <on|off>          Initial alternative operator state: refine, translate and Ask use the alternative LLM. Env: UNTYPE_ALTERNATIVE_DEFAULT.
       --screenshot-default <on|off>           Initial screenshot operator state: a screenshot of the active app's window goes with the request and is copied to the clipboard (native UI; needs a vision model and Screen Recording permission). Env: UNTYPE_SCREENSHOT_DEFAULT.
+      --windowtext-default <on|off>           Initial window text operator state: the text of the active app's window, also what is scrolled out of view, goes with the request as reference (native UI; needs Accessibility permission). Env: UNTYPE_WINDOWTEXT_DEFAULT.
       --ask-max-output-tokens <n>             Output cap for Ask answers (separate from --llm-max-output-tokens). Default: 8000. Env: UNTYPE_ASK_MAX_OUTPUT_TOKENS.
       --ask-default <on|off>                  Initial protocol ask operator state: the dictated text is a request to the LLM and its answer is the output. Env: UNTYPE_ASK_DEFAULT.
       --protocol-output <path>                JSONL path required for hybrid mode. Env: UNTYPE_PROTOCOL_OUTPUT.

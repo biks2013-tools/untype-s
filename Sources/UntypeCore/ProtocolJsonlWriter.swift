@@ -162,7 +162,8 @@ private extension OperatorState {
             "followup": followup,
             "selection": selection,
             "alternative": alternative,
-            "screenshot": screenshot
+            "screenshot": screenshot,
+            "windowtext": windowText
         ]
     }
 }

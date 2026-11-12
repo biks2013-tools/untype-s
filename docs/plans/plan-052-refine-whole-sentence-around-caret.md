@@ -11,6 +11,8 @@ When the user dictates in the middle of a sentence, the refinement must cover th
 - **When the sentence cannot be selected** (control lost the focus, text changed, the control ignores the selection): the dictated part alone is delivered the regular way: the refined part when the model left both captured parts unchanged, the dictation as spoken otherwise. A warning is logged. The existing sentence is never touched in that case.
 - **No setting.** The behaviour follows the Refine operator.
 
+- **Selection with keys (after build 51).** In `M365Mail` (web view) the sentence was captured but not selected. `SentenceAnchor.selectRegion` now reports why, and where the control does not take an Accessibility selection it presses Right over the part after the cursor and Shift+Left over the whole sentence, then checks the reported selection range; on a mismatch it puts the cursor back and the dictated part alone is delivered.
+
 ## Checks
 - Unit tests: `SentenceContextTests` (11). Suite 343/343.
 - On device, pending: TextEdit / Notes / a browser text field, and `focused_input.ok=true`.

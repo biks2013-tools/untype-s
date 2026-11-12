@@ -94,6 +94,8 @@ public enum UntypeRuntimeFactory {
             askConversationTemplate: config.prompts.askConversationTemplate,
             screenshotContextTemplate: config.prompts.screenshotContextTemplate,
             askScreenshotTemplate: config.prompts.askScreenshotTemplate,
+            windowTextContextTemplate: config.prompts.windowTextContextTemplate,
+            askWindowTextTemplate: config.prompts.askWindowTextTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in try await focusedInputDelivery.deliver(text) },
             diagnostics: diagnostics
@@ -209,6 +211,8 @@ public enum UntypeRuntimeFactory {
             askConversationTemplate: config.prompts.askConversationTemplate,
             screenshotContextTemplate: config.prompts.screenshotContextTemplate,
             askScreenshotTemplate: config.prompts.askScreenshotTemplate,
+            windowTextContextTemplate: config.prompts.windowTextContextTemplate,
+            askWindowTextTemplate: config.prompts.askWindowTextTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 await focusedInputPreparation()
@@ -338,6 +342,8 @@ public enum UntypeRuntimeFactory {
             askConversationTemplate: config.prompts.askConversationTemplate,
             screenshotContextTemplate: config.prompts.screenshotContextTemplate,
             askScreenshotTemplate: config.prompts.askScreenshotTemplate,
+            windowTextContextTemplate: config.prompts.windowTextContextTemplate,
+            askWindowTextTemplate: config.prompts.askWindowTextTemplate,
             clipboardWriter: { text in try await clipboardWriter.copy(text) },
             focusedInputWriter: { text in
                 // The captured selection first (writes into its element,

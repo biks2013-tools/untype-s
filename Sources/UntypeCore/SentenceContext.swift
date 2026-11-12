@@ -247,45 +247,88 @@ final class SentenceAnchor {
         ))
     }
 
+    enum Selection: Equatable {
+        /// The sentence is selected; how ("accessibility" or "keys").
+        case selected(String)
+        /// Nothing is selected; why, for the event log (no text content).
+        case failed(String)
+    }
+
     /// Selects the sentence as it stands now (with the text typed live at
-    /// the caret). false, with nothing selected, when the control is no
-    /// longer the focused one, the text around the sentence or the sentence's
-    /// own parts changed, or the control did not take the selection.
-    func selectRegion() -> Bool {
-        guard let focused = CaretLocator.focusedElement(), CFEqual(focused, element),
-              let value = Self.string(element, kAXValueAttribute)
-        else {
-            return false
+    /// the caret): through Accessibility, or with arrow keys where the
+    /// control does not take an Accessibility selection (web views). Fails,
+    /// with nothing selected, when the control is no longer the focused one
+    /// or the text around the sentence or the sentence's own parts changed.
+    func selectRegion() async -> Selection {
+        guard let focused = CaretLocator.focusedElement() else {
+            return .failed("no focused control at delivery")
+        }
+        guard CFEqual(focused, element) else {
+            return .failed("another control has the focus at delivery")
+        }
+        guard let value = Self.string(element, kAXValueAttribute) else {
+            return .failed("the control's text cannot be read at delivery")
         }
         let text = value as NSString
         let regionLength = text.length - (head as NSString).length - (tail as NSString).length
-        guard regionLength >= span.length,
-              text.substring(to: span.location) == head,
+        guard regionLength >= span.length else {
+            return .failed("the text got shorter during the dictation")
+        }
+        guard text.substring(to: span.location) == head,
               text.substring(from: span.location + regionLength) == tail
         else {
-            return false
+            return .failed("the text around the sentence changed during the dictation")
         }
         let region = text.substring(with: NSRange(location: span.location, length: regionLength))
         guard region.hasPrefix(span.before), region.hasSuffix(span.after) else {
-            return false
+            return .failed("the sentence itself changed during the dictation")
         }
         let original = Self.selectedRange(element)
-        var range = CFRange(location: span.location, length: regionLength)
-        guard let rangeValue = AXValueCreate(.cfRange, &range),
-              AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue) == .success
-        else {
-            return false
+        let wanted = CFRange(location: span.location, length: regionLength)
+        var range = wanted
+        if let rangeValue = AXValueCreate(.cfRange, &range),
+           AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue) == .success,
+           isSelected(wanted) {
+            return .selected("accessibility")
         }
-        if let selected = Self.selectedRange(element),
-           selected.location == range.location, selected.length == range.length,
-           Self.string(element, kAXSelectedTextAttribute) == region {
-            return true
-        }
-        // Not taken as asked: put the caret back where it was.
-        if var original, let originalValue = AXValueCreate(.cfRange, &original) {
+        // Not taken through Accessibility: the caret must be where it was
+        // (right after the live text) for the arrow keys to select the
+        // sentence.
+        let caretLocation = span.location + regionLength - (span.after as NSString).length
+        if let now = Self.selectedRange(element), now.location != caretLocation || now.length != 0,
+           var original, let originalValue = AXValueCreate(.cfRange, &original) {
             AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, originalValue)
         }
-        return false
+        guard let caret = Self.selectedRange(element), caret.length == 0, caret.location == caretLocation else {
+            return .failed("the control did not take the selection and the cursor is not right after the dictated text")
+        }
+        await SelectedTextReader.pressKey(keyCode: 124, flags: [], times: span.after.count)
+        await SelectedTextReader.pressKey(keyCode: 123, flags: .maskShift, times: region.count)
+        for _ in 0..<10 {
+            if isSelected(wanted) {
+                return .selected("keys")
+            }
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+        // The keys selected something else: back to the caret after the
+        // live text (end of the selection, then left over the last part).
+        if let now = Self.selectedRange(element), now.length > 0 {
+            await SelectedTextReader.pressKey(keyCode: 124, flags: [], times: 1)
+        }
+        try? await Task.sleep(for: .milliseconds(60))
+        if let now = Self.selectedRange(element), now.length == 0, now.location > caretLocation {
+            let back = text.substring(with: NSRange(location: caretLocation, length: min(now.location, text.length) - caretLocation)).count
+            await SelectedTextReader.pressKey(keyCode: 123, flags: [], times: back)
+            try? await Task.sleep(for: .milliseconds(60))
+        }
+        return .failed("neither Accessibility nor the arrow keys selected the sentence")
+    }
+
+    private func isSelected(_ wanted: CFRange) -> Bool {
+        guard let selected = Self.selectedRange(element) else {
+            return false
+        }
+        return selected.location == wanted.location && selected.length == wanted.length
     }
 
     /// UTF-16 length of the field's text now (to wait for live keystrokes).

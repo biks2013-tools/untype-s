@@ -416,14 +416,28 @@ struct UntypeSettingsView: View {
             operatorRow("Refine", "Clean up the dictated text", key: "R", .refine)
             operatorRow("Translate", "Translate the text", key: "T", .translate)
             operatorRow("Ask", "Treat the dictation as a request and insert the answer", key: "A", .ask)
-            operatorRow("Follow-up", "Ask continues the conversation", key: "F", .followup)
-            operatorRow("Selection", "Include the text selected in the active app", key: "S", .selection)
             operatorRow("Alternative LLM", "Refine, translate and Ask use the alternative model", key: "L", .alternative)
-            operatorRow("Screenshot", "Send the app's window; also copied to the clipboard", key: "W", .screenshot)
         } header: {
             Text("Processing")
         } footer: {
             caption("“This turn” switches an operator off again after each push-to-talk turn; “Until changed” keeps it as you set it.")
+        }
+        .disabled(operatorControlsDisabled)
+
+        Section {
+            Toggle("Experimental operators", isOn: binding(\.experimentalOperators))
+            if model.settings.experimentalOperators {
+                operatorRow("Follow-up", "Ask continues the conversation", key: "F", .followup)
+                operatorRow("Selection", "Include the text selected in the active app", key: "S", .selection)
+                operatorRow("Screenshot", "Send the app's window; also copied to the clipboard", key: "W", .screenshot)
+                operatorRow("Window text", "Send the text of the app's window, also what is scrolled out of view", key: "X", .windowText)
+            }
+        } header: {
+            Text("Experimental")
+        } footer: {
+            caption(model.settings.experimentalOperators
+                ? "Follow-up, Selection, Screenshot and Window text are still being worked on and may change."
+                : "Off: Follow-up (F), Selection (S), Screenshot (W) and Window text (X) are switched off and not shown in the overlay, the menu or the hotkey letters.")
         }
         .disabled(operatorControlsDisabled)
 
@@ -736,6 +750,10 @@ struct UntypeSettingsView: View {
             return UntypeUISettingsPatch(alternative: value as? Bool)
         case \UntypeUISettings.screenshot:
             return UntypeUISettingsPatch(screenshot: value as? Bool)
+        case \UntypeUISettings.windowText:
+            return UntypeUISettingsPatch(windowText: value as? Bool)
+        case \UntypeUISettings.experimentalOperators:
+            return UntypeUISettingsPatch(experimentalOperators: value as? Bool)
         case \UntypeUISettings.voiceCommands:
             return UntypeUISettingsPatch(voiceCommands: value as? Bool)
         case \UntypeUISettings.hotkeyEnabled:

@@ -18,6 +18,17 @@ public enum OperatorKey: String, CaseIterable, Sendable, Equatable, Codable {
     /// A screenshot of the active app's window is sent with the request
     /// (refine, translate and Ask) and copied to the clipboard.
     case screenshot
+    /// The text of the active app's window (also the part scrolled out of
+    /// view) is sent with the request as reference.
+    case windowText = "windowtext"
+
+    /// The experimental operators: offered only while the user has switched
+    /// experimental operators on.
+    public static let experimental: [OperatorKey] = [.followup, .selection, .screenshot, .windowText]
+
+    public var isExperimental: Bool {
+        Self.experimental.contains(self)
+    }
 }
 
 public struct ProtocolSettingsSnapshot: Sendable, Equatable, Codable {
@@ -286,6 +297,7 @@ extension OperatorState: Codable {
         case selection
         case alternative
         case screenshot
+        case windowText
     }
 
     public init(from decoder: Decoder) throws {
@@ -299,7 +311,8 @@ extension OperatorState: Codable {
             followup: try container.decodeIfPresent(Bool.self, forKey: .followup) ?? false,
             selection: try container.decodeIfPresent(Bool.self, forKey: .selection) ?? false,
             alternative: try container.decodeIfPresent(Bool.self, forKey: .alternative) ?? false,
-            screenshot: try container.decodeIfPresent(Bool.self, forKey: .screenshot) ?? false
+            screenshot: try container.decodeIfPresent(Bool.self, forKey: .screenshot) ?? false,
+            windowText: try container.decodeIfPresent(Bool.self, forKey: .windowText) ?? false
         )
     }
 
@@ -314,6 +327,7 @@ extension OperatorState: Codable {
         try container.encode(selection, forKey: .selection)
         try container.encode(alternative, forKey: .alternative)
         try container.encode(screenshot, forKey: .screenshot)
+        try container.encode(windowText, forKey: .windowText)
     }
 
     public func value(for key: OperatorKey) -> Bool {
@@ -336,6 +350,8 @@ extension OperatorState: Codable {
             return alternative
         case .screenshot:
             return screenshot
+        case .windowText:
+            return windowText
         }
     }
 
@@ -349,7 +365,8 @@ extension OperatorState: Codable {
             followup: key == .followup ? value : followup,
             selection: key == .selection ? value : selection,
             alternative: key == .alternative ? value : alternative,
-            screenshot: key == .screenshot ? value : screenshot
+            screenshot: key == .screenshot ? value : screenshot,
+            windowText: key == .windowText ? value : windowText
         )
     }
 }

@@ -9,6 +9,7 @@ public struct PromptFileDescriptor: Sendable, Equatable, Identifiable {
         case ask = "Ask (request to the model)"
         case selection = "Selected text"
         case screenshot = "Screenshot"
+        case windowText = "Window text"
         case transcription = "Transcription context"
     }
 
@@ -185,6 +186,26 @@ public struct PromptFileStore: Sendable {
             defaultContent: UntypePromptDefaults.screenshotContextTemplate,
             required: true,
             placeholders: ["{app}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "019-ask-window-text-template.txt",
+            title: "Ask — window text",
+            group: .windowText,
+            summary: "Put before an Ask request when Window text is on; {app} is the app's name and {text} the text of its window.",
+            defaultContent: UntypePromptDefaults.askWindowTextTemplate,
+            required: true,
+            placeholders: ["{app}", "{text}"],
+            maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
+        ),
+        PromptFileDescriptor(
+            name: "018-window-text-context-template.txt",
+            title: "Refine / translate — window text as context",
+            group: .windowText,
+            summary: "Appended to the refine or translate input when Window text is on; {app} is the app's name and {text} the text of its window.",
+            defaultContent: UntypePromptDefaults.windowTextContextTemplate,
+            required: true,
+            placeholders: ["{app}", "{text}"],
             maxCharacters: nil, maxLines: nil, maxLineCharacters: nil
         ),
         PromptFileDescriptor(
