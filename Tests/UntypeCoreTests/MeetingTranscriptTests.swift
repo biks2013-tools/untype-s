@@ -54,7 +54,7 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = try #require(TimeZone(identifier: "Europe/Athens"))
     let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 11, hour: 14, minute: 30)))
-    #expect(MeetingTranscriptFormat.folderName(for: date, calendar: calendar) == "2026-11-11 14.30")
+    #expect(MeetingTranscriptFormat.folderName(for: date, calendar: calendar) == "recording-2026-11-11-14-30")
 }
 
 @Test func silenceMonitorStopsOnlyAfterTheLimitWithoutSpeech() {
@@ -109,9 +109,29 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     #expect(MeetingNaming.datePrefix(of: "2026-11-11 14.30 (2)") == "2026-11-11 14.30")
     #expect(MeetingNaming.datePrefix(of: "Notes") == nil)
     #expect(MeetingNaming.sanitize(" \"Budget: Q1/Q2 review\". ") == "Budget Q1 Q2 review")
-    #expect(MeetingNaming.folderName(current: "2026-11-11 14.30", title: "Budget review with Maria") == "2026-11-11 14.30 – Budget review with Maria")
-    #expect(MeetingNaming.folderName(current: "2026-11-11 14.30 – Old title", title: "New title") == "2026-11-11 14.30 – New title")
-    #expect(MeetingNaming.folderName(current: "2026-11-11 14.30", title: "  ") == "2026-11-11 14.30")
+    // The ntakker form: <title>-recording-<date>, with - for spaces.
+    #expect(MeetingNaming.folderName(current: "recording-2026-11-11-14-30", title: "Budget review with Maria") == "Budget-review-with-Maria-recording-2026-11-11-14-30")
+    #expect(MeetingNaming.folderName(current: "Old-title-recording-2026-11-11-14-30", title: "New title") == "New-title-recording-2026-11-11-14-30")
+    #expect(MeetingNaming.folderName(current: "recording-2026-11-11-14-30 (2)", title: "Budget") == "Budget-recording-2026-11-11-14-30")
+    #expect(MeetingNaming.folderName(current: "recording-2026-11-11-14-30", title: "  ") == "recording-2026-11-11-14-30")
+    // Folders made before take the new form when named.
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Europe/Athens")!
+    #expect(MeetingNaming.folderName(current: "2026-11-11 14.30", title: "Budget review", calendar: calendar) == "Budget-review-recording-2026-11-11-14-30")
+    #expect(MeetingNaming.folderName(current: "2026-11-11 14.30 – Old title", title: "New title", calendar: calendar) == "New-title-recording-2026-11-11-14-30")
+    #expect(MeetingNaming.folderName(current: "Notes", title: "Budget") == "Budget-Notes")
+}
+
+@Test func meetingFolderNamesGiveBackTheirStemAndTitle() {
+    #expect(MeetingNaming.stem(of: "recording-2026-11-11-14-30") == "recording-2026-11-11-14-30")
+    #expect(MeetingNaming.stem(of: "ai-strategy-recording-2026-11-12-14-11") == "recording-2026-11-12-14-11")
+    #expect(MeetingNaming.stem(of: "2026-11-11 14.30") == nil)
+    #expect(MeetingNaming.title(of: "recording-2026-11-11-14-30") == nil)
+    #expect(MeetingNaming.title(of: "recording-2026-11-11-14-30 (2)") == nil)
+    #expect(MeetingNaming.title(of: "ai-strategy-recording-2026-11-12-14-11") == "ai-strategy")
+    #expect(MeetingNaming.title(of: "2026-11-11 14.30") == nil)
+    #expect(MeetingNaming.title(of: "2026-11-11 14.30 – Budget review") == "Budget review")
+    #expect(MeetingNaming.title(of: "Notes") == nil)
 }
 
 @Test func renamingAnOlderMeetingMovesTheFolderAndItsMainTranscript() throws {
@@ -123,20 +143,20 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     try "original".write(to: folder.appendingPathComponent("transcript.original.txt"), atomically: true, encoding: .utf8)
 
     let named = try MeetingNaming.rename(folder: folder, title: "Budget review with Maria")
-    #expect(named.lastPathComponent == "2026-11-11 14.30 – Budget review with Maria")
-    #expect(MeetingNaming.mainTranscript(in: named).lastPathComponent == "2026-11-11 14.30 – Budget review with Maria.txt")
+    #expect(named.lastPathComponent == "Budget-review-with-Maria-recording-2026-11-11-14-30")
+    #expect(MeetingNaming.mainTranscript(in: named).lastPathComponent == "Budget-review-with-Maria-recording-2026-11-11-14-30.txt")
     #expect(try String(contentsOf: MeetingNaming.mainTranscript(in: named), encoding: .utf8) == "english")
     #expect(FileManager.default.fileExists(atPath: named.appendingPathComponent("transcript.original.txt").path))
 
     let renamed = try MeetingNaming.rename(folder: named, title: "Q1 numbers with Nikos")
-    #expect(renamed.lastPathComponent == "2026-11-11 14.30 – Q1 numbers with Nikos")
+    #expect(renamed.lastPathComponent == "Q1-numbers-with-Nikos-recording-2026-11-11-14-30")
     #expect(try String(contentsOf: MeetingNaming.mainTranscript(in: renamed), encoding: .utf8) == "english")
 }
 
 @Test func renamingKeepsTheNamesOfFilesThatCarryTheRecordingStem() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("untype-naming-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
-    let folder = root.appendingPathComponent("2026-11-11 14.30")
+    let folder = root.appendingPathComponent("recording-2026-11-11-14-30")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     let names = MeetingFileNames(stem: "recording-2026-11-11-14-30")
     try "english".write(to: folder.appendingPathComponent(names.mainTranscript), atomically: true, encoding: .utf8)
@@ -145,7 +165,7 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     #expect(MeetingNaming.originalTranscript(in: folder)?.lastPathComponent == names.originalTranscript)
 
     let named = try MeetingNaming.rename(folder: folder, title: "Budget review with Maria")
-    #expect(named.lastPathComponent == "2026-11-11 14.30 – Budget review with Maria")
+    #expect(named.lastPathComponent == "Budget-review-with-Maria-recording-2026-11-11-14-30")
     #expect(MeetingNaming.mainTranscript(in: named).lastPathComponent == names.mainTranscript)
     #expect(try String(contentsOf: MeetingNaming.mainTranscript(in: named), encoding: .utf8) == "english")
     #expect(try FileManager.default.contentsOfDirectory(atPath: named.path).sorted() == [names.originalTranscript, names.mainTranscript].sorted())
@@ -153,7 +173,8 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
 
 @Test func titlesKeepTheTopicAndPeopleSeparator() {
     #expect(MeetingNaming.sanitize("HR training skills · Mina") == "HR training skills · Mina")
-    #expect(MeetingNaming.folderName(current: "2026-11-11 22.59", title: "HR training skills · Mina") == "2026-11-11 22.59 – HR training skills · Mina")
+    #expect(MeetingNaming.slug("HR training skills · Mina") == "HR-training-skills-Mina")
+    #expect(MeetingNaming.folderName(current: "recording-2026-11-11-22-59", title: "HR training skills · Mina") == "HR-training-skills-Mina-recording-2026-11-11-22-59")
 }
 
 @Test func liveTextKeepsFinalWordsAndReplacesPendingOnes() {
@@ -173,4 +194,6 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     #expect(MeetingNaming.friendlyDate(of: "2026-11-10 09.05 – Budget", now: now, calendar: calendar) == "Yesterday 09:05")
     #expect(MeetingNaming.friendlyDate(of: "2026-10-02 14.00", now: now, calendar: calendar) == "2 Oct 14:00")
     #expect(MeetingNaming.friendlyDate(of: "Budget review", now: now, calendar: calendar) == nil)
+    #expect(MeetingNaming.friendlyDate(of: "recording-2026-11-11-22-38", now: now, calendar: calendar) == "Today 22:38")
+    #expect(MeetingNaming.friendlyDate(of: "Budget-review-recording-2026-11-10-09-05", now: now, calendar: calendar) == "Yesterday 09:05")
 }

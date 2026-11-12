@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import CoreMedia
 import Foundation
 
 /// Which sides of a meeting are saved as audio next to the transcript.
@@ -153,38 +154,125 @@ public struct MeetingAudioMixer: Sendable {
     }
 }
 
-/// Writes PCM16 mono samples to an AAC `.m4a` file.
+/// Writes PCM16 mono samples to an AAC `.m4a` file as they arrive. The file
+/// is written in fragments of two seconds (as the ntakker recorder does), so
+/// it grows during the meeting and what is on disk plays even when the
+/// recording never gets to close it.
 final class MeetingAudioFileWriter {
+    /// Seconds of audio per fragment on disk.
+    static let fragmentSeconds: Int64 = 2
+
     let url: URL
-    private var file: AVAudioFile?
-    private let format: AVAudioFormat
+    private let sampleRate: Int
+    private let writer: AVAssetWriter
+    private let input: AVAssetWriterInput
+    private let formatDescription: CMAudioFormatDescription
+    private var written: Int64 = 0
+    private var closed = false
 
     init(url: URL, sampleRate: Int) throws {
         self.url = url
-        let settings: [String: Any] = [
+        self.sampleRate = sampleRate
+        var description = AudioStreamBasicDescription(
+            mSampleRate: Double(sampleRate),
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 2,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 2,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 16,
+            mReserved: 0
+        )
+        var format: CMAudioFormatDescription?
+        let status = CMAudioFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            asbd: &description,
+            layoutSize: 0,
+            layout: nil,
+            magicCookieSize: 0,
+            magicCookie: nil,
+            extensions: nil,
+            formatDescriptionOut: &format
+        )
+        guard status == noErr, let format else {
+            throw MeetingError.capture("the audio format could not be made (\(status))")
+        }
+        formatDescription = format
+        try? FileManager.default.removeItem(at: url)
+        writer = try AVAssetWriter(outputURL: url, fileType: .m4a)
+        // Not optimised for network use: that makes AVAssetWriter keep the
+        // audio in a temporary file and leave this one empty until the end
+        // (measured 2026-11-12), which defeats writing as it arrives.
+        writer.shouldOptimizeForNetworkUse = false
+        writer.movieFragmentInterval = CMTime(value: Self.fragmentSeconds, timescale: 1)
+        input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: 1,
             AVEncoderBitRateKey: 32_000
-        ]
-        let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatInt16, interleaved: false)
-        self.file = file
-        format = file.processingFormat
+        ])
+        input.expectsMediaDataInRealTime = true
+        guard writer.canAdd(input) else {
+            throw MeetingError.capture("the audio file does not take AAC audio")
+        }
+        writer.add(input)
+        guard writer.startWriting() else {
+            throw MeetingError.capture(writer.error?.localizedDescription ?? "the audio file could not be started")
+        }
+        writer.startSession(atSourceTime: .zero)
     }
 
     func write(_ samples: [Int16]) throws {
-        guard let file, !samples.isEmpty else {
+        guard !closed, !samples.isEmpty else {
             return
         }
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
-              let channel = buffer.int16ChannelData?[0] else {
-            throw MeetingError.capture("the audio file buffer could not be made")
+        let byteCount = samples.count * MemoryLayout<Int16>.size
+        var block: CMBlockBuffer?
+        var status = CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault,
+            memoryBlock: nil,
+            blockLength: byteCount,
+            blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData: 0,
+            dataLength: byteCount,
+            flags: 0,
+            blockBufferOut: &block
+        )
+        guard status == kCMBlockBufferNoErr, let block else {
+            throw MeetingError.capture("the audio buffer could not be made (\(status))")
         }
-        samples.withUnsafeBufferPointer { source in
-            channel.update(from: source.baseAddress!, count: samples.count)
+        status = samples.withUnsafeBytes { bytes in
+            CMBlockBufferReplaceDataBytes(with: bytes.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: byteCount)
         }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        try file.write(from: buffer)
+        guard status == kCMBlockBufferNoErr else {
+            throw MeetingError.capture("the audio buffer could not be filled (\(status))")
+        }
+        var sampleBuffer: CMSampleBuffer?
+        status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(
+            allocator: kCFAllocatorDefault,
+            dataBuffer: block,
+            formatDescription: formatDescription,
+            sampleCount: samples.count,
+            presentationTimeStamp: CMTime(value: written, timescale: CMTimeScale(sampleRate)),
+            packetDescriptions: nil,
+            sampleBufferOut: &sampleBuffer
+        )
+        guard status == noErr, let sampleBuffer else {
+            throw MeetingError.capture("the audio sample could not be made (\(status))")
+        }
+        // The encoder is briefly busy when a lot arrives at once (a long
+        // silence being filled in); this runs on the audio file's own queue.
+        var waited = 0
+        while !input.isReadyForMoreMediaData, writer.status == .writing, waited < 2_000 {
+            usleep(1_000)
+            waited += 1
+        }
+        guard writer.status == .writing, input.isReadyForMoreMediaData, input.append(sampleBuffer) else {
+            throw MeetingError.capture(writer.error?.localizedDescription ?? "the audio file stopped taking audio")
+        }
+        written += Int64(samples.count)
     }
 
     func writeSilence(_ count: Int) throws {
@@ -196,12 +284,21 @@ final class MeetingAudioFileWriter {
         }
     }
 
-    /// Finishes the file (it is not playable before).
+    /// Finishes the file.
     func close() {
-        if #available(macOS 15.0, *) {
-            file?.close()
+        guard !closed else {
+            return
         }
-        file = nil
+        closed = true
+        guard writer.status == .writing else {
+            return
+        }
+        input.markAsFinished()
+        let done = DispatchSemaphore(value: 0)
+        writer.finishWriting {
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 10)
     }
 }
 
