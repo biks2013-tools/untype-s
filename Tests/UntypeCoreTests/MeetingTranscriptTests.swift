@@ -114,7 +114,7 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     #expect(MeetingNaming.folderName(current: "2026-11-11 14.30", title: "  ") == "2026-11-11 14.30")
 }
 
-@Test func renamingMovesTheFolderAndItsMainTranscript() throws {
+@Test func renamingAnOlderMeetingMovesTheFolderAndItsMainTranscript() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("untype-naming-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
     let folder = root.appendingPathComponent("2026-11-11 14.30")
@@ -131,6 +131,24 @@ private func token(_ text: String, final: Bool = true, speaker: String? = nil, l
     let renamed = try MeetingNaming.rename(folder: named, title: "Q1 numbers with Nikos")
     #expect(renamed.lastPathComponent == "2026-11-11 14.30 – Q1 numbers with Nikos")
     #expect(try String(contentsOf: MeetingNaming.mainTranscript(in: renamed), encoding: .utf8) == "english")
+}
+
+@Test func renamingKeepsTheNamesOfFilesThatCarryTheRecordingStem() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("untype-naming-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let folder = root.appendingPathComponent("2026-11-11 14.30")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let names = MeetingFileNames(stem: "recording-2026-11-11-14-30")
+    try "english".write(to: folder.appendingPathComponent(names.mainTranscript), atomically: true, encoding: .utf8)
+    try "original".write(to: folder.appendingPathComponent(names.originalTranscript), atomically: true, encoding: .utf8)
+    #expect(MeetingNaming.mainTranscript(in: folder).lastPathComponent == names.mainTranscript)
+    #expect(MeetingNaming.originalTranscript(in: folder)?.lastPathComponent == names.originalTranscript)
+
+    let named = try MeetingNaming.rename(folder: folder, title: "Budget review with Maria")
+    #expect(named.lastPathComponent == "2026-11-11 14.30 – Budget review with Maria")
+    #expect(MeetingNaming.mainTranscript(in: named).lastPathComponent == names.mainTranscript)
+    #expect(try String(contentsOf: MeetingNaming.mainTranscript(in: named), encoding: .utf8) == "english")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: named.path).sorted() == [names.originalTranscript, names.mainTranscript].sorted())
 }
 
 @Test func titlesKeepTheTopicAndPeopleSeparator() {

@@ -329,6 +329,32 @@ struct UntypeSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            Picker("Save audio", selection: Binding(
+                get: { model.settings.meeting.audioSources ?? MeetingAudioSources.both.rawValue },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.audioSources = value
+                    model.setMeetingPreferences(meeting)
+                }
+            )) {
+                ForEach(MeetingAudioSources.allCases, id: \.rawValue) { sources in
+                    Text(sources.title).tag(sources.rawValue)
+                }
+            }
+            if (model.settings.meeting.audioSources ?? MeetingAudioSources.both.rawValue) == MeetingAudioSources.both.rawValue {
+                Picker("Audio files", selection: Binding(
+                    get: { model.settings.meeting.audioLayout ?? MeetingAudioLayout.separate.rawValue },
+                    set: { value in
+                        var meeting = model.settings.meeting
+                        meeting.audioLayout = value
+                        model.setMeetingPreferences(meeting)
+                    }
+                )) {
+                    ForEach(MeetingAudioLayout.allCases, id: \.rawValue) { layout in
+                        Text(layout.title).tag(layout.rawValue)
+                    }
+                }
+            }
             LabeledContent("Folder") {
                 HStack(spacing: 8) {
                     Text(model.settings.meeting.folderURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -358,7 +384,7 @@ struct UntypeSettingsView: View {
         } header: {
             Text("Meeting recording")
         } footer: {
-            caption("Hover the overlay and click ⏺ to record both sides of a call (your microphone and the call's sound). Each meeting gets a folder with transcript.txt, transcript.original.txt (as spoken) and transcript.jsonl. Needs Screen & System Audio Recording permission; headphones avoid the call being heard twice. With the Outlook calendar on (read through the nbg-m365 CLI), the overlay says when a Teams meeting you accepted starts, with a Record button, and a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
+            caption("Hover the overlay and click ⏺ to record both sides of a call (your microphone and the call's sound). Each meeting gets a folder whose files start with recording-<date>-<time>, named as the ntakker recorder names them: .transcript.txt (the transcript), .transcript.original.txt (as spoken), .microphone.transcript.jsonl and .system.transcript.jsonl, and the audio as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). The transcript always covers both sides. Needs Screen & System Audio Recording permission; headphones avoid the call being heard twice. With the Outlook calendar on (read through the nbg-m365 CLI), the overlay says when a Teams meeting you accepted starts, with a Record button, and a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
         }
 
         Section("Current session") {

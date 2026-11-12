@@ -237,6 +237,98 @@ public enum MeetingTranscriptFormat {
     }
 }
 
+/// The names of the files of one meeting. They follow the convention of the
+/// ntakker recorder and ntakker-studio, so a meeting folder opens there as a
+/// recording: every file starts with the stem `recording-yyyy-MM-dd-HH-mm`
+/// (the start of the meeting), the audio is `<stem>.mic.m4a` /
+/// `<stem>.system.m4a` (or `<stem>.m4a` when mixed) and the per-side
+/// transcripts are `<stem>.microphone.transcript.jsonl` /
+/// `<stem>.system.transcript.jsonl`.
+public struct MeetingFileNames: Sendable, Equatable {
+    public static let stemPrefix = "recording-"
+    public static let mainTranscriptSuffix = ".transcript.txt"
+    public static let originalTranscriptSuffix = ".transcript.original.txt"
+
+    public let stem: String
+
+    public init(stem: String) {
+        self.stem = stem
+    }
+
+    public init(start: Date, calendar: Calendar = .current) {
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: start)
+        stem = String(
+            format: "\(Self.stemPrefix)%04d-%02d-%02d-%02d-%02d",
+            parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0
+        )
+    }
+
+    public var microphoneAudio: String { stem + ".mic.m4a" }
+    public var systemAudio: String { stem + ".system.m4a" }
+    public var mixedAudio: String { stem + ".m4a" }
+    /// The transcript in the chosen language, for reading.
+    public var mainTranscript: String { stem + Self.mainTranscriptSuffix }
+    /// The transcript as spoken, written live.
+    public var originalTranscript: String { stem + Self.originalTranscriptSuffix }
+    /// One side's transcript in ntakker's JSONL format.
+    public var microphoneTranscript: String { stem + ".microphone.transcript.jsonl" }
+    public var systemTranscript: String { stem + ".system.transcript.jsonl" }
+    /// Both sides in time order with untype's own fields (offsets, English).
+    public var segments: String { stem + ".segments.jsonl" }
+
+    /// The audio files a recording with `audio` writes.
+    public func audioFiles(_ audio: MeetingAudioSettings) -> [String] {
+        switch audio.sources {
+        case .none: return []
+        case .microphone: return [microphoneAudio]
+        case .system: return [systemAudio]
+        case .both: return audio.isMixed ? [mixedAudio] : [microphoneAudio, systemAudio]
+        }
+    }
+}
+
+/// One line of a per-side transcript in the format ntakker writes and
+/// ntakker-studio reads (`<stem>.<side>.transcript.jsonl`).
+public struct MeetingSidecarLine: Codable, Sendable, Equatable {
+    public var id: String
+    /// When the segment started (ISO 8601 with milliseconds, UTC).
+    public var timestamp: String
+    /// `microphone` or `system`.
+    public var source: String
+    public var text: String
+    public var model: String
+    public var durationSec: Double
+    public var language: String?
+    public var speaker: String?
+
+    public init(segment: MeetingSegment, meetingStart: Date, id: String = UUID().uuidString) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        self.id = id
+        timestamp = formatter.string(from: meetingStart.addingTimeInterval(Double(segment.startMs) / 1000))
+        source = segment.side == .you ? "microphone" : "system"
+        text = segment.text
+        model = "soniox"
+        durationSec = Double(max(0, segment.endMs - segment.startMs)) / 1000
+        language = segment.language
+        // The microphone is one speaker, as in ntakker's own files.
+        speaker = segment.speaker ?? (segment.side == .you ? "1" : nil)
+    }
+
+    /// The lines of one side, in time order, as the file's text.
+    public static func file(_ segments: [MeetingSegment], side: MeetingSide, meetingStart: Date) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return segments
+            .filter { $0.side == side }
+            .map { MeetingSidecarLine(segment: $0, meetingStart: meetingStart) }
+            .compactMap { try? encoder.encode($0) }
+            .compactMap { String(data: $0, encoding: .utf8) }
+            .map { $0 + "\n" }
+            .joined()
+    }
+}
+
 /// Stops a meeting after a stretch without speech on either side.
 public struct MeetingSilenceMonitor: Sendable {
     public let limit: TimeInterval
@@ -375,9 +467,13 @@ public enum MeetingNaming {
         return clean.isEmpty ? base : base + separator + clean
     }
 
-    /// The meeting's main transcript: `<folder name>.txt` once named,
-    /// `transcript.txt` before.
+    /// The meeting's main transcript: `<stem>.transcript.txt`. Meetings
+    /// recorded before the files carried the stem have `<folder name>.txt`
+    /// (once named) or `transcript.txt`.
     public static func mainTranscript(in folder: URL) -> URL {
+        if let found = transcript(in: folder, suffix: MeetingFileNames.mainTranscriptSuffix) {
+            return found
+        }
         let named = folder.appendingPathComponent(folder.lastPathComponent + ".txt")
         if FileManager.default.fileExists(atPath: named.path) {
             return named
@@ -385,8 +481,28 @@ public enum MeetingNaming {
         return folder.appendingPathComponent("transcript.txt")
     }
 
+    /// The transcript as spoken (nil when the folder has none).
+    public static func originalTranscript(in folder: URL) -> URL? {
+        if let found = transcript(in: folder, suffix: MeetingFileNames.originalTranscriptSuffix) {
+            return found
+        }
+        let old = folder.appendingPathComponent("transcript.original.txt")
+        return FileManager.default.fileExists(atPath: old.path) ? old : nil
+    }
+
+    private static func transcript(in folder: URL, suffix: String) -> URL? {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names
+            .filter { $0.hasPrefix(MeetingFileNames.stemPrefix) && $0.hasSuffix(suffix) }
+            .sorted()
+            .first
+            .map { folder.appendingPathComponent($0) }
+    }
+
     /// Renames the folder to `<date time> – <title>` (adding " (2)", … when
-    /// taken) and its main transcript to `<new folder name>.txt`.
+    /// taken). The files keep their names (their stem is the recording's);
+    /// only a meeting recorded before the files carried the stem has its
+    /// main transcript renamed to `<new folder name>.txt`.
     public static func rename(folder: URL, title: String) throws -> URL {
         let wanted = folderName(current: folder.lastPathComponent, title: title)
         let parent = folder.deletingLastPathComponent()
@@ -399,6 +515,9 @@ public enum MeetingNaming {
         let oldMain = mainTranscript(in: folder).lastPathComponent
         if target.standardizedFileURL != folder.standardizedFileURL {
             try FileManager.default.moveItem(at: folder, to: target)
+        }
+        if oldMain.hasPrefix(MeetingFileNames.stemPrefix) {
+            return target
         }
         let from = target.appendingPathComponent(oldMain)
         let to = target.appendingPathComponent(target.lastPathComponent + ".txt")

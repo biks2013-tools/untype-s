@@ -209,14 +209,18 @@ Records both sides of a call (your microphone and the sound of every other app, 
 
 | Setting | Key | Default | Options |
 |---|---|---|---|
-| Transcript language | `meeting.language` | `en` | `en`: `transcript.txt` in English (lines not in English are translated by the primary LLM at the end; lines already in English are kept). `original`: `transcript.txt` as spoken. |
+| Transcript language | `meeting.language` | `en` | `en`: `<stem>.transcript.txt` in English (lines not in English are translated by the primary LLM at the end; lines already in English are kept). `original`: `<stem>.transcript.txt` as spoken. |
 | Auto-stop after silence | `meeting.silenceMinutes` | `3` | Minutes without speech on either side that end the recording; `0` never stops by itself. |
+| Save audio | `meeting.audioSources` | `both` | Which sound is kept in the meeting folder next to the transcript. `both`: the microphone and the system audio. `none`: transcript only. `microphone`: only your side. `system`: only the sound of the other apps (the call). The transcript covers both sides whatever is chosen. |
+| Audio files | `meeting.audioLayout` | `separate` | Used with `both`. `separate`: `<stem>.mic.m4a` and `<stem>.system.m4a`. `mixed`: one `<stem>.m4a` with both sides. |
 | Folder | `meeting.folder` | `~/Documents/untype Meetings` | Any folder; each meeting gets a subfolder named after its start (`2026-11-11 14.30`). |
 | Use my Outlook calendar | `meeting.calendarCLI` | not set (off) | Path of the `nbg-m365` CLI that reads the Outlook calendar. Turning the switch on in Settings finds the CLI of the `nbg-m365` Claude Code plugin (`~/.claude/plugins/cache/*/nbg-m365/<version>/bin/nbg-m365-mac-arm64`, newest version) and stores its path; when it is not installed the switch stays off and Settings says so. Off: no reminders, no names from the calendar. |
 
-An older `ui-state.json` without `meeting` loads the defaults. An unknown `meeting.language` is an error when a recording starts.
+An older `ui-state.json` without `meeting` loads the defaults. An unknown `meeting.language`, `meeting.audioSources` or `meeting.audioLayout` is an error when a recording starts.
 
-Each meeting folder holds `transcript.txt` (the chosen language, `[00:12:07] Speaker 2: …`), `transcript.original.txt` (as spoken, with the language per line, written live during the meeting) and `transcript.jsonl` (time, side, speaker, language, text, English). Your microphone is labelled **You**; the people on the call are **Speaker 1, 2, …** (Soniox speaker diarization). No audio is kept. When a recording ends, the overlay offers **Open transcript ›** and **✎ Name** for 10 seconds: click ✎ and say what the meeting was about and with whom; the primary LLM turns it into a short English title and the folder and main transcript are renamed to `2026-11-11 14.30 – Budget review with Maria.txt` (the other files keep their names).
+The audio files are AAC `.m4a`, mono, 16 kHz, about 15 MB per hour each: speech quality, the same sound that is sent for transcription. They start with the meeting, so a time in the transcript is the same time in the audio. Recording other people's voices can need their consent; check before switching it on.
+
+Every file of a meeting starts with the stem `recording-yyyy-MM-dd-HH-mm` (the start of the meeting), following the names of the ntakker recorder and ntakker-studio: `<stem>.transcript.txt` (the chosen language, `[00:12:07] Speaker 2: …`), `<stem>.transcript.original.txt` (as spoken, with the language per line, written live during the meeting), `<stem>.microphone.transcript.jsonl` and `<stem>.system.transcript.jsonl` (one side each, in ntakker's JSONL format), `<stem>.segments.jsonl` (both sides in time order: time, side, speaker, language, text, English), and the audio `<stem>.mic.m4a` / `<stem>.system.m4a` or `<stem>.m4a`. Naming a meeting renames the folder only. Meetings recorded before build 58 keep their old names (`transcript.txt`, `audio.microphone.m4a`, …).
 
 **Permissions**: Microphone, and **Screen & System Audio Recording** (System Settings → Privacy & Security), which macOS requires to capture other apps' sound (no picture is taken). untype asks for it the first time; after allowing it, start the recording again.
 

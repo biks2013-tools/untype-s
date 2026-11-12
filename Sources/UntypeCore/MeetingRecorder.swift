@@ -40,8 +40,10 @@ public struct MeetingRecordingOptions: Sendable {
     public let silenceMinutes: Int
     public let language: MeetingTranscriptLanguage
     public let llm: LLMConfig
+    /// Which audio is saved next to the transcript.
+    public let audio: MeetingAudioSettings
 
-    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig) {
+    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off) {
         self.apiKey = apiKey
         self.model = model
         self.endpoint = endpoint
@@ -49,11 +51,12 @@ public struct MeetingRecordingOptions: Sendable {
         self.silenceMinutes = silenceMinutes
         self.language = language
         self.llm = llm
+        self.audio = audio
     }
 
     /// Soniox key, model and endpoint from untype's configuration, plus the
     /// meeting settings.
-    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage) throws {
+    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off) throws {
         guard config.sttProvider == .soniox else {
             throw MeetingError.requiresSoniox(config.sttProvider.rawValue)
         }
@@ -67,17 +70,18 @@ public struct MeetingRecordingOptions: Sendable {
             folderRoot: folderRoot,
             silenceMinutes: silenceMinutes,
             language: language,
-            llm: config.llm
+            llm: config.llm,
+            audio: audio
         )
     }
 }
 
 /// Records a meeting: the microphone ("You") and the call's sound (system
 /// audio of every other app, speakers told apart by Soniox) go to two Soniox
-/// streams; segments are written live to `transcript.original.txt` in the
-/// meeting folder, and at the end the transcript is ordered, translated to
-/// English when asked, and saved as `transcript.txt`, `transcript.original.txt`
-/// and `transcript.jsonl`. Separate from push-to-talk: its own microphone
+/// streams; segments are written live to `<stem>.transcript.original.txt` in
+/// the meeting folder, and at the end the transcript is ordered, translated
+/// to English when asked, and saved under the names of `MeetingFileNames`
+/// (the ntakker convention). Separate from push-to-talk: its own microphone
 /// capture and its own Soniox sessions.
 @MainActor
 public final class MeetingRecorder {
@@ -105,6 +109,8 @@ public final class MeetingRecorder {
     private var systemAudio: MeetingSystemAudioCapture?
     private var micStream: MeetingSonioxStream?
     private var callStream: MeetingSonioxStream?
+    private var audioRecorder: MeetingAudioRecorder?
+    private var names = MeetingFileNames(stem: MeetingFileNames.stemPrefix)
     private var stopping = false
 
     public init() {
@@ -122,12 +128,14 @@ public final class MeetingRecorder {
         }
         let now = Date()
         let folder = try Self.makeFolder(root: options.folderRoot, date: now)
-        let liveURL = folder.appendingPathComponent("transcript.original.txt")
+        let names = MeetingFileNames(start: now)
+        let liveURL = folder.appendingPathComponent(names.originalTranscript)
         FileManager.default.createFile(atPath: liveURL.path, contents: nil)
         let liveFile = try FileHandle(forWritingTo: liveURL)
 
         self.options = options
         self.folder = folder
+        self.names = names
         self.liveFile = liveFile
         segments = []
         startDate = now
@@ -144,9 +152,33 @@ public final class MeetingRecorder {
             self.micStream = micStream
             self.callStream = callStream
 
+            var audioRecorder: MeetingAudioRecorder?
+            if options.audio.sources != .none {
+                do {
+                    audioRecorder = try MeetingAudioRecorder(
+                        folder: folder,
+                        names: names,
+                        settings: options.audio,
+                        sampleRate: Self.sampleRate,
+                        startUptime: startUptime,
+                        onError: { [weak self] message in
+                            dispatchMeeting {
+                                self?.onEvent("diagnostic.warning: [untype] meeting audio stopped being saved (the transcript continues): \(message)")
+                            }
+                        }
+                    )
+                } catch {
+                    throw MeetingError.capture("the audio file could not be created: \(error.localizedDescription)")
+                }
+            }
+            self.audioRecorder = audioRecorder
+            let savedAudio = audioRecorder
+
             let systemAudio = MeetingSystemAudioCapture(sampleRate: Self.sampleRate, onPCM: { [callWaveform] pcm in
-                callWaveform.append(pcm: pcm, at: ProcessInfo.processInfo.systemUptime)
+                let now = ProcessInfo.processInfo.systemUptime
+                callWaveform.append(pcm: pcm, at: now)
                 callStream.push(pcm)
+                savedAudio?.push(pcm, side: .call, at: now)
             }, onError: { [weak self] error in
                 dispatchMeeting { self?.fail("system audio: \(error.localizedDescription)") }
             })
@@ -155,7 +187,7 @@ public final class MeetingRecorder {
 
             let microphone = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(sampleRate: Self.sampleRate))
             self.microphone = microphone
-            try await Self.startMicrophone(microphone, waveform: micWaveform, stream: micStream) { [weak self] error in
+            try await Self.startMicrophone(microphone, waveform: micWaveform, stream: micStream, audio: savedAudio) { [weak self] error in
                 dispatchMeeting { self?.fail("microphone: \(error.localizedDescription)") }
             }
             try await Self.connect(micStream, callStream)
@@ -174,7 +206,7 @@ public final class MeetingRecorder {
         }
         RunLoop.main.add(timer, forMode: .common)
         silenceTimer = timer
-        onEvent("diagnostic.info: [untype] meeting recording started (\(folder.lastPathComponent); auto-stop after \(options.silenceMinutes) min of silence)")
+        onEvent("diagnostic.info: [untype] meeting recording started (\(folder.lastPathComponent); auto-stop after \(options.silenceMinutes) min of silence; audio: \(options.audio.summary))")
     }
 
     /// Stops the recording and saves the transcript.
@@ -211,12 +243,15 @@ public final class MeetingRecorder {
         _ microphone: AVFoundationAudioSource,
         waveform: UntypeWaveformBuffer,
         stream: MeetingSonioxStream,
+        audio: MeetingAudioRecorder?,
         onError: @escaping @Sendable (Error) -> Void
     ) async throws {
         try await microphone.start(handlers: AudioSourceEventHandlers(
             audio: { pcm in
-                waveform.append(pcm: pcm, at: ProcessInfo.processInfo.systemUptime)
+                let now = ProcessInfo.processInfo.systemUptime
+                waveform.append(pcm: pcm, at: now)
                 stream.push(pcm)
+                audio?.push(pcm, side: .you, at: now)
             },
             error: { error in onError(error) },
             end: {}
@@ -268,6 +303,13 @@ public final class MeetingRecorder {
         microphone = nil
         await systemAudio?.stop()
         systemAudio = nil
+        if let audioRecorder {
+            self.audioRecorder = nil
+            for url in audioRecorder.finish() {
+                let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+                onEvent("diagnostic.info: [untype] meeting audio saved: \(url.lastPathComponent) (\(bytes / 1024) KB)")
+            }
+        }
         let streams = [micStream, callStream].compactMap { $0 }
         micStream = nil
         callStream = nil
@@ -290,10 +332,16 @@ public final class MeetingRecorder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let jsonl = ordered.compactMap { try? encoder.encode($0) }.compactMap { String(data: $0, encoding: .utf8) }.joined(separator: "\n")
+        let start = startDate ?? Date()
         do {
-            try (original + "\n").write(to: folder.appendingPathComponent("transcript.original.txt"), atomically: true, encoding: .utf8)
-            try (main + "\n").write(to: folder.appendingPathComponent("transcript.txt"), atomically: true, encoding: .utf8)
-            try (jsonl + "\n").write(to: folder.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+            try (original + "\n").write(to: folder.appendingPathComponent(names.originalTranscript), atomically: true, encoding: .utf8)
+            try (main + "\n").write(to: folder.appendingPathComponent(names.mainTranscript), atomically: true, encoding: .utf8)
+            try (jsonl + "\n").write(to: folder.appendingPathComponent(names.segments), atomically: true, encoding: .utf8)
+            // Per side, in the format ntakker-studio reads.
+            try MeetingSidecarLine.file(ordered, side: .you, meetingStart: start)
+                .write(to: folder.appendingPathComponent(names.microphoneTranscript), atomically: true, encoding: .utf8)
+            try MeetingSidecarLine.file(ordered, side: .call, meetingStart: start)
+                .write(to: folder.appendingPathComponent(names.systemTranscript), atomically: true, encoding: .utf8)
             onEvent("diagnostic.info: [untype] meeting transcript saved (\(ordered.count) lines) in \(folder.path)")
         } catch {
             onEvent("diagnostic.warning: [untype] meeting transcript could not be saved: \(error.localizedDescription)")

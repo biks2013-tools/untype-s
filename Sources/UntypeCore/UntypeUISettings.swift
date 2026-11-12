@@ -1416,17 +1416,42 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// The `nbg-m365` CLI that reads the Outlook calendar (nil: the calendar
     /// is not used — no meeting names from the calendar, no reminders).
     public var calendarCLI: String?
+    /// `MeetingAudioSources` raw value: which audio is saved next to the
+    /// transcript (nil: the default, the microphone and the system audio).
+    public var audioSources: String?
+    /// `MeetingAudioLayout` raw value, used when both sides are saved (nil:
+    /// separate files).
+    public var audioLayout: String?
 
     public init(
         language: String = MeetingTranscriptLanguage.english.rawValue,
         silenceMinutes: Int = Self.defaultSilenceMinutes,
         folder: String? = nil,
-        calendarCLI: String? = nil
+        calendarCLI: String? = nil,
+        audioSources: String? = nil,
+        audioLayout: String? = nil
     ) {
         self.language = language
         self.silenceMinutes = silenceMinutes
         self.folder = folder
         self.calendarCLI = calendarCLI
+        self.audioSources = audioSources
+        self.audioLayout = audioLayout
+    }
+
+    /// Which audio a meeting recording saves.
+    public var audioSettings: MeetingAudioSettings {
+        get throws {
+            let sourcesValue = audioSources ?? MeetingAudioSources.both.rawValue
+            let layoutValue = audioLayout ?? MeetingAudioLayout.separate.rawValue
+            guard let sources = MeetingAudioSources(rawValue: sourcesValue) else {
+                throw UntypeError.invalidConfiguration("Unknown meeting audio sources '\(sourcesValue)'. Use 'none', 'both', 'microphone' or 'system'.")
+            }
+            guard let layout = MeetingAudioLayout(rawValue: layoutValue) else {
+                throw UntypeError.invalidConfiguration("Unknown meeting audio layout '\(layoutValue)'. Use 'separate' or 'mixed'.")
+            }
+            return MeetingAudioSettings(sources: sources, layout: layout)
+        }
     }
 
     /// The calendar CLI when the calendar is on.

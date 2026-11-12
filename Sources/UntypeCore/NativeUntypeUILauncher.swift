@@ -2127,7 +2127,8 @@ final class UntypeUIModel: ObservableObject {
             config: config,
             folderRoot: settings.meeting.folderURL,
             silenceMinutes: settings.meeting.silenceMinutes,
-            language: try settings.meeting.transcriptLanguage
+            language: try settings.meeting.transcriptLanguage,
+            audio: try settings.meeting.audioSettings
         )
     }
 
@@ -2200,14 +2201,19 @@ final class UntypeUIModel: ObservableObject {
     }
 
     /// The saved card: what happened, the meeting's name in full (its date
-    /// until it has one), Open and Name / Rename.
+    /// until it has one), Open (the meeting folder in Finder) and Name / Rename.
     private func showSavedNotice(_ folder: URL, headline: String) {
         let transcript = MeetingNaming.mainTranscript(in: folder)
         let name = folder.lastPathComponent
         let title = name.components(separatedBy: MeetingNaming.separator).dropFirst().joined(separator: MeetingNaming.separator)
         let shown = title.isEmpty ? (MeetingNaming.friendlyDate(of: name) ?? name) : title
         overlay?.showNotice(headline, detail: shown, seconds: 12, action: {
-            NSWorkspace.shared.open(transcript)
+            // The meeting folder in Finder, with the transcript selected.
+            if FileManager.default.fileExists(atPath: transcript.path) {
+                NSWorkspace.shared.activateFileViewerSelecting([transcript])
+            } else {
+                NSWorkspace.shared.open(folder)
+            }
         }, renameAction: { [weak self] in
             self?.nameMeeting(folder)
         }, renameLabel: title.isEmpty ? "Name" : "Rename")
@@ -2280,8 +2286,7 @@ final class UntypeUIModel: ObservableObject {
         let title = await calendarTitle(meeting, me: me)
         do {
             let header = MeetingCalendar.transcriptHeader(meeting, me: me)
-            for name in ["transcript.txt", "transcript.original.txt"] {
-                let file = folder.appendingPathComponent(name)
+            for file in [MeetingNaming.mainTranscript(in: folder), MeetingNaming.originalTranscript(in: folder)].compactMap({ $0 }) {
                 if let text = try? String(contentsOf: file, encoding: .utf8) {
                     try (header + text).write(to: file, atomically: true, encoding: .utf8)
                 }
@@ -4731,7 +4736,7 @@ private struct UntypeOverlayView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 4) {
-                pillButton("Open", key: UntypeOverlayController.noticeKey, fill: Self.quietFill, label: "Open the transcript") {
+                pillButton("Open", key: UntypeOverlayController.noticeKey, fill: Self.quietFill, label: "Show the meeting's files in Finder") {
                     controller.performNoticeAction()
                 }
                 if controller.noticeRenameAction != nil {
