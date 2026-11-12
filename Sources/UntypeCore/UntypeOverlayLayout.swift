@@ -30,6 +30,68 @@ public struct UntypeOverlayLayout: Equatable, Sendable {
     }
 }
 
+/// What a dictation will do with the operators as they are now, in plain
+/// words: shown in the overlay's tray so the letter chips need no decoding.
+public struct UntypeOverlaySummary: Equatable, Sendable {
+    /// What happens to the words ("Refines and translates to English").
+    public let action: String
+    /// What goes in besides the voice, and where the result goes
+    /// ("With selection → typed at cursor, copied").
+    public let detail: String
+
+    public init(
+        refine: Bool,
+        translate: Bool,
+        ask: Bool,
+        followup: Bool,
+        selection: Bool,
+        alternative: Bool,
+        screenshot: Bool,
+        clipboard: Bool,
+        focusedInput: Bool,
+        translationPolicy: String
+    ) {
+        let language: String
+        switch TranslationPolicy(rawValue: translationPolicy) {
+        case .toEnglish: language = "English"
+        case .toGreek: language = "Greek"
+        default: language = "the other language"
+        }
+        var action: String
+        if ask {
+            action = "Answers your question" + (translate ? " in \(language)" : "")
+            if followup {
+                action += ", continuing the chat"
+            }
+        } else if refine && translate {
+            action = "Refines and translates to \(language)"
+        } else if refine {
+            action = "Refines your words"
+        } else if translate {
+            action = "Translates to \(language)"
+        } else {
+            action = "Types exactly what you say"
+        }
+        if alternative && (ask || refine || translate) {
+            action += " · alt model"
+        }
+        self.action = action
+
+        var inputs: [String] = []
+        if selection { inputs.append("selection") }
+        if screenshot { inputs.append("screenshot") }
+        var outputs: [String] = []
+        if focusedInput { outputs.append("typed at cursor") }
+        if clipboard { outputs.append("copied") }
+        let output = outputs.isEmpty ? "shown in the untype window only" : outputs.joined(separator: ", ")
+        if inputs.isEmpty {
+            detail = output.prefix(1).uppercased() + output.dropFirst()
+        } else {
+            detail = "With " + inputs.joined(separator: " + ") + " → " + output
+        }
+    }
+}
+
 /// Recent microphone samples for the push-to-talk oscilloscope. PCM16 mono
 /// chunks are averaged down to `pointsPerSecond` points (a gentle low-pass that
 /// keeps voice fundamentals) and kept in a ring of `duration` seconds.

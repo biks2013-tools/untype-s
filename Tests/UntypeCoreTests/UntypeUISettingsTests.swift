@@ -52,36 +52,19 @@ import Testing
     #expect(!nonStreamingArgs.contains("--llm-streaming"))
 }
 
-@Test func uiSettingsDefaultHotkeyModeIsPushToTalk() {
-    #expect(UntypeUISettings.default.hotkeyHoldToTalk)
-}
-
-@Test func uiSettingsMergeAppliesHotkeyModePatch() throws {
-    let toggleMode = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyHoldToTalk: false))
-    #expect(toggleMode.hotkeyHoldToTalk == false)
-
-    let unchanged = try toggleMode.merged(UntypeUISettingsPatch(refine: true))
-    #expect(unchanged.hotkeyHoldToTalk == false)
-
-    let back = try toggleMode.merged(UntypeUISettingsPatch(hotkeyHoldToTalk: true))
-    #expect(back.hotkeyHoldToTalk)
-}
-
-@Test func uiSettingsStoreRoundTripsHotkeyMode() throws {
+@Test func uiSettingsStoreLoadsAStateFileWrittenWithTheRetiredHotkeyModeKey() throws {
     let temp = UITemporaryDirectory()
-    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyEnabled: true, hotkeyHoldToTalk: false))
+    let saved = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyEnabled: true, hotkey: "F16"))
+    try UntypeUISettingsStore.save(saved, home: temp.url)
+    let url = UntypeUISettingsStore.path(home: temp.url)
+    var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    object["hotkeyHoldToTalk"] = false
+    try JSONSerialization.data(withJSONObject: object).write(to: url)
 
-    try UntypeUISettingsStore.save(settings, home: temp.url)
     let loaded = try UntypeUISettingsStore.load(home: temp.url)
 
     #expect(loaded.hotkeyEnabled)
-    #expect(loaded.hotkeyHoldToTalk == false)
-}
-
-@Test func hotkeyModeChangeDoesNotReconfigureHotkeyMonitor() throws {
-    let base = try UntypeUISettings.default.merged(UntypeUISettingsPatch(hotkeyEnabled: true))
-    let toggleMode = try base.merged(UntypeUISettingsPatch(hotkeyHoldToTalk: false))
-    #expect(!UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: toggleMode))
+    #expect(loaded.hotkey == "F16")
 }
 
 @Test func uiSettingsStoreRoundTripsLlmStreaming() throws {
@@ -517,4 +500,18 @@ private final class UITemporaryDirectory {
     var enabledChange = base
     enabledChange.hotkeyEnabled = !base.hotkeyEnabled
     #expect(UntypeUISettings.hotkeyMonitorConfigurationChanged(previous: base, next: enabledChange))
+}
+
+@Test func pinnedOperatorsAreKeptInChipOrderAndRoundTrip() throws {
+    let temp = UITemporaryDirectory()
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(pinnedOperators: ["I", "r", "T", "A", "R"]))
+    #expect(settings.pinnedOperators == ["R", "T", "A", "I"])
+    #expect(UntypeUISettings.default.pinnedOperators.isEmpty)
+
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+    #expect(try UntypeUISettingsStore.load(home: temp.url).pinnedOperators == ["R", "T", "A", "I"])
+
+    #expect(throws: UntypeError.self) {
+        try UntypeUISettings.default.merged(UntypeUISettingsPatch(pinnedOperators: ["Q"]))
+    }
 }

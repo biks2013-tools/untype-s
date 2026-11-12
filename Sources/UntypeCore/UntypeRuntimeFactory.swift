@@ -150,7 +150,7 @@ public enum UntypeRuntimeFactory {
         diagnosticsOutput: TextOutput,
         eventSink: @escaping @Sendable (_ event: TranscriptionSessionEvent) -> Void,
         focusedInputPreparation: @escaping @Sendable () async -> Void = {},
-        focusedInputCompletion: @escaping @Sendable () async -> Void = {},
+        focusedInputCompletion: @escaping @Sendable (_ delivered: Bool) async -> Void = { _ in },
         focusedInputReconciliation: @escaping @Sendable (_ text: String) async -> LiveInputReconciliation = { _ in .notLive },
         focusedInputSentenceDelivery: @escaping @Sendable (_ text: String) async -> SentenceDeliveryPlan = { _ in .notUsed },
         streamingProgress: (@Sendable (String) -> Void)? = nil,
@@ -242,10 +242,10 @@ public enum UntypeRuntimeFactory {
                     case .dictationOnly(let part):
                         result = try await deliverReconciled(part)
                     }
-                    await focusedInputCompletion()
+                    await focusedInputCompletion(result.ok)
                     return result
                 } catch {
-                    await focusedInputCompletion()
+                    await focusedInputCompletion(false)
                     throw error
                 }
             },
