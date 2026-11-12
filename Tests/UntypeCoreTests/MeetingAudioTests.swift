@@ -188,3 +188,50 @@ private func temporaryFolder() throws -> URL {
     #expect(urls.map(\.lastPathComponent) == ["recording-2026-11-05-09-07.system.m4a"])
     #expect(abs(try duration(of: urls[0]) - 1.0) < 0.2)
 }
+
+@Test func meetingAudioIsOnDiskAndPlayableWhileRecording() async throws {
+    let folder = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = folder.appendingPathComponent("recording-2026-11-05-09-07.mic.m4a")
+    let writer = try MeetingAudioFileWriter(url: url, sampleRate: 16_000)
+    // Ten seconds of audio, never closed: what a killed recording leaves.
+    for _ in 0..<100 {
+        try writer.write(tone(1_600))
+    }
+    try await Task.sleep(nanoseconds: 500_000_000)
+    let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+    #expect(size > 10_000)
+    let copy = folder.appendingPathComponent("copy.m4a")
+    try FileManager.default.copyItem(at: url, to: copy)
+    let seconds = try await AVURLAsset(url: copy).load(.duration).seconds
+    // All but the fragment still being filled.
+    #expect(seconds >= 6 && seconds <= 10.2)
+    writer.close()
+    #expect(abs(try await AVURLAsset(url: url).load(.duration).seconds - 10) < 0.2)
+}
+
+@Test func meetingTextFilesAreWrittenAsSegmentsArrive() throws {
+    let folder = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let names = MeetingFileNames(stem: "recording-2026-11-05-09-07")
+    let live = try MeetingLiveFiles(folder: folder, names: names, start: Date(timeIntervalSince1970: 1_794_000_000), language: .english)
+    func lines(_ name: String) throws -> [String] {
+        try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8).split(separator: "\n").map(String.init)
+    }
+    // Every file exists from the start, empty.
+    for name in [names.mainTranscript, names.originalTranscript, names.microphoneTranscript, names.systemTranscript, names.segments] {
+        #expect(try lines(name).isEmpty)
+    }
+    live.append(MeetingSegment(startMs: 1_000, endMs: 2_000, side: .you, speaker: nil, language: "el", text: "γεια"))
+    // On disk at once, before the files are closed.
+    #expect(try lines(names.originalTranscript).count == 1)
+    #expect(try lines(names.mainTranscript).count == 1)
+    #expect(try lines(names.microphoneTranscript).count == 1)
+    #expect(try lines(names.systemTranscript).isEmpty)
+    #expect(try lines(names.segments).count == 1)
+    live.append(MeetingSegment(startMs: 3_000, endMs: 4_000, side: .call, speaker: "1", language: "en", text: "hello"))
+    #expect(try lines(names.mainTranscript).count == 2)
+    #expect(try lines(names.systemTranscript).count == 1)
+    #expect(try lines(names.segments).count == 2)
+    live.close()
+}

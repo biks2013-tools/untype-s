@@ -98,10 +98,14 @@ public final class MeetingRecorder {
     /// The recording ended (or failed to start); `folder` holds the saved
     /// transcript, or nil when nothing was saved.
     public var onFinished: (_ reason: MeetingStopReason, _ folder: URL?) -> Void = { _, _ in }
+    /// A finished segment, the moment it is written (transcription window).
+    public var onSegment: (MeetingSegment) -> Void = { _ in }
+    /// The words of the sentence being spoken on one side, as they change.
+    public var onInProgress: (_ side: MeetingSide, _ text: String) -> Void = { _, _ in }
 
     private var options: MeetingRecordingOptions?
     private var segments: [MeetingSegment] = []
-    private var liveFile: FileHandle?
+    private var liveFiles: MeetingLiveFiles?
     private var startUptime: TimeInterval = 0
     private var silence = MeetingSilenceMonitor(limit: 0, start: 0)
     private var silenceTimer: Timer?
@@ -129,14 +133,12 @@ public final class MeetingRecorder {
         let now = Date()
         let folder = try Self.makeFolder(root: options.folderRoot, date: now)
         let names = MeetingFileNames(start: now)
-        let liveURL = folder.appendingPathComponent(names.originalTranscript)
-        FileManager.default.createFile(atPath: liveURL.path, contents: nil)
-        let liveFile = try FileHandle(forWritingTo: liveURL)
+        let liveFiles = try MeetingLiveFiles(folder: folder, names: names, start: now, language: options.language)
 
         self.options = options
         self.folder = folder
         self.names = names
-        self.liveFile = liveFile
+        self.liveFiles = liveFiles
         segments = []
         startDate = now
         startUptime = ProcessInfo.processInfo.systemUptime
@@ -193,7 +195,8 @@ public final class MeetingRecorder {
             try await Self.connect(micStream, callStream)
         } catch {
             await tearDown()
-            liveFile.closeFile()
+            liveFiles.close()
+            self.liveFiles = nil
             try? FileManager.default.removeItem(at: folder)
             self.folder = nil
             startDate = nil
@@ -220,8 +223,8 @@ public final class MeetingRecorder {
         silenceTimer = nil
         onEvent("diagnostic.info: [untype] meeting recording stopping (\(Self.describe(reason)))")
         await tearDown()
-        liveFile?.closeFile()
-        liveFile = nil
+        liveFiles?.close()
+        liveFiles = nil
         let folder = self.folder
         if let folder, let options {
             await save(to: folder, options: options)
@@ -272,15 +275,17 @@ public final class MeetingRecorder {
             },
             onError: { [weak self] message in
                 dispatchMeeting { self?.fail("Soniox (\(side.rawValue)): \(message)") }
+            },
+            onInProgress: { [weak self] text in
+                dispatchMeeting { self?.onInProgress(side, text) }
             }
         )
     }
 
     private func add(_ segment: MeetingSegment) {
         segments.append(segment)
-        if let data = (MeetingTranscriptFormat.originalLine(segment) + "\n").data(using: .utf8) {
-            liveFile?.write(data)
-        }
+        liveFiles?.append(segment)
+        onSegment(segment)
     }
 
     private func checkSilence() {
@@ -410,6 +415,62 @@ public final class MeetingRecorder {
     }
 }
 
+/// The text files of a meeting while it is being recorded: every segment is
+/// appended to each of them the moment Soniox finishes it, so the transcript
+/// is on disk during the meeting and survives a crash. Lines are in the
+/// order the segments arrive (the two sides can be a little out of step);
+/// at the end the files are rewritten in time order, the main transcript
+/// translated when asked.
+final class MeetingLiveFiles {
+    private let start: Date
+    private let language: MeetingTranscriptLanguage
+    private let original: FileHandle
+    private let main: FileHandle
+    private let microphone: FileHandle
+    private let system: FileHandle
+    private let segments: FileHandle
+    private let encoder: JSONEncoder
+
+    init(folder: URL, names: MeetingFileNames, start: Date, language: MeetingTranscriptLanguage) throws {
+        self.start = start
+        self.language = language
+        encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        func open(_ name: String) throws -> FileHandle {
+            let url = folder.appendingPathComponent(name)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            return try FileHandle(forWritingTo: url)
+        }
+        original = try open(names.originalTranscript)
+        main = try open(names.mainTranscript)
+        microphone = try open(names.microphoneTranscript)
+        system = try open(names.systemTranscript)
+        segments = try open(names.segments)
+    }
+
+    func append(_ segment: MeetingSegment) {
+        write(MeetingTranscriptFormat.originalLine(segment), to: original)
+        // Not translated yet: as spoken until the meeting ends.
+        write(language == .english ? MeetingTranscriptFormat.englishLine(segment) : MeetingTranscriptFormat.originalLine(segment), to: main)
+        if let line = try? encoder.encode(MeetingSidecarLine(segment: segment, meetingStart: start)) {
+            write(String(decoding: line, as: UTF8.self), to: segment.side == .you ? microphone : system)
+        }
+        if let line = try? encoder.encode(segment) {
+            write(String(decoding: line, as: UTF8.self), to: segments)
+        }
+    }
+
+    func close() {
+        for handle in [original, main, microphone, system, segments] {
+            try? handle.close()
+        }
+    }
+
+    private func write(_ line: String, to handle: FileHandle) {
+        try? handle.write(contentsOf: Data((line + "\n").utf8))
+    }
+}
+
 private func dispatchMeeting(_ work: @escaping @MainActor @Sendable () -> Void) {
     DispatchQueue.main.async {
         MainActor.assumeIsolated {
@@ -439,6 +500,9 @@ final class MeetingSonioxStream: @unchecked Sendable {
     /// nobody shows them).
     private let onLiveText: (@Sendable (String) -> Void)?
     private var liveText = MeetingLiveText()
+    /// The words of the segment being spoken, after every result frame
+    /// (nil: nobody shows them).
+    private let onInProgress: (@Sendable (String) -> Void)?
 
     init(
         side: MeetingSide,
@@ -448,10 +512,12 @@ final class MeetingSonioxStream: @unchecked Sendable {
         onSegment: @escaping @Sendable (MeetingSegment) -> Void,
         onSpeech: @escaping @Sendable () -> Void,
         onError: @escaping @Sendable (String) -> Void,
-        onLiveText: (@Sendable (String) -> Void)? = nil
+        onLiveText: (@Sendable (String) -> Void)? = nil,
+        onInProgress: (@Sendable (String) -> Void)? = nil
     ) {
         self.side = side
         self.onLiveText = onLiveText
+        self.onInProgress = onInProgress
         socket = URLSessionRealtimeWebSocketClient(url: options.endpoint)
         configFrame = Self.configFrame(options: options, side: side, diarize: diarize)
         aggregator = MeetingTokenAggregator(side: side, offsetMs: offsetMs)
@@ -560,9 +626,13 @@ final class MeetingSonioxStream: @unchecked Sendable {
             lock.lock()
             let segments = aggregator.add(parsed)
             let heard = onLiveText == nil ? nil : liveText.add(parsed)
+            let speaking = onInProgress == nil ? nil : aggregator.inProgressText(with: parsed)
             lock.unlock()
             if let heard {
                 onLiveText?(heard)
+            }
+            if let speaking {
+                onInProgress?(speaking)
             }
             if parsed.contains(where: { !$0.isMarker && !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
                 onSpeech()

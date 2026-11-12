@@ -60,6 +60,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var recordingCancellable: AnyCancellable?
     private var menuBar: UntypeMenuBarController?
     private var settingsWindow: UntypeSettingsWindowController?
+    private var transcriptionWindow: UntypeTranscriptionWindowController?
     private var wasCompactWindow: Bool = false
 
     private static let miniSize = NSSize(width: 440, height: 260)
@@ -120,6 +121,11 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         }
         model.showSettingsWindow = { [weak settingsWindow] tab in
             settingsWindow?.show(tab: tab)
+        }
+        let transcriptionWindow = UntypeTranscriptionWindowController(feed: model.transcriptFeed)
+        self.transcriptionWindow = transcriptionWindow
+        model.showTranscriptionWindow = { [weak transcriptionWindow] in
+            transcriptionWindow?.show()
         }
         recordingCancellable = model.$captureState
             .map { $0 == "recording" }
@@ -360,6 +366,9 @@ final class UntypeUIModel: ObservableObject {
 
     /// Meeting recording (both sides of a call, separate from push-to-talk).
     let meetingRecorder = MeetingRecorder()
+    /// The live transcript of the meeting, for the transcription window.
+    let transcriptFeed = MeetingTranscriptFeed()
+    var showTranscriptionWindow: (() -> Void)?
     @Published private(set) var meetingRecording = false
     /// Starting, or saving the transcript after the stop.
     @Published private(set) var meetingBusy = false
@@ -2102,19 +2111,30 @@ final class UntypeUIModel: ObservableObject {
             self?.appendEvent(line)
         }
         meetingRecorder.onFinished = { [weak self] reason, folder in
+            self?.transcriptFeed.end()
             self?.meetingFinished(reason: reason, folder: folder)
+        }
+        meetingRecorder.onSegment = { [weak self] segment in
+            self?.transcriptFeed.add(segment)
+        }
+        meetingRecorder.onInProgress = { [weak self] side, text in
+            self?.transcriptFeed.setInProgress(text, side: side)
         }
         Task { [weak self] in
             guard let self else {
                 return
             }
             do {
+                // Before the start: the first words can come while it connects.
+                transcriptFeed.begin(meetingName: "")
                 try await meetingRecorder.start(options: options)
+                transcriptFeed.setMeetingName(meetingRecorder.folder?.lastPathComponent ?? "")
                 meetingBusy = false
                 meetingRecording = true
                 overlay?.setMeeting(start: meetingRecorder.startDate)
             } catch {
                 meetingBusy = false
+                transcriptFeed.end()
                 overlay?.setMeeting(start: nil)
                 meetingStartFailed(error)
             }
@@ -2205,7 +2225,8 @@ final class UntypeUIModel: ObservableObject {
     private func showSavedNotice(_ folder: URL, headline: String) {
         let transcript = MeetingNaming.mainTranscript(in: folder)
         let name = folder.lastPathComponent
-        let title = name.components(separatedBy: MeetingNaming.separator).dropFirst().joined(separator: MeetingNaming.separator)
+        // The title reads with spaces on the card (the folder has `-`).
+        let title = (MeetingNaming.title(of: name) ?? "").replacingOccurrences(of: "-", with: " ")
         let shown = title.isEmpty ? (MeetingNaming.friendlyDate(of: name) ?? name) : title
         overlay?.showNotice(headline, detail: shown, seconds: 12, action: {
             // The meeting folder in Finder, with the transcript selected.
@@ -2260,7 +2281,7 @@ final class UntypeUIModel: ObservableObject {
             return
         }
         guard settings.meeting.calendarCLIURL != nil, let startedAt,
-              !folder.lastPathComponent.contains(MeetingNaming.separator) else {
+              MeetingNaming.title(of: folder.lastPathComponent) == nil else {
             showSavedNotice(folder, headline: headline)
             return
         }
@@ -3676,6 +3697,7 @@ private final class UntypeOverlayController: ObservableObject {
     fileprivate static let handleKey = "tray"
     /// Keys of the tray's controls in `chipFrames`/`hoveredChip`.
     fileprivate static let settingsKey = "settings"
+    fileprivate static let transcriptionKey = "transcription"
     fileprivate static let meetingKey = "meeting"
     fileprivate static let noticeKey = "notice"
     fileprivate static let renameKey = "rename"
@@ -4026,7 +4048,7 @@ private final class UntypeOverlayController: ObservableObject {
         // With the tray closed only the chips and the (invisible) Record spot
         // react; the tray's other controls wait until it is open.
         let touched = chipFrames.filter { key, frame in
-            let hidden = !trayOpen && (key.hasPrefix(Self.translationKeyPrefix) || key == Self.settingsKey || key.hasPrefix(Self.pinKeyPrefix))
+            let hidden = !trayOpen && (key.hasPrefix(Self.translationKeyPrefix) || key == Self.settingsKey || key == Self.transcriptionKey || key.hasPrefix(Self.pinKeyPrefix))
             return !hidden && frame.insetBy(dx: -3, dy: -3).contains(location)
         }.map(\.key)
         // A pin sits on its chip's corner and wins over it.
@@ -4293,6 +4315,10 @@ private final class UntypeOverlayController: ObservableObject {
     fileprivate func openSettings() {
         model?.showSettingsWindow?(nil)
     }
+
+    fileprivate func openTranscriptionWindow() {
+        model?.showTranscriptionWindow?()
+    }
 }
 
 /// Clicks act at once although the overlay panel is never the key window.
@@ -4396,6 +4422,7 @@ private struct UntypeOverlayView: View {
 
     /// The tray's translation-direction buttons: short label, tooltip.
     private static let translationChoices: [(policy: TranslationPolicy, language: String, label: String, title: String, detail: String)] = [
+        (.opposite, "", "⇄", "Opposite language", "Greek becomes English, English becomes Greek"),
         (.toEnglish, "en", "EN", "To English", "Translate turns the text into English"),
         (.toGreek, "el", "EL", "To Greek", "Translate turns the text into Greek")
     ]
@@ -4403,7 +4430,13 @@ private struct UntypeOverlayView: View {
     /// The targets for the languages chosen in Settings (both with "auto").
     private var offeredTranslationChoices: [(policy: TranslationPolicy, language: String, label: String, title: String, detail: String)] {
         let languages = controller.translationLanguages
-        return Self.translationChoices.filter { languages.contains($0.language) || languages.contains("auto") }
+        let auto = languages.contains("auto")
+        return Self.translationChoices.filter { choice in
+            // Opposite needs both languages; a fixed target needs its own.
+            choice.policy == .opposite
+                ? auto || (languages.contains("el") && languages.contains("en"))
+                : auto || languages.contains(choice.language)
+        }
     }
 
     private static let meetingColor = Color(.sRGB, red: 0.92, green: 0.26, blue: 0.24, opacity: 1)
@@ -4417,6 +4450,9 @@ private struct UntypeOverlayView: View {
     private var tooltip: (title: String, detail: String?)? {
         if controller.hoveredChip == UntypeOverlayController.settingsKey {
             return ("Settings", nil)
+        }
+        if controller.hoveredChip == UntypeOverlayController.transcriptionKey {
+            return ("Transcription window", "The meeting's transcript, live")
         }
         // The cards' buttons are labelled (and show their key): a tooltip
         // would only cover the card.
@@ -4922,6 +4958,18 @@ private struct UntypeOverlayView: View {
             .contentShape(Rectangle())
             .background(hitFrame(UntypeOverlayController.meetingKey))
             .accessibilityLabel(isMeeting ? "Stop meeting recording" : "Record meeting")
+            Button {
+                controller.openTranscriptionWindow()
+            } label: {
+                Image(systemName: "captions.bubble.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(controller.hoveredChip == UntypeOverlayController.transcriptionKey ? 0.95 : 0.7))
+                    .frame(width: 18, height: 15)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .background(hitFrame(UntypeOverlayController.transcriptionKey))
+            .accessibilityLabel("Open the transcription window")
             Button {
                 controller.openSettings()
             } label: {

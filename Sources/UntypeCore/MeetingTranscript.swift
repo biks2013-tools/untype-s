@@ -144,6 +144,17 @@ public struct MeetingTokenAggregator: Sendable {
         return done
     }
 
+    /// The words of the segment still being spoken: the settled ones held
+    /// so far plus `tokens`' unsettled ones (one result frame), for showing
+    /// live. They are not written anywhere.
+    public func inProgressText(with tokens: [MeetingToken]) -> String {
+        (pending + tokens.filter { !$0.isFinal && !$0.isMarker })
+            .map(\.text)
+            .joined()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
     /// Ends the current segment (stream closed).
     public mutating func flush() -> MeetingSegment? {
         defer { pending.removeAll() }
@@ -227,13 +238,10 @@ public enum MeetingTranscriptFormat {
             .map(\.element)
     }
 
-    /// The meeting folder name: `2026-11-11 14.30`.
+    /// The meeting folder name before it has a title: the recording's stem,
+    /// `recording-2026-11-11-14-30` (the ntakker convention).
     public static func folderName(for date: Date, calendar: Calendar = .current) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-        return String(
-            format: "%04d-%02d-%02d %02d.%02d",
-            parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0
-        )
+        MeetingFileNames(start: date, calendar: calendar).stem
     }
 }
 
@@ -401,13 +409,18 @@ public enum MeetingTranslationChunks {
     """
 }
 
-/// Naming a saved meeting: the folder (and its main transcript) becomes
-/// `<date time> – <title>`, the title made from what the user said.
+/// Naming a saved meeting. Folders follow the ntakker convention:
+/// `recording-yyyy-MM-dd-HH-mm` until the meeting has a title, then
+/// `<title>-recording-yyyy-MM-dd-HH-mm`, the title made from what the user
+/// said, with `-` for spaces. Folders made before (`yyyy-MM-dd HH.mm`, then
+/// `yyyy-MM-dd HH.mm – <title>`) are still understood, and take the new
+/// form when they are named again.
 public enum MeetingNaming {
+    /// Between date and title in the folder names made before.
     public static let separator = " – "
 
-    /// The leading `yyyy-MM-dd HH.mm` of a meeting folder name (nil when the
-    /// name does not start with one).
+    /// The leading `yyyy-MM-dd HH.mm` of a folder name made before (nil
+    /// when the name does not start with one).
     public static func datePrefix(of folderName: String) -> String? {
         guard let range = folderName.range(of: #"^\d{4}-\d{2}-\d{2} \d{2}\.\d{2}"#, options: .regularExpression) else {
             return nil
@@ -415,18 +428,62 @@ public enum MeetingNaming {
         return String(folderName[range])
     }
 
-    /// The date of a folder name as people say it: "Today 22:38",
-    /// "Yesterday 09:05", "11 Nov 22:38" (nil when the name has no date).
-    public static func friendlyDate(of folderName: String, now: Date = Date(), calendar: Calendar = .current) -> String? {
-        guard let prefix = datePrefix(of: folderName) else {
+    /// The `recording-yyyy-MM-dd-HH-mm` of a folder name (the last one, so
+    /// a title that itself says "recording-…" does no harm); nil when it
+    /// has none.
+    public static func stem(of folderName: String) -> String? {
+        guard let range = folderName.range(
+            of: #"recording-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}(?!.*recording-\d{4}-\d{2}-\d{2}-\d{2}-\d{2})"#,
+            options: .regularExpression
+        ) else {
             return nil
         }
+        return String(folderName[range])
+    }
+
+    /// The title part of a folder name (nil when it has none), in either
+    /// form.
+    public static func title(of folderName: String) -> String? {
+        if let stem = stem(of: folderName), let range = folderName.range(of: stem, options: .backwards) {
+            let before = folderName[..<range.lowerBound].trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            return before.isEmpty ? nil : before
+        }
+        guard datePrefix(of: folderName) != nil, let range = folderName.range(of: separator) else {
+            return nil
+        }
+        let title = String(folderName[range.upperBound...])
+        return title.isEmpty ? nil : title
+    }
+
+    /// A title as it goes in a folder name: sanitized, the `·` between
+    /// topic and people dropped, and every run of spaces a single `-`.
+    public static func slug(_ title: String) -> String {
+        sanitize(title.replacingOccurrences(of: "·", with: " "))
+            .split(whereSeparator: { $0 == " " || $0 == "-" })
+            .joined(separator: "-")
+    }
+
+    /// When the meeting started, read from its folder name (either form).
+    static func date(of folderName: String, calendar: Calendar) -> Date? {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.calendar = calendar
         parser.timeZone = calendar.timeZone
+        if let stem = stem(of: folderName) {
+            parser.dateFormat = "yyyy-MM-dd-HH-mm"
+            return parser.date(from: String(stem.dropFirst(MeetingFileNames.stemPrefix.count)))
+        }
+        guard let prefix = datePrefix(of: folderName) else {
+            return nil
+        }
         parser.dateFormat = "yyyy-MM-dd HH.mm"
-        guard let date = parser.date(from: prefix) else {
+        return parser.date(from: prefix)
+    }
+
+    /// The date of a folder name as people say it: "Today 22:38",
+    /// "Yesterday 09:05", "11 Nov 22:38" (nil when the name has no date).
+    public static func friendlyDate(of folderName: String, now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let date = date(of: folderName, calendar: calendar) else {
             return nil
         }
         let printer = DateFormatter()
@@ -459,12 +516,19 @@ public enum MeetingNaming {
         return cleaned
     }
 
-    /// `<date time> – <title>`; the date comes from the current name (the
-    /// whole current name when it has no date).
-    public static func folderName(current: String, title: String) -> String {
-        let base = datePrefix(of: current) ?? current
-        let clean = sanitize(title)
-        return clean.isEmpty ? base : base + separator + clean
+    /// `<title>-recording-yyyy-MM-dd-HH-mm`; the date comes from the current
+    /// name in either form (the whole current name when it has no date).
+    public static func folderName(current: String, title: String, calendar: Calendar = .current) -> String {
+        let base: String
+        if let stem = stem(of: current) {
+            base = stem
+        } else if let date = date(of: current, calendar: calendar) {
+            base = MeetingFileNames(start: date, calendar: calendar).stem
+        } else {
+            base = current
+        }
+        let clean = slug(title)
+        return clean.isEmpty ? base : clean + "-" + base
     }
 
     /// The meeting's main transcript: `<stem>.transcript.txt`. Meetings
@@ -499,8 +563,8 @@ public enum MeetingNaming {
             .map { folder.appendingPathComponent($0) }
     }
 
-    /// Renames the folder to `<date time> – <title>` (adding " (2)", … when
-    /// taken). The files keep their names (their stem is the recording's);
+    /// Renames the folder to `<title>-recording-<date>` (adding " (2)", …
+    /// when taken). The files keep their names (their stem is the recording's);
     /// only a meeting recorded before the files carried the stem has its
     /// main transcript renamed to `<new folder name>.txt`.
     public static func rename(folder: URL, title: String) throws -> URL {
