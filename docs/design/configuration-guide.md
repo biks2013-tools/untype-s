@@ -213,6 +213,27 @@ With **Selection** on (key **S**, `--selection-default` / `UNTYPE_SELECTION_DEFA
 - **With Ask.** The selection is put before the request through `014-ask-selection-template.txt` (`{selection}`), e.g. select text and say "make this more formal". In the Material role the answer replaces the selection; in the Context role it goes after it. A press with no speech answers about the selection.
 - The selected text is held in memory for the turn only. The event log records only its length.
 
+## Experimental Operators
+
+Follow-up (F), Selection (S), Screenshot (W) and Window text (X) are experimental. One switch turns the category on or off: **Settings → Operators → Experimental → Experimental operators**, also in the menu-bar dropdown under the Overlay row (**Experimental**).
+
+- **Default:** off.
+- **Off:** the four operators are switched off and do not appear in the overlay, the menu-bar dropdown or the window; their letters do nothing while the hotkey is held.
+- **On:** the four operators appear again, each off until you switch it on.
+- **Where it is stored:** the UI settings state (`experimentalOperators`). There is no command-line flag or environment variable for it.
+- **Not covered:** a spoken command such as “command selection on” can still switch one on for the running session; Push-to-Act keeps its own Follow-up and Screenshot choices.
+
+## Window Text Operator (send the whole text of the app's window)
+
+With **Window text** on (key **X**, `--windowtext-default` / `UNTYPE_WINDOWTEXT_DEFAULT`, setting `windowText` in `ui-state.json`, values `on`/`off`, default **off**), the text of the window of the app you are in goes to the LLM together with what you dictate, including the part scrolled out of view (for example a long email). Refine and translate use it as reference only; Ask can answer about it ("summarise this email"), also with no dictation at all.
+
+- Switch it like any operator: the **X** chip in the overlay, **X** while holding push-to-talk, the menu-bar dropdown, or Settings → Operators (where it can also be set to last one turn).
+- It needs the Accessibility permission (the one focused-input delivery already uses), not Screen Recording. It can be on together with Screenshot.
+- The whole window is read: in a mail app that includes the folder and message lists. Menus, toolbars, button titles and password fields are left out. At most 30 000 characters are sent; a longer window is cut and the event log says so.
+- Apps that report no text through Accessibility give nothing; the turn is then not sent to the LLM and a warning is logged. Use Screenshot there.
+- The wording sent with the text is in the prompt files `018-window-text-context-template.txt` (refine / translate) and `019-ask-window-text-template.txt` (Ask); both need `{app}` and `{text}`. They are created with their defaults at the next launch.
+- The text is sent to the configured LLM provider. Only its length is written to the event log.
+
 ## Screenshot Operator (send the app's window)
 
 With **Screenshot** on (key **W**, `--screenshot-default` / `UNTYPE_SCREENSHOT_DEFAULT`, setting `screenshot` in `ui-state.json`, default **off**), a screenshot of the window of the app you are in goes to the LLM together with what you dictate.

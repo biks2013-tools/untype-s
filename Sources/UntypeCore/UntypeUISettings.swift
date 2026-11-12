@@ -24,6 +24,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Screenshot operator: a screenshot of the active app's window goes with
     /// the request and is copied to the clipboard.
     public var screenshot: Bool
+    /// Window text operator: the text of the active app's window goes with
+    /// the request as reference.
+    public var windowText: Bool
     /// `material` or `context` (see `SelectionRole`).
     public var selectionRole: String
     /// Operators (by `OperatorKey` raw value) that switch off again after
@@ -77,6 +80,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Where the user dragged the overlay (nil: bottom centre of the screen
     /// under the mouse).
     public var overlayPosition: UntypeOverlayPosition? = nil
+    /// Master switch of the experimental operators (`OperatorKey.experimental`).
+    /// Off: they are not offered anywhere and are kept switched off.
+    public var experimentalOperators: Bool = false
 
     public static let `default` = UntypeUISettings(
         provider: "soniox",
@@ -95,6 +101,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         selection: false,
         alternative: false,
         screenshot: false,
+        windowText: false,
         selectionRole: SelectionRole.material.rawValue,
         perTurnOperators: UntypeUISettings.defaultPerTurnOperators,
         translationPolicy: TranslationPolicy.opposite.rawValue,
@@ -185,6 +192,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         next.inputStatus = focusedInput ? "Ready" : "Off"
         next.microphoneStatus = nonEmptyStatus(microphoneStatus, fallback: "unknown")
         next.accessibilityStatus = nonEmptyStatus(accessibilityStatus, fallback: "unknown")
+        if !experimentalOperators {
+            next.followup = false
+            next.selection = false
+            next.screenshot = false
+            next.windowText = false
+        }
         return next
     }
 
@@ -237,6 +250,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         }
         if let screenshot = patch.screenshot {
             next.screenshot = screenshot
+        }
+        if let windowText = patch.windowText {
+            next.windowText = windowText
         }
         if let selectionRole = patch.selectionRole {
             next.selectionRole = selectionRole
@@ -324,6 +340,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let overlayAlwaysVisible = patch.overlayAlwaysVisible {
             next.overlayAlwaysVisible = overlayAlwaysVisible
         }
+        if let experimentalOperators = patch.experimentalOperators {
+            next.experimentalOperators = experimentalOperators
+        }
         return try next.normalized()
     }
 
@@ -345,6 +364,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
             "--selection-default", normalized.selection ? "on" : "off",
             "--alternative-default", normalized.alternative ? "on" : "off",
             "--screenshot-default", normalized.screenshot ? "on" : "off",
+            "--windowtext-default", normalized.windowText ? "on" : "off",
             "--translation-policy", normalized.translationPolicy,
             normalized.llmEnabled ? "--refine" : "--no-refine",
             normalized.llmStreaming ? "--llm-streaming" : "--no-llm-streaming",
@@ -415,6 +435,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var selection: Bool?
     public var alternative: Bool?
     public var screenshot: Bool?
+    public var windowText: Bool?
     public var selectionRole: String?
     public var perTurnOperators: [String]?
     public var translationPolicy: String?
@@ -445,6 +466,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var overlayPosition: UntypeOverlayPosition?
     /// true: forget `overlayPosition` (back to the default place).
     public var resetOverlayPosition: Bool?
+    public var experimentalOperators: Bool?
 
     public init(
         provider: String? = nil,
@@ -463,6 +485,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         selection: Bool? = nil,
         alternative: Bool? = nil,
         screenshot: Bool? = nil,
+        windowText: Bool? = nil,
         selectionRole: String? = nil,
         perTurnOperators: [String]? = nil,
         translationPolicy: String? = nil,
@@ -491,7 +514,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         overlayAlwaysVisible: Bool? = nil,
         pushToAct: PushToActPreferences? = nil,
         overlayPosition: UntypeOverlayPosition? = nil,
-        resetOverlayPosition: Bool? = nil
+        resetOverlayPosition: Bool? = nil,
+        experimentalOperators: Bool? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -509,6 +533,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.selection = selection
         self.alternative = alternative
         self.screenshot = screenshot
+        self.windowText = windowText
         self.selectionRole = selectionRole
         self.perTurnOperators = perTurnOperators
         self.translationPolicy = translationPolicy
@@ -538,6 +563,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.pushToAct = pushToAct
         self.overlayPosition = overlayPosition
         self.resetOverlayPosition = resetOverlayPosition
+        self.experimentalOperators = experimentalOperators
     }
 }
 
@@ -773,6 +799,7 @@ public enum UntypeUISettingsStore {
             selection: operators.selection,
             alternative: operators.alternative,
             screenshot: operators.screenshot,
+            windowText: operators.windowText,
             selectionRole: current.selectionRole,
             perTurnOperators: current.perTurnOperators,
             translationPolicy: protocolConfig.translationPolicy.rawValue,
@@ -807,7 +834,8 @@ public enum UntypeUISettingsStore {
             appearance: current.appearance,
             overlayAlwaysVisible: current.overlayAlwaysVisible,
             pushToAct: current.pushToAct,
-            overlayPosition: current.overlayPosition
+            overlayPosition: current.overlayPosition,
+            experimentalOperators: current.experimentalOperators
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -854,6 +882,7 @@ private struct PersistedUISettings: Codable {
     let selection: Bool?
     let alternative: Bool?
     let screenshot: Bool?
+    let windowText: Bool?
     let selectionRole: String?
     let perTurnOperators: [String]?
     let translationPolicy: String
@@ -882,6 +911,7 @@ private struct PersistedUISettings: Codable {
     let overlayAlwaysVisible: Bool?
     let pushToAct: PushToActPreferences?
     let overlayPosition: UntypeOverlayPosition?
+    let experimentalOperators: Bool?
 
     enum CodingKeys: String, CodingKey {
         case provider
@@ -900,6 +930,7 @@ private struct PersistedUISettings: Codable {
         case selection
         case alternative
         case screenshot
+        case windowText
         case selectionRole
         case perTurnOperators
         case translationPolicy
@@ -928,6 +959,7 @@ private struct PersistedUISettings: Codable {
         case overlayAlwaysVisible
         case pushToAct
         case overlayPosition
+        case experimentalOperators
     }
 
     init(settings: UntypeUISettings) {
@@ -947,6 +979,7 @@ private struct PersistedUISettings: Codable {
         self.selection = settings.selection
         self.alternative = settings.alternative
         self.screenshot = settings.screenshot
+        self.windowText = settings.windowText
         self.selectionRole = settings.selectionRole
         self.perTurnOperators = settings.perTurnOperators
         self.translationPolicy = settings.translationPolicy
@@ -975,6 +1008,7 @@ private struct PersistedUISettings: Codable {
         self.overlayAlwaysVisible = settings.overlayAlwaysVisible
         self.pushToAct = settings.pushToAct
         self.overlayPosition = settings.overlayPosition
+        self.experimentalOperators = settings.experimentalOperators
     }
 
     func toRuntimeSettings(path: String) throws -> UntypeUISettings {
@@ -997,6 +1031,7 @@ private struct PersistedUISettings: Codable {
                 selection: selection ?? defaults.selection,
                 alternative: alternative ?? defaults.alternative,
                 screenshot: screenshot ?? defaults.screenshot,
+                windowText: windowText ?? defaults.windowText,
                 selectionRole: selectionRole ?? defaults.selectionRole,
                 perTurnOperators: perTurnOperators ?? defaults.perTurnOperators,
                 translationPolicy: translationPolicy,
@@ -1024,7 +1059,8 @@ private struct PersistedUISettings: Codable {
                 appearance: appearance ?? defaults.appearance,
                 overlayAlwaysVisible: overlayAlwaysVisible ?? defaults.overlayAlwaysVisible,
                 pushToAct: pushToAct,
-                overlayPosition: overlayPosition
+                overlayPosition: overlayPosition,
+                experimentalOperators: experimentalOperators ?? defaults.experimentalOperators
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")
@@ -1224,6 +1260,12 @@ extension UntypeUISettings {
         SelectionRole(rawValue: selectionRole) ?? .material
     }
 
+    /// Whether the operator is offered to the user: the experimental ones
+    /// only while their master switch is on.
+    public func isAvailable(_ key: OperatorKey) -> Bool {
+        experimentalOperators || !key.isExperimental
+    }
+
     public func value(of key: OperatorKey) -> Bool {
         switch key {
         case .refine: return refine
@@ -1235,6 +1277,7 @@ extension UntypeUISettings {
         case .selection: return selection
         case .alternative: return alternative
         case .screenshot: return screenshot
+        case .windowText: return windowText
         }
     }
 
@@ -1253,7 +1296,8 @@ extension UntypeUISettings {
             followup: reset.contains(.followup) ? false : nil,
             selection: reset.contains(.selection) ? false : nil,
             alternative: reset.contains(.alternative) ? false : nil,
-            screenshot: reset.contains(.screenshot) ? false : nil
+            screenshot: reset.contains(.screenshot) ? false : nil,
+            windowText: reset.contains(.windowText) ? false : nil
         )
     }
 
@@ -1268,6 +1312,7 @@ extension UntypeUISettings {
         case .selection: return UntypeUISettingsPatch(selection: value)
         case .alternative: return UntypeUISettingsPatch(alternative: value)
         case .screenshot: return UntypeUISettingsPatch(screenshot: value)
+        case .windowText: return UntypeUISettingsPatch(windowText: value)
         }
     }
 

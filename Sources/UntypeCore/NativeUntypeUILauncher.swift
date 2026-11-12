@@ -540,6 +540,41 @@ final class UntypeUIModel: ObservableObject {
         })
     }
 
+    /// Window text operator: reads the text of the front window of the app
+    /// in front for this turn (off the main thread; the turn waits for it
+    /// before its LLM call). A failure is logged and the turn is not sent
+    /// to the LLM. Only the length is logged, never the text.
+    private func captureWindowText() {
+        guard settings.windowText else {
+            return
+        }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        guard let app = frontmost, isExternalFocusedInputApplication(app) else {
+            appendEvent("diagnostic.warning: [untype] window text: no app window in front to read")
+            return
+        }
+        let pid = app.processIdentifier
+        let name = app.localizedName ?? "the active app"
+        let modelBox = WeakUntypeUIModelBox(self)
+        turnContext.setWindowTextCapture(Task.detached {
+            let started = Date()
+            do {
+                let captured = try WindowTextCapture.capture(pid: pid, appName: name)
+                let milliseconds = Int(Date().timeIntervalSince(started) * 1000)
+                dispatchToUI { [modelBox] in
+                    modelBox.model?.appendEvent("diagnostic.info: [untype] window text captured (\(name), \(captured.text.count) characters\(captured.truncated ? ", cut at the limit" : ""), \(milliseconds) ms)")
+                }
+                return captured
+            } catch {
+                let message = error.localizedDescription
+                dispatchToUI { [modelBox] in
+                    modelBox.model?.appendEvent("diagnostic.warning: [untype] window text: \(message)")
+                }
+                return nil
+            }
+        })
+    }
+
     /// nil (logged) when the window could not be captured.
     private func captureScreenshot(of app: NSRunningApplication) async -> WindowScreenshot? {
         let name = app.localizedName ?? "the active app"
@@ -620,10 +655,13 @@ final class UntypeUIModel: ObservableObject {
                 }
                 length = next
             }
-            if anchor.selectRegion() {
+            switch await anchor.selectRegion() {
+            case .selected(let method):
                 liveTyper?.discard()
-                appendEvent("diagnostic.info: [untype] the sentence around the cursor is replaced with the refined sentence")
+                appendEvent("diagnostic.info: [untype] the sentence around the cursor is replaced with the refined sentence (selected with \(method))")
                 return .regionSelected
+            case .failed(let reason):
+                appendEvent("diagnostic.info: [untype] sentence not selected: \(reason)")
             }
         }
         if let part = anchor?.span.dictationOnly(from: text) {
@@ -1215,6 +1253,7 @@ final class UntypeUIModel: ObservableObject {
         startLiveTyping()
         captureSelectedText()
         captureWindowScreenshot()
+        captureWindowText()
         clearWarmSessionRecycleTimer()
         let control = hotkeySessionControl ?? HotkeySessionControl()
         control.waveform.configure(sampleRate: settings.sampleRate)
@@ -1258,10 +1297,17 @@ final class UntypeUIModel: ObservableObject {
     }
 
     func toggleOperator(_ key: OperatorKey) {
+        guard settings.isAvailable(key) else {
+            // An experimental operator while they are switched off.
+            return
+        }
         update(UntypeUISettings.operatorPatch(key, !settings.value(of: key)))
         // Switched on mid-turn: capture the window now.
         if key == .screenshot, settings.screenshot, hotkeyPressed, !turnContext.hasScreenshot {
             captureWindowScreenshot()
+        }
+        if key == .windowText, settings.windowText, hotkeyPressed, !turnContext.hasWindowText {
+            captureWindowText()
         }
     }
 
@@ -2455,23 +2501,27 @@ private struct UntypeRootView: View {
             ) {
                 model.toggleOperator(.ask)
             }
-            UntypeOperatorChip(
-                letter: "F",
-                label: "Follow-up",
-                isOn: model.settings.followup,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.followup)
+            if model.settings.experimentalOperators {
+                UntypeOperatorChip(
+                    letter: "F",
+                    label: "Follow-up",
+                    isOn: model.settings.followup,
+                    isRecording: model.isRunning,
+                    showsLabel: showsOperatorLabels
+                ) {
+                    model.toggleOperator(.followup)
+                }
             }
-            UntypeOperatorChip(
-                letter: "S",
-                label: "Selection",
-                isOn: model.settings.selection,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.selection)
+            if model.settings.experimentalOperators {
+                UntypeOperatorChip(
+                    letter: "S",
+                    label: "Selection",
+                    isOn: model.settings.selection,
+                    isRecording: model.isRunning,
+                    showsLabel: showsOperatorLabels
+                ) {
+                    model.toggleOperator(.selection)
+                }
             }
             UntypeOperatorChip(
                 letter: "L",
@@ -2482,14 +2532,27 @@ private struct UntypeRootView: View {
             ) {
                 model.toggleOperator(.alternative)
             }
-            UntypeOperatorChip(
-                letter: "W",
-                label: "Screenshot",
-                isOn: model.settings.screenshot,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.screenshot)
+            if model.settings.experimentalOperators {
+                UntypeOperatorChip(
+                    letter: "W",
+                    label: "Screenshot",
+                    isOn: model.settings.screenshot,
+                    isRecording: model.isRunning,
+                    showsLabel: showsOperatorLabels
+                ) {
+                    model.toggleOperator(.screenshot)
+                }
+            }
+            if model.settings.experimentalOperators {
+                UntypeOperatorChip(
+                    letter: "X",
+                    label: "Window text",
+                    isOn: model.settings.windowText,
+                    isRecording: model.isRunning,
+                    showsLabel: showsOperatorLabels
+                ) {
+                    model.toggleOperator(.windowText)
+                }
             }
             UntypeOperatorChip(
                 letter: "C",
@@ -3306,13 +3369,13 @@ private final class UntypeOverlayController: ObservableObject {
         return samples.map { min(1, max(-1, $0 * displayedGain)) }
     }
 
-    /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/L/W/C/I
+    /// The operators the user can toggle while holding push-to-talk (R/T/A/F/S/L/W/X/C/I
     /// keys, or a click on the chip), shown under the trace.
     fileprivate var operatorSnapshot: [(label: String, name: String, enabled: Bool)] {
         guard let settings = model?.settings else {
             return []
         }
-        return [
+        let all: [(label: String, name: String, enabled: Bool)] = [
             ("R", "Refine", settings.refine),
             ("T", "Translate", settings.translate),
             ("A", "Ask", settings.ask),
@@ -3320,9 +3383,14 @@ private final class UntypeOverlayController: ObservableObject {
             ("S", "Selection", settings.selection),
             ("L", "Alt LLM", settings.alternative),
             ("W", "Screenshot", settings.screenshot),
+            ("X", "Window text", settings.windowText),
             ("C", "Clipboard", settings.clipboard),
             ("I", "Focused input", settings.focusedInput)
         ]
+        // The experimental operators only while they are switched on.
+        return all.filter { item in
+            OperatorKey.hotkeyKey(item.label).map(settings.isAvailable) ?? true
+        }
     }
 
     /// A click on an operator chip: the same as its key while holding
@@ -4217,17 +4285,28 @@ private struct UntypeMiniView: View {
                 UntypeOperatorChip(letter: "A", label: "Ask", isOn: model.settings.ask, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.ask)
                 }
-                UntypeOperatorChip(letter: "F", label: "Follow-up", isOn: model.settings.followup, isRecording: isRecording, isCompact: true) {
-                    model.toggleOperator(.followup)
+                if model.settings.experimentalOperators {
+                    UntypeOperatorChip(letter: "F", label: "Follow-up", isOn: model.settings.followup, isRecording: isRecording, isCompact: true) {
+                        model.toggleOperator(.followup)
+                    }
                 }
-                UntypeOperatorChip(letter: "S", label: "Selection", isOn: model.settings.selection, isRecording: isRecording, isCompact: true) {
-                    model.toggleOperator(.selection)
+                if model.settings.experimentalOperators {
+                    UntypeOperatorChip(letter: "S", label: "Selection", isOn: model.settings.selection, isRecording: isRecording, isCompact: true) {
+                        model.toggleOperator(.selection)
+                    }
                 }
                 UntypeOperatorChip(letter: "L", label: "Alt LLM", isOn: model.settings.alternative, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.alternative)
                 }
-                UntypeOperatorChip(letter: "W", label: "Screenshot", isOn: model.settings.screenshot, isRecording: isRecording, isCompact: true) {
-                    model.toggleOperator(.screenshot)
+                if model.settings.experimentalOperators {
+                    UntypeOperatorChip(letter: "W", label: "Screenshot", isOn: model.settings.screenshot, isRecording: isRecording, isCompact: true) {
+                        model.toggleOperator(.screenshot)
+                    }
+                }
+                if model.settings.experimentalOperators {
+                    UntypeOperatorChip(letter: "X", label: "Window text", isOn: model.settings.windowText, isRecording: isRecording, isCompact: true) {
+                        model.toggleOperator(.windowText)
+                    }
                 }
                 UntypeOperatorChip(letter: "C", label: "Clipboard", isOn: model.settings.clipboard, isRecording: isRecording, isCompact: true) {
                     model.toggleOperator(.clipboard)
@@ -4721,6 +4800,8 @@ private extension OperatorKey {
             return .alternative
         case "W":
             return .screenshot
+        case "X":
+            return .windowText
         default:
             return nil
         }

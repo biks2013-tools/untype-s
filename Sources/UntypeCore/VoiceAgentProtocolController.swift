@@ -71,6 +71,8 @@ public final class VoiceAgentProtocolController {
     private let askConversationTemplate: String
     private let screenshotContextTemplate: String
     private let askScreenshotTemplate: String
+    private let windowTextContextTemplate: String
+    private let askWindowTextTemplate: String
     private let clipboardWriter: TextDelivery
     private let focusedInputWriter: FocusedInputTextDelivery
     private let diagnostics: ProtocolControllerDiagnostics
@@ -104,6 +106,8 @@ public final class VoiceAgentProtocolController {
         askConversationTemplate: String = UntypePromptDefaults.askConversationTemplate,
         screenshotContextTemplate: String = UntypePromptDefaults.screenshotContextTemplate,
         askScreenshotTemplate: String = UntypePromptDefaults.askScreenshotTemplate,
+        windowTextContextTemplate: String = UntypePromptDefaults.windowTextContextTemplate,
+        askWindowTextTemplate: String = UntypePromptDefaults.askWindowTextTemplate,
         clipboardWriter: @escaping TextDelivery = { _ in },
         inputWriter: @escaping TextDelivery = { _ in },
         focusedInputWriter: FocusedInputTextDelivery? = nil,
@@ -131,6 +135,8 @@ public final class VoiceAgentProtocolController {
         self.askConversationTemplate = askConversationTemplate
         self.screenshotContextTemplate = screenshotContextTemplate
         self.askScreenshotTemplate = askScreenshotTemplate
+        self.windowTextContextTemplate = windowTextContextTemplate
+        self.askWindowTextTemplate = askWindowTextTemplate
         self.clipboardWriter = clipboardWriter
         if let focusedInputWriter {
             self.focusedInputWriter = focusedInputWriter
@@ -241,7 +247,9 @@ public final class VoiceAgentProtocolController {
                 || (turnContext?.selectionRole == .material
                     && (operators.contains(.refine) || operators.contains(.translate))))
         let asksAboutScreenshot = hasScreenshot && operators.contains(.ask)
-        guard processesSelection || asksAboutScreenshot else {
+        let asksAboutWindowText = operators.contains(.windowText) && operators.contains(.ask)
+            && turnContext?.hasWindowText == true
+        guard processesSelection || asksAboutScreenshot || asksAboutWindowText else {
             return nil
         }
         return try await handleAction(.sectionSubmitted(
@@ -370,8 +378,19 @@ public final class VoiceAgentProtocolController {
         let screenshotReference = screenshot.map {
             screenshotContextTemplate.replacingOccurrences(of: "{app}", with: $0.appName)
         }
+        // Window text: the text of the app's window is a reference block
+        // of every LLM call of the section. Operator on but nothing
+        // captured: no LLM call (the capture already warned why).
+        let wantsWindowText = operators.contains(.windowText)
+        let windowText = wantsWindowText ? await turnContext?.windowText() : nil
+        let renderWindowText: (String, WindowText) -> String = { template, captured in
+            template
+                .replacingOccurrences(of: "{app}", with: captured.appName)
+                .replacingOccurrences(of: "{text}", with: captured.text)
+        }
+        let windowTextReference = windowText.map { renderWindowText(windowTextContextTemplate, $0) }
         let withReference: (String) -> String = { input in
-            [input, selectionReference, screenshotReference]
+            [input, selectionReference, windowTextReference, screenshotReference]
                 .compactMap { $0 }
                 .joined(separator: "\n\n")
         }
@@ -387,17 +406,21 @@ public final class VoiceAgentProtocolController {
         let llmOperatorsOn = operators.contains(.ask) || operators.contains(.refine) || operators.contains(.translate)
         let alternativeMissing = useAlternative && alternativeLLM == nil
         let screenshotMissing = wantsScreenshot && screenshot == nil
+        let windowTextMissing = wantsWindowText && windowText == nil
         if alternativeMissing, llmOperatorsOn {
             warn("Alternative LLM operator is enabled, but no alternative LLM is configured (Settings → Language Models → Alternative, or UNTYPE_ALT_LLM_PROVIDER and UNTYPE_ALT_LLM_MODEL). The text was not processed by an LLM.")
         } else if screenshotMissing, llmOperatorsOn {
             warn("Screenshot operator is enabled, but no screenshot of the app's window was captured. The text was not processed by an LLM.")
         }
-        let skipLLM = alternativeMissing || screenshotMissing
+        if windowTextMissing, llmOperatorsOn, !alternativeMissing, !screenshotMissing {
+            warn("Window text operator is enabled, but the text of the app's window was not captured. The text was not processed by an LLM.")
+        }
+        let skipLLM = alternativeMissing || screenshotMissing || windowTextMissing
         let warnMissingLLM: (String) -> Void = skipLLM ? { _ in } : { [weak self] message in self?.warn(message) }
-        let refiner = screenshotMissing ? nil : useAlternative ? alternativeLLM?.refiner : self.refiner
-        let translator = screenshotMissing ? nil : useAlternative ? alternativeLLM?.translator : self.translator
-        let compositeRefineTranslator = screenshotMissing ? nil : useAlternative ? alternativeLLM?.compositeRefineTranslator : self.compositeRefineTranslator
-        let asker = screenshotMissing ? nil : useAlternative ? alternativeLLM?.asker : self.asker
+        let refiner = screenshotMissing || windowTextMissing ? nil : useAlternative ? alternativeLLM?.refiner : self.refiner
+        let translator = screenshotMissing || windowTextMissing ? nil : useAlternative ? alternativeLLM?.translator : self.translator
+        let compositeRefineTranslator = screenshotMissing || windowTextMissing ? nil : useAlternative ? alternativeLLM?.compositeRefineTranslator : self.compositeRefineTranslator
+        let asker = screenshotMissing || windowTextMissing ? nil : useAlternative ? alternativeLLM?.asker : self.asker
         // Ask: the section is a request to the model and its answer becomes
         // the output. Refine is moot (the model reads the raw dictation);
         // translate only chooses the answer's language.
@@ -416,7 +439,9 @@ public final class VoiceAgentProtocolController {
                 let request = rawText.isEmpty
                     ? (selection != nil
                         ? "(no spoken request: respond to the selected text)"
-                        : "(no spoken request: respond to what the screenshot shows)")
+                        : screenshot != nil
+                            ? "(no spoken request: respond to what the screenshot shows)"
+                            : "(no spoken request: respond to the text of the window)")
                     : rawText
                 var prompt = askUserPromptTemplate.replacingOccurrences(of: "{text}", with: request)
                 if operators.contains(.translate) {
@@ -439,6 +464,9 @@ public final class VoiceAgentProtocolController {
                 }
                 if let selection {
                     preamble.append(askSelectionTemplate.replacingOccurrences(of: "{selection}", with: selection))
+                }
+                if let windowText {
+                    preamble.append(renderWindowText(askWindowTextTemplate, windowText))
                 }
                 if let screenshot {
                     preamble.append(askScreenshotTemplate.replacingOccurrences(of: "{app}", with: screenshot.appName))
@@ -704,6 +732,7 @@ private func formatStatusSummary(_ report: ProtocolStatusReport) -> String {
         "selection=\(report.operators.selection ? "on" : "off")",
         "alternative=\(report.operators.alternative ? "on" : "off")",
         "screenshot=\(report.operators.screenshot ? "on" : "off")",
+        "windowtext=\(report.operators.windowText ? "on" : "off")",
         "translation_policy=\(report.translationPolicy.rawValue)",
         "pending_section=\(report.pendingSection ? "yes" : "no")"
     ].joined(separator: ", ")

@@ -32,14 +32,18 @@ public final class UntypeTurnContext: @unchecked Sendable {
     private var storedRole: SelectionRole = .material
     private var storedScreenshot: WindowScreenshot?
     private var pendingScreenshot: Task<WindowScreenshot?, Never>?
+    private var storedWindowText: WindowText?
+    private var pendingWindowText: Task<WindowText?, Never>?
     private var storedSentence: SentenceSpan?
     private var storedSentenceDictation: String?
 
     public init(
         selectedText: String? = nil,
         selectionRole: SelectionRole = .material,
-        screenshot: WindowScreenshot? = nil
+        screenshot: WindowScreenshot? = nil,
+        windowText: WindowText? = nil
     ) {
+        storedWindowText = windowText
         storedSelection = selectedText
         storedRole = selectionRole
         storedScreenshot = screenshot
@@ -67,6 +71,28 @@ public final class UntypeTurnContext: @unchecked Sendable {
         }
     }
 
+    /// The window's text, waiting for a capture still in progress.
+    public func windowText() async -> WindowText? {
+        let (stored, pending) = lock.withLock { (storedWindowText, pendingWindowText) }
+        if let stored {
+            return stored
+        }
+        return await pending?.value
+    }
+
+    /// Whether the window's text was captured or is being captured.
+    public var hasWindowText: Bool {
+        lock.withLock { storedWindowText != nil || pendingWindowText != nil }
+    }
+
+    /// A capture in progress; its result becomes the window's text.
+    public func setWindowTextCapture(_ capture: Task<WindowText?, Never>) {
+        lock.withLock {
+            storedWindowText = nil
+            pendingWindowText = capture
+        }
+    }
+
     public var selectedText: String? {
         lock.withLock { storedSelection }
     }
@@ -81,6 +107,8 @@ public final class UntypeTurnContext: @unchecked Sendable {
             storedRole = selectionRole
             storedScreenshot = nil
             pendingScreenshot = nil
+            storedWindowText = nil
+            pendingWindowText = nil
             storedSentence = nil
             storedSentenceDictation = nil
         }

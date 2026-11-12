@@ -110,7 +110,10 @@ public func applyPersistedProtocolSettings(
             : protocolConfig.initialOperators.alternative,
         screenshot: protocolConfig.settingSources.screenshot == .default
             ? persisted.operators.screenshot
-            : protocolConfig.initialOperators.screenshot
+            : protocolConfig.initialOperators.screenshot,
+        windowText: protocolConfig.settingSources.windowText == .default
+            ? persisted.operators.windowText
+            : protocolConfig.initialOperators.windowText
     )
 
     let translationPolicy = protocolConfig.settingSources.translationPolicy == .default

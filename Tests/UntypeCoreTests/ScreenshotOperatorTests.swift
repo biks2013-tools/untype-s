@@ -140,7 +140,9 @@ private func warnings(_ output: MemoryOutput) throws -> [String] {
     )
     #expect(!legacy.screenshot)
 
-    let settings = try UntypeUISettings.default.merged(UntypeUISettings.operatorPatch(.screenshot, true))
+    let settings = try UntypeUISettings.default
+        .merged(UntypeUISettingsPatch(experimentalOperators: true))
+        .merged(UntypeUISettings.operatorPatch(.screenshot, true))
     #expect(settings.screenshot)
     #expect(try settings.sessionArguments().contains("--screenshot-default"))
 }
