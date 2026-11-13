@@ -1403,7 +1403,7 @@ private func iso8601Now() -> String {
     ISO8601DateFormatter().string(from: Date())
 }
 
-/// Meeting recording settings (Settings → General → Meeting recording).
+/// Meeting recording settings (Settings → Meetings).
 public struct MeetingPreferences: Codable, Equatable, Sendable {
     public static let defaultSilenceMinutes = 3
 

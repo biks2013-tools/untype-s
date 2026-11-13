@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P2 - Settings reorganized: on-device check pending (2026-11-13)
+Plan-063 / FR-69, not released. Checked with `swift build`, 401/401 tests and off-screen renders of five panes. To check in the installed app: the Meetings pane (every control still changes its setting, the transcription window button), the Operators order, the Screen & System Audio Recording rows, and that the main window's hotkey "Change…" opens Push-to-Talk.
+
 ### P1 - Transcription window: on-device check pending (2026-11-12)
 Plan-062 / FR-68, released in build 62. Unit-tested (feed, channel filter, words in progress) and rendered once off screen; not used during a recording. To check: (1) dropdown → Transcription window opens it; (2) during a recording, sentences appear grey while spoken and turn into rows; (3) Both / Microphone / System filter the rows; (4) Follow on keeps the newest text in view; Follow off and scrolled back, the view does not move while rows are added; switching Follow on jumps to the end; (5) the transcript stays after Stop and clears at the next recording. Added after build 61: Clear button (empties the window only; check that the files still hold everything and that later text appears). Added after build 60: Copy button (copies the chosen side), captions icon in the overlay tray that opens the window, ⇄ (opposite language) in the tray's Translate row. To check: Copy with each of Both / Microphone / System and paste; the tray row still fits with ⇄ EN EL, Record, the captions icon and the gear (not rendered; estimated 9 points to spare in the 274-point overlay); the icon opens the window; ⇄ switches the translation to the opposite language. Open points: scrolling by hand does not switch Follow off; the window does not open by itself; no search or export.
 

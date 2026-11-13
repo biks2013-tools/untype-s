@@ -173,13 +173,14 @@ The Settings window (⌘, from the menu-bar dropdown or the main window) is orga
 | **General** | Theme; dictation overlay (Keep overlay visible, position reset); current session status. |
 | **Push-to-Talk** | Enable, hotkey, hold-to-talk or press-to-start/stop, Quick Close, listener status and a test button. |
 | **Push-to-Act** | Enable and hotkey. |
+| **Meetings** | Transcript language and a button for the transcription window; saved audio (which sides, separate or mixed); the folder; stop after silence; Outlook calendar; the Screen & System Audio Recording permission. |
 | **Speech** | Speech-recognition provider, model, languages, sample rate, endpoint detection; protocol mode and voice commands. |
-| **Operators** | Each operator with its key, state and how long a change lasts; "Selected text is"; translate direction. |
+| **Operators** | Processing and Delivery operators, each with its key, state and how long a change lasts; translation direction; the Experimental switch with its four operators and "Selected text is". |
 | **Language Models** | Primary, Alternative and Alternative 2 (Push-to-Act) provider and model. |
 | **Prompts** | The editable prompt files. |
-| **Permissions & Keys** | macOS permission status and setup guide; API key status and **Edit Keys…**. |
+| **Permissions & Keys** | macOS permission status (Microphone, Accessibility, Input Monitoring, Screen & System Audio Recording) and setup guide; API key status and **Edit Keys…**. |
 
-Settings that shape the session are locked while a session is active; the pane header says so.
+Settings that shape the session are locked while a session is active; the header of the panes that have such settings says so. Each pane shows a one-line summary under its title.
 
 ## Where the Text Goes and the Processing Line
 
@@ -205,7 +206,7 @@ The version and build of the running app are shown at the bottom of the menu-bar
 
 ## Meeting Recording
 
-Records both sides of a call (your microphone and the sound of every other app, such as Teams or Zoom) into a transcript. Start and stop it from the overlay's tray (⏺ / ⏹) or the menu-bar dropdown (**Meeting → Record meeting**). It uses the same Soniox key and model as dictation (`SONIOX_API_KEY`, the speech provider must be Soniox) and the primary LLM for the English transcript; there are no extra keys and no environment variables. The settings are in Settings → General → Meeting recording and are stored as `meeting` in `~/.tool-agents/untype/ui-state.json`:
+Records both sides of a call (your microphone and the sound of every other app, such as Teams or Zoom) into a transcript. Start and stop it from the overlay's tray (⏺ / ⏹) or the menu-bar dropdown (**Meeting → Record meeting**). It uses the same Soniox key and model as dictation (`SONIOX_API_KEY`, the speech provider must be Soniox) and the primary LLM for the English transcript; there are no extra keys and no environment variables. The settings are in Settings → Meetings and are stored as `meeting` in `~/.tool-agents/untype/ui-state.json`:
 
 | Setting | Key | Default | Options |
 |---|---|---|---|
