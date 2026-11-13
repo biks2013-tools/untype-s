@@ -53,6 +53,7 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
     case general
     case pushToTalk = "push-to-talk"
     case pushToAct = "push-to-act"
+    case meetings
     case speech
     case operators
     case models
@@ -66,6 +67,7 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
         case .general: return "General"
         case .pushToTalk: return "Push-to-Talk"
         case .pushToAct: return "Push-to-Act"
+        case .meetings: return "Meetings"
         case .speech: return "Speech"
         case .operators: return "Operators"
         case .models: return "Language Models"
@@ -79,6 +81,7 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
         case .general: return "gearshape.fill"
         case .pushToTalk: return "mic.fill"
         case .pushToAct: return "wand.and.stars"
+        case .meetings: return "person.2.wave.2.fill"
         case .speech: return "waveform"
         case .operators: return "switch.2"
         case .models: return "brain"
@@ -92,6 +95,7 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
         case .general: return .gray
         case .pushToTalk: return .red
         case .pushToAct: return .purple
+        case .meetings: return .pink
         case .speech: return .blue
         case .operators: return .orange
         case .models: return .indigo
@@ -100,10 +104,34 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Sidebar groups, System Settings style.
+    /// What the pane is for, shown under its title.
+    var summary: String {
+        switch self {
+        case .general: return "Appearance, the dictation overlay and the state of the session"
+        case .pushToTalk: return "The hotkey you hold or tap to dictate"
+        case .pushToAct: return "The hotkey that works on the text you selected"
+        case .meetings: return "Recording both sides of a call: transcript, audio, files and calendar"
+        case .speech: return "The speech recogniser and how what you say is understood"
+        case .operators: return "What happens to the dictated text and where it goes"
+        case .models: return "The models behind Refine, Translate and Ask"
+        case .prompts: return "The instructions the language model gets"
+        case .permissions: return "What macOS lets untype do, and the provider keys"
+        }
+    }
+
+    /// Panes with settings that cannot change while a session is active.
+    var locksWhileSessionActive: Bool {
+        switch self {
+        case .pushToTalk, .pushToAct, .speech, .operators, .models: return true
+        case .general, .meetings, .prompts, .permissions: return false
+        }
+    }
+
+    /// Sidebar groups, System Settings style: the app, the ways of using
+    /// it, how the text is made, access.
     static let groups: [[UntypeSettingsPane]] = [
         [.general],
-        [.pushToTalk, .pushToAct],
+        [.pushToTalk, .pushToAct, .meetings],
         [.speech, .operators, .models, .prompts],
         [.permissions]
     ]
@@ -196,13 +224,22 @@ struct UntypeSettingsView: View {
     private var detail: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(pane.title)
-                    .font(.system(size: 15, weight: .semibold))
-                Spacer()
-                if pane != .prompts, pane != .permissions, pane != .general, !model.canReshapeSession {
-                    Label("Some settings are locked while a session is active", systemImage: "lock.fill")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(pane.title)
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(pane.summary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer(minLength: 8)
+                if pane.locksWhileSessionActive, !model.canReshapeSession {
+                    Label("Locked while a session is active", systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                        .help("Some settings of this pane cannot change while a session is active")
                 }
             }
             .padding(.horizontal, 20)
@@ -242,6 +279,7 @@ struct UntypeSettingsView: View {
         case .general: generalPane
         case .pushToTalk: pushToTalkPane
         case .pushToAct: pushToActPane
+        case .meetings: meetingsPane
         case .speech: speechPane
         case .operators: operatorsPane
         case .models: modelsPane
@@ -303,90 +341,6 @@ struct UntypeSettingsView: View {
             caption("The overlay shows the waveform and the operator chips. Kept visible, the chips can be clicked at any time. Hover it for the tray: drag the tray to move the overlay; double-click it to reset.")
         }
 
-        Section {
-            Picker("Transcript language", selection: Binding(
-                get: { model.settings.meeting.language },
-                set: { value in
-                    var meeting = model.settings.meeting
-                    meeting.language = value
-                    model.setMeetingPreferences(meeting)
-                }
-            )) {
-                ForEach(MeetingTranscriptLanguage.allCases, id: \.rawValue) { language in
-                    Text(language.title).tag(language.rawValue)
-                }
-            }
-            Stepper(value: Binding(
-                get: { model.settings.meeting.silenceMinutes },
-                set: { value in
-                    var meeting = model.settings.meeting
-                    meeting.silenceMinutes = value
-                    model.setMeetingPreferences(meeting)
-                }
-            ), in: 0...60) {
-                LabeledContent("Auto-stop after silence") {
-                    Text(model.settings.meeting.silenceMinutes == 0 ? "Off" : "\(model.settings.meeting.silenceMinutes) min")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Picker("Save audio", selection: Binding(
-                get: { model.settings.meeting.audioSources ?? MeetingAudioSources.both.rawValue },
-                set: { value in
-                    var meeting = model.settings.meeting
-                    meeting.audioSources = value
-                    model.setMeetingPreferences(meeting)
-                }
-            )) {
-                ForEach(MeetingAudioSources.allCases, id: \.rawValue) { sources in
-                    Text(sources.title).tag(sources.rawValue)
-                }
-            }
-            if (model.settings.meeting.audioSources ?? MeetingAudioSources.both.rawValue) == MeetingAudioSources.both.rawValue {
-                Picker("Audio files", selection: Binding(
-                    get: { model.settings.meeting.audioLayout ?? MeetingAudioLayout.separate.rawValue },
-                    set: { value in
-                        var meeting = model.settings.meeting
-                        meeting.audioLayout = value
-                        model.setMeetingPreferences(meeting)
-                    }
-                )) {
-                    ForEach(MeetingAudioLayout.allCases, id: \.rawValue) { layout in
-                        Text(layout.title).tag(layout.rawValue)
-                    }
-                }
-            }
-            LabeledContent("Folder") {
-                HStack(spacing: 8) {
-                    Text(model.settings.meeting.folderURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Button("Choose…") {
-                        chooseMeetingFolder()
-                    }
-                    Button("Open") {
-                        model.openMeetingsFolder()
-                    }
-                }
-            }
-            Toggle("Use my Outlook calendar", isOn: Binding(
-                get: { model.settings.meeting.calendarCLIURL != nil },
-                set: { model.setCalendarEnabled($0) }
-            ))
-            if !model.calendarStatus.isEmpty {
-                LabeledContent("Calendar") {
-                    Text(model.calendarStatus)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                }
-            }
-        } header: {
-            Text("Meeting recording")
-        } footer: {
-            caption("Hover the overlay and click ⏺ to record both sides of a call (your microphone and the call's sound). Each meeting gets a folder whose files start with recording-<date>-<time>, named as the ntakker recorder names them: .transcript.txt (the transcript), .transcript.original.txt (as spoken), .microphone.transcript.jsonl and .system.transcript.jsonl, and the audio as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). The transcript always covers both sides. Needs Screen & System Audio Recording permission; headphones avoid the call being heard twice. With the Outlook calendar on (read through the nbg-m365 CLI), the overlay says when a Teams meeting you accepted starts, with a Record button, and a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
-        }
-
         Section("Current session") {
             LabeledContent("State") {
                 status(model.sessionState, tone: UntypeStatusToneMap.session(isRunning: model.isRunning, isHotkeyPressed: model.hotkeyPressed))
@@ -402,6 +356,145 @@ struct UntypeSettingsView: View {
                 mono(model.settings.protocolMode)
             }
         }
+    }
+
+    // MARK: Meetings
+
+    private func meetingBinding<T>(_ keyPath: WritableKeyPath<MeetingPreferences, T>) -> Binding<T> {
+        Binding(
+            get: { model.settings.meeting[keyPath: keyPath] },
+            set: { value in
+                var meeting = model.settings.meeting
+                meeting[keyPath: keyPath] = value
+                model.setMeetingPreferences(meeting)
+            }
+        )
+    }
+
+    private var meetingAudioSources: String {
+        model.settings.meeting.audioSources ?? MeetingAudioSources.both.rawValue
+    }
+
+    @ViewBuilder
+    private var meetingsPane: some View {
+        Section {
+            Picker("Language", selection: meetingBinding(\.language)) {
+                ForEach(MeetingTranscriptLanguage.allCases, id: \.rawValue) { language in
+                    Text(language.title).tag(language.rawValue)
+                }
+            }
+            LabeledContent("Transcription window") {
+                Button("Open") {
+                    model.showTranscriptionWindow?()
+                }
+            }
+        } header: {
+            Text("Transcript")
+        } footer: {
+            caption("Hover the overlay and click ⏺ to record both sides of a call: your microphone and the call's sound. The transcript always covers both sides; the transcription window shows it live.")
+        }
+
+        Section {
+            Picker("Save audio", selection: Binding(
+                get: { meetingAudioSources },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.audioSources = value
+                    model.setMeetingPreferences(meeting)
+                }
+            )) {
+                ForEach(MeetingAudioSources.allCases, id: \.rawValue) { sources in
+                    Text(sources.title).tag(sources.rawValue)
+                }
+            }
+            if meetingAudioSources == MeetingAudioSources.both.rawValue {
+                Picker("Audio files", selection: Binding(
+                    get: { model.settings.meeting.audioLayout ?? MeetingAudioLayout.separate.rawValue },
+                    set: { value in
+                        var meeting = model.settings.meeting
+                        meeting.audioLayout = value
+                        model.setMeetingPreferences(meeting)
+                    }
+                )) {
+                    ForEach(MeetingAudioLayout.allCases, id: \.rawValue) { layout in
+                        Text(layout.title).tag(layout.rawValue)
+                    }
+                }
+            }
+        } header: {
+            Text("Audio")
+        } footer: {
+            caption("Saved next to the transcript as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). Headphones avoid the call being heard twice.")
+        }
+
+        Section {
+            LabeledContent("Folder") {
+                HStack(spacing: 8) {
+                    Text(model.settings.meeting.folderURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose…") {
+                        chooseMeetingFolder()
+                    }
+                    Button("Open") {
+                        model.openMeetingsFolder()
+                    }
+                }
+            }
+        } header: {
+            Text("Files")
+        } footer: {
+            caption("Each meeting gets its own folder, recording-<date>-<time>, with the meeting's name in front once it has one. Its files are named as the ntakker recorder names them and are written while the meeting runs.")
+        }
+
+        Section {
+            LabeledContent("Stop after silence") {
+                HStack(spacing: 8) {
+                    Text(model.settings.meeting.silenceMinutes == 0 ? "Off" : "\(model.settings.meeting.silenceMinutes) min")
+                        .foregroundStyle(.secondary)
+                    Stepper("Stop after silence", value: meetingBinding(\.silenceMinutes), in: 0...60)
+                        .labelsHidden()
+                }
+            }
+        } header: {
+            Text("Ending")
+        } footer: {
+            caption("The recording stops by itself when neither side has spoken for this long. Off: it runs until you stop it.")
+        }
+
+        Section {
+            Toggle("Use my Outlook calendar", isOn: Binding(
+                get: { model.settings.meeting.calendarCLIURL != nil },
+                set: { model.setCalendarEnabled($0) }
+            ))
+            if !model.calendarStatus.isEmpty {
+                LabeledContent("Status") {
+                    Text(model.calendarStatus)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+            }
+        } header: {
+            Text("Calendar")
+        } footer: {
+            caption("Read through the nbg-m365 CLI. The overlay says when a Teams meeting you accepted starts, with a Record button; a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
+        }
+
+        Section("Permission") {
+            permissionRow(
+                "Screen & System Audio Recording",
+                value: screenRecordingGranted ? "Granted" : "Not granted",
+                tone: screenRecordingGranted ? .ok : .warn,
+                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            )
+        }
+    }
+
+    /// Needed to hear the call's sound (and for the Screenshot operator).
+    private var screenRecordingGranted: Bool {
+        CGPreflightScreenCaptureAccess()
     }
 
     // MARK: Push-to-Talk
@@ -478,8 +571,13 @@ struct UntypeSettingsView: View {
             }
             TextField("Model", text: binding(\.model))
             TextField("Languages", text: languagesBinding, prompt: Text("el, en"))
-            Stepper(value: sampleRateBinding, in: 8_000...48_000, step: 1_000) {
-                LabeledContent("Sample rate", value: "\(model.settings.sampleRate) Hz")
+            LabeledContent("Sample rate") {
+                HStack(spacing: 8) {
+                    Text(verbatim: "\(model.settings.sampleRate) Hz")
+                        .foregroundStyle(.secondary)
+                    Stepper("Sample rate", value: sampleRateBinding, in: 8_000...48_000, step: 1_000)
+                        .labelsHidden()
+                }
             }
             Toggle("Endpoint detection", isOn: binding(\.endpointDetection))
         }
@@ -518,6 +616,21 @@ struct UntypeSettingsView: View {
         }
         .disabled(operatorControlsDisabled)
 
+        Section("Delivery") {
+            operatorRow("Clipboard", "Copy the result to the clipboard", key: "C", .clipboard)
+            operatorRow("Focused input", "Type the result where the cursor is", key: "I", .input)
+        }
+        .disabled(operatorControlsDisabled)
+
+        Section("Translation") {
+            Picker("Direction", selection: binding(\.translationPolicy)) {
+                Text("Opposite").tag("opposite")
+                Text("To English").tag("to-en")
+                Text("To Greek").tag("to-el")
+            }
+            .disabled(sessionShapingDisabled)
+        }
+
         Section {
             Toggle("Experimental operators", isOn: binding(\.experimentalOperators))
             if model.settings.experimentalOperators {
@@ -525,6 +638,10 @@ struct UntypeSettingsView: View {
                 operatorRow("Selection", "Include the text selected in the active app", key: "S", .selection)
                 operatorRow("Screenshot", "Send the app's window; also copied to the clipboard", key: "W", .screenshot)
                 operatorRow("Window text", "Send the text of the app's window, also what is scrolled out of view", key: "X", .windowText)
+                Picker("Selected text is", selection: binding(\.selectionRole)) {
+                    Text("Material — processed and replaced").tag(SelectionRole.material.rawValue)
+                    Text("Context — reference only").tag(SelectionRole.context.rawValue)
+                }
             }
         } header: {
             Text("Experimental")
@@ -534,26 +651,6 @@ struct UntypeSettingsView: View {
                 : "Off: Follow-up (F), Selection (S), Screenshot (W) and Window text (X) are switched off and not shown in the overlay, the menu or the hotkey letters.")
         }
         .disabled(operatorControlsDisabled)
-
-        Section("Delivery") {
-            operatorRow("Clipboard", "Copy the result to the clipboard", key: "C", .clipboard)
-            operatorRow("Focused input", "Type the result where the cursor is", key: "I", .input)
-        }
-        .disabled(operatorControlsDisabled)
-
-        Section("Options") {
-            Picker("Selected text is", selection: binding(\.selectionRole)) {
-                Text("Material — processed and replaced").tag(SelectionRole.material.rawValue)
-                Text("Context — reference only").tag(SelectionRole.context.rawValue)
-            }
-            .disabled(operatorControlsDisabled)
-            Picker("Translate direction", selection: binding(\.translationPolicy)) {
-                Text("Opposite").tag("opposite")
-                Text("To English").tag("to-en")
-                Text("To Greek").tag("to-el")
-            }
-            .disabled(sessionShapingDisabled)
-        }
     }
 
     /// An operator: its key, what it does, how long a change lasts, and its
@@ -659,6 +756,12 @@ struct UntypeSettingsView: View {
                 value: model.settings.inputStatus,
                 tone: model.settings.focusedInput ? .accent : .off,
                 deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            )
+            permissionRow(
+                "Screen & System Audio Recording",
+                value: screenRecordingGranted ? "Granted" : "Not granted (meetings, Screenshot)",
+                tone: screenRecordingGranted ? .ok : .off,
+                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
             )
             LabeledContent("Step-by-step guide") {
                 Button("Open Permission Setup…") {

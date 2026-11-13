@@ -902,7 +902,7 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
-    /// Settings → General → Meeting recording. Nothing else is
+    /// Settings → Meetings. Nothing else is
     /// reconfigured; the next meeting uses the new values.
     func setMeetingPreferences(_ meeting: MeetingPreferences) {
         do {
@@ -5428,7 +5428,7 @@ struct UntypeOnboardingView: View {
                                 .padding(.trailing, 4)
                         }
                         Button("Change…") {
-                            model.showSettingsWindow?("general")
+                            model.showSettingsWindow?("push-to-talk")
                         }
                         .buttonStyle(.borderless)
                     }
