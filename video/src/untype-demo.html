@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>untype demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The untype demo video as a pure function of time: render(t) draws the whole
+  frame from the timeline (src/timeline.js), so any moment can be shown, and
+  the renderer steps through it frame by frame (window.__seek).
+
+  URL parameters: lang=en|el (what is dictated on screen), timing=<profile>
+  (beat durations: neutral, el, en), t=<seconds> (start paused there), debug=1.
+
+  Real pixels: assets/real/* are captures of untype itself (the overlay at
+  rest, the transcription window's bars, the Meetings settings pane, the app
+  icon). Everything else re-draws untype's overlay from its source
+  (UntypeOverlayView) and generic macOS windows around it.
+-->
+<style>
+  :root {
+    --amber: #F5A342;          /* UntypeDesignTokens.accentAmber */
+    --amber-chip: #E6AD5C;     /* the chip as captured on a light desktop */
+    --trace: #3B70E6;          /* UntypeOverlayView.traceColor */
+    --meeting: #EB423D;        /* UntypeOverlayView.meetingColor */
+    --blue: #3478F6;           /* macOS accent, as in the captured window */
+    --ink: #1d1d1f;
+    --sf: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; }
+  #stage {
+    position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+    transform-origin: 0 0; overflow: hidden; font-family: var(--sf); color: var(--ink);
+    background:
+      radial-gradient(1200px 700px at 78% 8%, #f6e3c8 0%, rgba(246,227,200,0) 60%),
+      radial-gradient(1100px 800px at 8% 100%, #c9d6ea 0%, rgba(201,214,234,0) 62%),
+      linear-gradient(160deg, #ece7df 0%, #dfe3ea 100%);
+  }
+  .abs { position: absolute; }
+  .layer { position: absolute; inset: 0; }
+
+  /* Menu bar */
+  #menubar { left: 0; top: 0; width: 1920px; height: 38px; background: rgba(255,255,255,.55);
+    backdrop-filter: blur(20px); display: flex; align-items: center; padding: 0 22px; gap: 26px;
+    font-size: 17px; font-weight: 500; color: #222; }
+  #menubar .app { font-weight: 700; }
+  #menubar .right { margin-left: auto; display: flex; align-items: center; gap: 22px; }
+  #mbicon { display: flex; align-items: center; gap: 2.5px; height: 20px; padding: 3px 7px; border-radius: 6px; }
+  #mbicon i { width: 2.6px; border-radius: 2px; background: #222; display: block; }
+
+  /* Windows */
+  .win { position: absolute; background: #fff; border-radius: 16px; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.10), 0 30px 70px rgba(30,30,60,.22), 0 6px 18px rgba(30,30,60,.10); }
+  .titlebar { height: 50px; display: flex; align-items: center; padding: 0 18px; gap: 9px;
+    background: #f4f3f1; border-bottom: 1px solid rgba(0,0,0,.08); position: relative; }
+  .titlebar .dot { width: 14px; height: 14px; border-radius: 50%; }
+  .titlebar .t { position: absolute; left: 0; right: 0; text-align: center; font-size: 16px; font-weight: 600; color: #4a4a4c; }
+  .d1 { background: #ff5f57; } .d2 { background: #febc2e; } .d3 { background: #28c840; }
+
+  /* Editor */
+  #editor { left: 340px; top: 112px; width: 1240px; height: 610px; }
+  #doc { padding: 54px 70px; font-size: 35px; line-height: 1.6; white-space: pre-wrap; letter-spacing: -.005em; }
+  .caret { display: inline-block; width: 0; height: 1.12em; vertical-align: -0.2em; border-left: 3px solid var(--blue); margin: 0 -1.5px; }
+  .sel { background: #b9d4ff; border-radius: 3px; }
+  .mk { display: inline-block; width: 0; height: 1em; }
+
+  /* Chat */
+  #chat { left: 440px; top: 112px; width: 1040px; height: 610px; display: flex; flex-direction: column; }
+  #thread { flex: 1; padding: 34px 40px; display: flex; flex-direction: column; gap: 16px; justify-content: flex-end; }
+  .bub { max-width: 70%; padding: 15px 22px; border-radius: 24px; font-size: 29px; line-height: 1.35; }
+  .bub.in { background: #e9e9eb; align-self: flex-start; }
+  .bub.out { background: var(--blue); color: #fff; align-self: flex-end; }
+  #composer { margin: 0 34px 30px; min-height: 66px; border: 1.5px solid #d0d0d4; border-radius: 33px; padding: 13px 26px;
+    font-size: 29px; line-height: 1.35; white-space: pre-wrap; }
+
+  /* Overlay (UntypeOverlayLayout 274 x 84 pt, drawn at 2x) */
+  #overlay { left: 686px; top: 866px; width: 548px; height: 168px; }
+  #trace { left: 0; top: 4px; width: 548px; height: 108px; }
+  #hint { left: 0; right: 0; top: 2px; text-align: center; }
+  #hint span { display: inline-block; font: 600 19px var(--rounded); color: #fff; padding: 4px 14px; border-radius: 99px; background: rgba(0,0,0,.72); }
+  #chips { left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 12px; }
+  .chip { width: 40px; height: 30px; border-radius: 15px; font: 800 17px var(--rounded); display: flex; align-items: center; justify-content: center;
+    background: #5c5c5e; color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.28), 0 2px 6px rgba(0,0,0,.25); }
+  .chip.on { background: var(--amber-chip); color: #2a1c05; }
+  #mcard { left: 50%; top: 20px; height: 72px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 0 12px 0 24px;
+    border-radius: 36px; background: rgba(20,20,20,.94); box-shadow: 0 0 0 2px rgba(255,255,255,.10), 0 4px 12px rgba(0,0,0,.35); color: #fff; white-space: nowrap; }
+  #mcard .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--meeting); box-shadow: 0 0 6px rgba(235,66,61,.7); }
+  #mcard .txt { width: 104px; }
+  #mcard .txt b { display: block; font: 600 22px var(--rounded); font-variant-numeric: tabular-nums; }
+  #mcard .txt small { display: block; font: 500 19px var(--rounded); color: rgba(255,255,255,.6); margin-top: 1px; }
+  #mbars { width: 152px; height: 36px; display: flex; align-items: center; justify-content: space-between; }
+  #mbars i { width: 5px; border-radius: 3px; background: var(--meeting); display: block; }
+  .rbtn { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  #mstop { background: var(--meeting); }
+  #mstop i { width: 16px; height: 16px; border-radius: 3px; background: #fff; display: block; }
+  #tray { left: 50%; top: 22px; transform: translateX(-50%); display: flex; gap: 14px; padding: 10px 14px; border-radius: 34px;
+    background: rgba(20,20,20,.94); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+  #tray .rbtn { background: #3a3a3c; }
+  #tray .rec i { width: 20px; height: 20px; border-radius: 50%; background: var(--meeting); display: block; }
+  #tray .txi { display: flex; flex-direction: column; gap: 4px; }
+  #tray .txi i { height: 3px; border-radius: 2px; background: #fff; display: block; }
+
+  /* Keys */
+  #hud { left: 84px; top: 902px; display: flex; align-items: flex-end; gap: 14px; }
+  .key { min-width: 78px; height: 78px; padding: 0 20px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+    font: 600 31px var(--rounded); color: #3a3a3c; background: #fdfdfd;
+    box-shadow: 0 0 0 1.5px rgba(0,0,0,.14), 0 7px 0 #c9c9cf, 0 12px 22px rgba(0,0,0,.14); }
+  .key.gap { margin-left: 22px; }
+  #holdbar { left: 84px; top: 1006px; width: 170px; height: 8px; border-radius: 4px; background: rgba(0,0,0,.10); overflow: hidden; }
+  #holdfill { height: 100%; width: 0; background: var(--amber); border-radius: 4px; }
+
+  /* Meeting scene */
+  #callwin { left: 70px; top: 70px; width: 1000px; background: #1c1c1e; }
+  #callwin .titlebar { background: #2a2a2c; border-bottom-color: rgba(255,255,255,.06); }
+  #callwin .titlebar .t { color: #c9c9cf; }
+  #tiles { position: absolute; left: 22px; right: 22px; top: 72px; bottom: 22px; display: flex; gap: 18px; }
+  .tile { flex: 1; border-radius: 16px; background: #2c2c2e; position: relative; display: flex; align-items: center; justify-content: center; }
+  .tile.me { flex: .62; }
+  .ava { border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font: 600 54px var(--rounded); }
+  .tile .nm { position: absolute; left: 16px; bottom: 12px; font-size: 19px; color: #e5e5ea; font-weight: 500; }
+  .tile .lv { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 4px; align-items: flex-end; height: 24px; }
+  .tile .lv i { width: 5px; border-radius: 3px; background: #34c759; display: block; }
+  .ring { position: absolute; inset: 0; border-radius: 16px; border: 4px solid #34c759; opacity: 0; }
+
+  #trwin { left: 1110px; top: 70px; width: 730px; height: 888px; }
+  #trshot { position: absolute; left: 0; top: 50px; width: 730px; height: 838px; background-size: 730px 838px; }
+  #trbody { position: absolute; left: 0; top: 106px; width: 730px; height: 744px; background: #fff; overflow: hidden; }
+  #trrows { position: absolute; left: 0; right: 0; padding: 16px 16px 10px; }
+  .row { margin-bottom: 13.5px; }
+  .row .h { display: flex; align-items: baseline; gap: 8px; }
+  .row .sp { font-size: 14.9px; font-weight: 600; }
+  .row .tm { font: 13.5px var(--mono); color: #b4b4b8; }
+  .row .tx { font-size: 17.6px; line-height: 1.32; margin-top: 2.5px; color: #1d1d1f; }
+  .row.pending .tx { font-style: italic; color: #8a8a8e; }
+  #follow { position: absolute; left: 655px; top: 63px; width: 58px; height: 28px; border-radius: 14px; background: var(--blue); }
+  #follow i { position: absolute; right: 2.5px; top: 2.5px; width: 34px; height: 23px; border-radius: 12px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+
+  #path { left: 70px; top: 0; width: 1000px; height: 86px; }
+  .node { position: absolute; width: 66px; height: 66px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 1.5px rgba(0,0,0,.10), 0 6px 16px rgba(30,30,60,.12); }
+  #pcanvas { left: 0; top: 0; width: 1000px; height: 86px; }
+
+  #notewin { left: 70px; width: 1000px; }
+  #note { padding: 30px 44px; font-size: 29px; line-height: 1.5; white-space: pre-wrap; }
+
+  #inset { left: 100px; top: 250px; width: 942px; height: 196px; border-radius: 18px; overflow: hidden; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.10), 0 40px 90px rgba(30,30,60,.35); transform-origin: 50% 50%; }
+  #insetimg { position: absolute; left: -368px; top: -726px; width: 1341.6px; height: 1185.6px; background-size: 100% 100%; }
+  #insetsw { position: absolute; left: 870.5px; top: 71px; width: 56px; height: 25px; border-radius: 13px; background: var(--blue); }
+  #insetsw i { position: absolute; right: 2px; top: 2px; width: 32px; height: 21px; border-radius: 11px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  #insetring { position: absolute; left: 852px; top: 53px; width: 93px; height: 61px; border-radius: 31px; border: 4px solid var(--amber); }
+
+  /* Logo */
+  #logo { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px; }
+  /* The icon file is a full square; macOS shows it masked to its rounded shape. */
+  #logo img { width: 232px; height: 232px; border-radius: 54px; box-shadow: 0 26px 54px rgba(30,30,60,.26), 0 0 0 1px rgba(0,0,0,.05); }
+  #logo .w { font: 600 104px var(--rounded); letter-spacing: -.02em; color: #1d1d1f; }
+
+  #mouse { width: 34px; height: 46px; z-index: 50; }
+  #ripple { width: 70px; height: 70px; margin: -35px 0 0 -35px; border-radius: 50%; border: 4px solid var(--amber); z-index: 49; }
+  #debug { left: 12px; bottom: 8px; font: 14px var(--mono); color: #000; background: rgba(255,255,255,.8); padding: 2px 8px; z-index: 99; display: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="menubar" class="abs">
+    <span class="app" id="mbapp">Notes</span><span>File</span><span>Edit</span><span>View</span><span>Window</span>
+    <span class="right"><span id="mbicon"></span><span>10:30</span></span>
+  </div>
+
+  <div id="logo" class="layer"><img id="logoimg" alt=""><div class="w">untype</div></div>
+
+  <div id="sdict" class="layer">
+    <div id="editor" class="win">
+      <div class="titlebar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="t" id="doctitle"></span></div>
+      <div id="doc"></div>
+    </div>
+  </div>
+
+  <div id="schat" class="layer">
+    <div id="chat" class="win">
+      <div class="titlebar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="t" id="chatname"></span></div>
+      <div id="thread"></div>
+      <div id="composer"></div>
+    </div>
+  </div>
+
+  <div id="smeet" class="layer">
+    <div id="callwin" class="win">
+      <div class="titlebar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="t">Call</span></div>
+      <div id="tiles">
+        <div class="tile"><div class="ring"></div><div class="ava" style="background:#7a5cd6">M</div><div class="nm">Maria</div><div class="lv"></div></div>
+        <div class="tile"><div class="ring"></div><div class="ava" style="background:#2f8f83">N</div><div class="nm">Nikos</div><div class="lv"></div></div>
+        <div class="tile me"><div class="ring"></div><div class="ava" style="background:#c98a2b">G</div><div class="nm" id="menm"></div><div class="lv"></div></div>
+      </div>
+    </div>
+    <div id="path" class="abs">
+      <canvas id="pcanvas" class="abs" width="1000" height="86"></canvas>
+      <div class="node" id="nmic" style="left:20px;top:10px"></div>
+      <div class="node" id="nmeet" style="left:914px;top:10px"></div>
+    </div>
+    <div id="notewin" class="win">
+      <div class="titlebar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="t" id="notetitle"></span></div>
+      <div id="note"></div>
+    </div>
+    <div id="trwin" class="win">
+      <div class="titlebar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="t">Transcription</span></div>
+      <div id="trshot"></div>
+      <div id="follow"><i></i></div>
+      <div id="trbody"><div id="trrows"></div></div>
+    </div>
+    <div id="inset" class="abs"><div id="insetimg"></div><div id="insetsw"><i></i></div><div id="insetring"></div></div>
+  </div>
+
+  <div id="overlay" class="abs">
+    <canvas id="trace" class="abs" width="548" height="108"></canvas>
+    <div id="hint" class="abs"><span>Enter send · tap again type · Esc cancel</span></div>
+    <div id="mcard" class="abs"><span class="dot" id="mdot"></span><span class="txt"><b id="mtime">0:00</b><small>Recording</small></span><span id="mbars"></span><span class="rbtn" id="mstop"><i></i></span></div>
+    <div id="tray" class="abs"><span class="rbtn rec"><i></i></span><span class="rbtn"><span class="txi"><i style="width:22px"></i><i style="width:16px"></i><i style="width:22px"></i></span></span></div>
+    <div id="chips" class="abs"></div>
+  </div>
+
+  <div id="hud" class="abs"></div>
+  <div id="holdbar" class="abs"><div id="holdfill"></div></div>
+
+  <svg id="mouse" class="abs" viewBox="0 0 34 46"><path d="M3 2 L3 34 L11 27 L16.5 40 L22 37.5 L16.5 25 L27 25 Z" fill="#111" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></svg>
+  <div id="ripple" class="abs"></div>
+  <div id="debug" class="abs"></div>
+</div>
+
+<script src="timeline.js"></script>
+<script src="timing.el.js"></script>
+<script src="timing.en.js"></script>
+<script src="timing.neutral.js"></script>
+<script>
+(function () {
+  "use strict";
+  const V = window.UNTYPE_VIDEO;
+  const params = new URLSearchParams(location.search);
+  const LANG = params.get("lang") === "el" ? "el" : "en";
+  const PROFILE = params.get("timing") || "neutral";
+  const L = V.content[LANG];
+  const $ = (id) => document.getElementById(id);
+  const A = "../assets/real/";
+
+  // ---------- timeline ----------
+  const overrides = V.timing[PROFILE] || {};
+  let acc = 0;
+  const BEATS = V.beats.map((b) => {
+    const dur = Math.max(b.min, overrides[b.id] || 0);
+    const beat = { id: b.id, scene: b.scene, t0: acc, dur };
+    acc += dur;
+    return beat;
+  });
+  const DURATION = acc;
+  window.__duration = DURATION;
+  window.__beats = BEATS;
+
+  // ---------- helpers ----------
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const seg = (p, a, b) => clamp((p - a) / (b - a));
+  const ease = (x) => { x = clamp(x); return x * x * (3 - 2 * x); };
+  const out = (x) => 1 - Math.pow(1 - clamp(x), 3);
+  const lerp = (a, b, x) => a + (b - a) * x;
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const tokens = (s) => s.match(/\s*\S+/g) || [];
+  /** The first part of `s`, whole words only, for progress x. */
+  const words = (s, x) => { const tk = tokens(s); return tk.slice(0, Math.floor(tk.length * clamp(x) + 1e-6)).join(""); };
+  const hash = (n) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+  /** Speech loudness 0..1 at time t: syllable-like, deterministic. */
+  const voice = (t, seed) => {
+    const syl = 0.55 + 0.45 * Math.sin(t * 9.2 + seed) * Math.sin(t * 3.1 + seed * 2.3);
+    const gap = Math.sin(t * 1.7 + seed) > -0.72 ? 1 : 0.12;
+    return clamp(0.25 + 0.75 * Math.abs(syl)) * gap;
+  };
+  const mmss = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+  const hhmmss = (s) => "00:" + String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+
+  // ---------- the world: everything a frame shows ----------
+  function newWorld() {
+    return {
+      doc: "", caret: 0, sel: null, mark: null,
+      chatInput: "", chatSent: false, sentPop: 0,
+      ov: { phase: "idle", hint: false, level: 0, tray: 0 },
+      keys: { ctrl: 0, tick: 0, extra: [] }, hold: 0,
+      meetStart: null, trOpen: 0, lines: [], prog: {}, channel: "both",
+      speaking: -1, callLevel: 0, youToMeeting: 0, muted: 0, dictLevel: 0,
+      note: "", inset: 0, insetPulse: 0, noteShown: 0,
+      mouse: null, click: 0, mbPulse: 0
+    };
+  }
+
+  const docAfterHold = L.hold;
+  const docAfterTap = L.hold + L.tap;
+  const insertAt = L.hold.indexOf(L.insertAfter) + L.insertAfter.length;
+  const docInserted = docAfterTap.slice(0, insertAt) + L.insert + docAfterTap.slice(insertAt);
+  const wrongAt = docInserted.indexOf(L.tapWrong);
+  const docFixed = docInserted.slice(0, wrongAt) + L.tapRight + docInserted.slice(wrongAt + L.tapWrong.length);
+
+  /** Hotkey down between a and b of p. */
+  function hotkey(w, p, a, b) {
+    const down = p >= a && p < b;
+    w.keys.ctrl = down ? 1 : 0; w.keys.tick = down ? 1 : 0;
+    return down;
+  }
+  function line(w, side, speaker, text, at) {
+    w.lines.push({ side, speaker, text, time: Math.max(0, at - w.meetStart) });
+  }
+  /** A sentence of the meeting: words in progress from a to b, a finished line after. */
+  function sentence(w, beat, p, a, b, side, who, text) {
+    const act = beat.dur - 0.8;
+    if (p >= b + 0.02) { line(w, side, who, text, beat.t0 + a * act); return; }
+    if (p >= a) {
+      w.prog[side] = words(text, seg(p, a, b) + 0.08);
+      const lv = voice(beat.t0 + p * act, side === "you" ? 1 : 5);
+      if (side === "you") { w.speaking = 2; w.youToMeeting = lv; } else { w.speaking = who === L.speaker1 ? 0 : 1; }
+      w.callLevel = lv;
+    }
+  }
+
+  const ACTS = {
+    "intro"(w) {},
+    "hold-press"(w, p, beat, tl) {
+      const down = hotkey(w, p, 0.12, 2);
+      if (down) { w.ov.phase = "rec"; w.hold = (p - 0.12) * (beat.dur - 0.8); }
+      const x = seg(p, 0.22, 1) * 0.5;
+      w.doc = words(L.hold, x); w.caret = w.doc.length;
+      w.ov.level = p > 0.2 ? voice(beat.t0 + tl, 1) : 0;
+    },
+    "hold-release"(w, p, beat, tl, prev) {
+      const down = hotkey(w, p, -1, 0.66);
+      w.ov.phase = down ? "rec" : p < 0.78 ? "final" : "idle";
+      w.hold = down ? prev.holdEnd + p * (beat.dur - 0.8) : 0;
+      w.doc = words(L.hold, 0.5 + seg(p, 0, 0.58) * 0.5); w.caret = w.doc.length;
+      w.ov.level = p < 0.6 ? voice(beat.t0 + tl, 1) : 0;
+    },
+    "tap-start"(w, p) {
+      w.doc = docAfterHold; w.caret = w.doc.length;
+      hotkey(w, p, 0.2, 0.27);
+      if (p >= 0.2) { w.ov.phase = "rec"; w.ov.hint = p >= 0.3; }
+    },
+    "tap-speak"(w, p, beat, tl) {
+      w.ov.phase = "rec"; w.ov.hint = true;
+      w.doc = docAfterHold + words(L.tap, seg(p, 0.06, 0.9)); w.caret = w.doc.length;
+      w.ov.level = p > 0.04 && p < 0.9 ? voice(beat.t0 + tl, 2) : 0;
+    },
+    "edit-insert"(w, p, beat, tl) {
+      w.ov.phase = "rec"; w.ov.hint = true;
+      w.mark = insertAt;
+      w.mouse = { from: [1380, 640], toMark: true, x: ease(seg(p, 0.04, 0.26)), hide: seg(p, 0.36, 0.44) };
+      w.click = seg(p, 0.27, 0.36);
+      if (p < 0.28) { w.doc = docAfterTap; w.caret = w.doc.length; return; }
+      const ins = words(L.insert, seg(p, 0.44, 0.9));
+      w.doc = docAfterTap.slice(0, insertAt) + ins + docAfterTap.slice(insertAt);
+      w.caret = insertAt + ins.length;
+      w.ov.level = p > 0.42 && p < 0.9 ? voice(beat.t0 + tl, 3) : 0;
+    },
+    "edit-fix"(w, p) {
+      w.ov.phase = "rec"; w.ov.hint = true;
+      w.mark = wrongAt + Math.floor(L.tapWrong.length / 2);
+      w.mouse = { from: [760, 640], toMark: true, x: ease(seg(p, 0.03, 0.2)), hide: seg(p, 0.34, 0.42) };
+      w.click = Math.max(seg(p, 0.2, 0.26) < 1 ? seg(p, 0.2, 0.26) : 0, seg(p, 0.27, 0.34) < 1 ? seg(p, 0.27, 0.34) : 0);
+      if (p < 0.27) { w.doc = docInserted; w.caret = insertAt + L.insert.length; return; }
+      const n = Math.floor(seg(p, 0.42, 0.78) * L.tapRight.length + 1e-6);
+      if (n === 0) { w.doc = docInserted; w.sel = [wrongAt, wrongAt + L.tapWrong.length]; w.caret = null; return; }
+      const typed = L.tapRight.slice(0, n);
+      w.doc = docInserted.slice(0, wrongAt) + typed + docInserted.slice(wrongAt + L.tapWrong.length);
+      w.caret = wrongAt + n;
+      const k = seg(p, 0.42, 0.78) * L.tapRight.length;
+      if (k - Math.floor(k) < 0.6 && p < 0.78) w.keys.extra = [{ label: L.tapRight[Math.min(L.tapRight.length - 1, Math.floor(k))].toUpperCase(), down: 1 }];
+    },
+    "edit-finish"(w, p, beat, tl) {
+      const jump = p >= 0.1;
+      w.keys.extra = p > 0.05 && p < 0.2 ? [{ label: "⌘", down: 1 }, { label: "↓", down: 1 }] : [];
+      const fin = words(L.finish, seg(p, 0.24, 0.7));
+      w.doc = docFixed + fin; w.caret = jump ? w.doc.length : wrongAt + L.tapRight.length;
+      const tapped = p >= 0.82;
+      hotkey(w, p, 0.82, 0.89);
+      w.ov.phase = tapped ? (p < 0.93 ? "final" : "idle") : "rec"; w.ov.hint = !tapped;
+      w.ov.level = p > 0.22 && p < 0.7 ? voice(beat.t0 + tl, 4) : 0;
+    },
+    "retry-bad"(w, p, beat, tl) {
+      hotkey(w, p, 0.1, 0.17);
+      if (p >= 0.1) { w.ov.phase = "rec"; w.ov.hint = p >= 0.18; }
+      w.chatInput = words(L.chatBad, seg(p, 0.22, 0.95));
+      w.ov.level = p > 0.2 && p < 0.95 ? voice(beat.t0 + tl, 6) : 0;
+    },
+    "retry-esc"(w, p) {
+      const pressed = p >= 0.3;
+      w.keys.extra = [{ label: "esc", down: p >= 0.3 && p < 0.48 ? 1 : 0 }];
+      w.ov.phase = pressed ? "idle" : "rec"; w.ov.hint = !pressed;
+      const left = 1 - seg(p, 0.32, 0.5);
+      w.chatInput = L.chatBad.slice(0, Math.floor(L.chatBad.length * left));
+    },
+    "retry-send"(w, p, beat, tl) {
+      hotkey(w, p, 0.05, 0.11);
+      const sent = p >= 0.8;
+      w.keys.extra = p > 0.6 ? [{ label: "↵", down: p >= 0.74 && p < 0.86 ? 1 : 0 }] : [];
+      w.ov.phase = p >= 0.05 && !sent ? "rec" : "idle"; w.ov.hint = p >= 0.12 && !sent;
+      w.chatInput = sent ? "" : words(L.chatGood, seg(p, 0.14, 0.62));
+      w.chatSent = sent; w.sentPop = seg(p, 0.8, 0.9);
+      w.ov.level = p > 0.12 && p < 0.62 ? voice(beat.t0 + tl, 7) : 0;
+    },
+    "meet-start"(w, p, beat) {
+      const act = beat.dur - 0.8;
+      w.mouse = { from: [900, 700], to: p < 0.5 ? [559, 924] : [621, 924], x: p < 0.5 ? ease(seg(p, 0.05, 0.25)) : 1, hide: seg(p, 0.78, 0.86) };
+      if (p >= 0.5) w.mouse.from = [559, 924], w.mouse.x = ease(seg(p, 0.56, 0.64));
+      w.ov.tray = p < 0.36 ? seg(p, 0.2, 0.27) : p < 0.5 ? 0 : p < 0.74 ? seg(p, 0.5, 0.56) : 1 - seg(p, 0.74, 0.8);
+      w.click = p < 0.5 ? seg(p, 0.29, 0.36) : seg(p, 0.66, 0.73);
+      if (p >= 0.33) w.meetStart = beat.t0 + 0.33 * act;
+      w.trOpen = out(seg(p, 0.7, 0.9));
+    },
+    "meet-live"(w, p, beat) {
+      w.trOpen = 1;
+      sentence(w, beat, p, 0.03, 0.24, "call", L.speaker1, L.meet1);
+      sentence(w, beat, p, 0.31, 0.52, "you", L.you, L.meetYou);
+      sentence(w, beat, p, 0.6, 0.84, "call", L.speaker2, L.meet2);
+    },
+    "meet-channels"(w, p) {
+      w.trOpen = 1;
+      const stops = [[1321, 149], [1451, 149], [1191, 149]];
+      const i = p < 0.38 ? 0 : p < 0.68 ? 1 : 2;
+      const a = [0.04, 0.4, 0.7][i];
+      w.mouse = { from: i === 0 ? [1500, 520] : stops[i - 1], to: stops[i], x: ease(seg(p, a, a + 0.12)), hide: seg(p, 0.9, 0.97) };
+      w.click = seg(p, a + 0.13, a + 0.2);
+      w.channel = p < 0.19 ? "both" : p < 0.55 ? "microphone" : p < 0.85 ? "system" : "both";
+    },
+    "mute-switch"(w, p, beat) {
+      w.trOpen = 1;
+      w.inset = p < 0.5 ? out(seg(p, 0.06, 0.2)) : 1 - ease(seg(p, 0.8, 0.94));
+      w.insetPulse = seg(p, 0.24, 0.8);
+      w.noteShown = out(seg(p, 0.86, 1));
+      sentence(w, beat, p, 0.3, 0.74, "call", L.speaker1, L.meet3);
+    },
+    "mute-dictate"(w, p, beat, tl) {
+      w.trOpen = 1; w.noteShown = 1;
+      const down = hotkey(w, p, 0.08, 0.84);
+      if (down) { w.ov.phase = "rec"; w.hold = (p - 0.08) * (beat.dur - 0.8); w.muted = 1; }
+      else if (p >= 0.84) w.ov.phase = p < 0.92 ? "final" : "idle";
+      w.note = words(L.note, seg(p, 0.15, 0.8));
+      const speakingNow = p > 0.13 && p < 0.8;
+      w.ov.level = speakingNow ? voice(beat.t0 + tl, 8) : 0;
+      w.dictLevel = speakingNow ? w.ov.level : 0;
+      sentence(w, beat, p, 0.34, 0.6, "call", L.speaker2, L.meet4);
+    },
+    "mute-back"(w, p, beat) {
+      w.trOpen = 1; w.noteShown = 1; w.note = L.note;
+      sentence(w, beat, p, 0.14, 0.6, "you", L.you, L.meetYou2);
+    },
+    "outro"(w) {}
+  };
+
+  function worldAt(t) {
+    const w = newWorld();
+    const prev = { holdEnd: 0 };
+    let current = BEATS[BEATS.length - 1];
+    for (const beat of BEATS) {
+      const inBeat = t < beat.t0 + beat.dur;
+      const tl = inBeat ? t - beat.t0 : beat.dur;
+      const p = inBeat ? clamp(tl / (beat.dur - 0.8)) : 1;
+      // Per-beat transients start clean; lasting state (text, lines) is rebuilt by each beat.
+      w.ov = { phase: "idle", hint: false, level: 0, tray: 0 };
+      w.keys = { ctrl: 0, tick: 0, extra: [] }; w.hold = 0; w.sel = null; w.mark = null; w.mouse = null; w.click = 0;
+      w.prog = {}; w.speaking = -1; w.callLevel = 0; w.youToMeeting = 0; w.muted = 0; w.dictLevel = 0;
+      w.inset = 0; w.insetPulse = 0; w.channel = "both";
+      ACTS[beat.id](w, p, beat, tl, prev);
+      if (beat.id === "hold-press") prev.holdEnd = (1 - 0.12) * (beat.dur - 0.8) + 0.8;
+      if (inBeat) { current = beat; break; }
+    }
+    w.beat = current; w.t = t;
+    return w;
+  }
+
+  // ---------- static DOM ----------
+  $("logoimg").src = A + "app-icon.png";
+  $("doctitle").textContent = L.docTitle;
+  $("chatname").textContent = L.chatName;
+  $("notetitle").textContent = L.noteTitle;
+  $("menm").textContent = L.you;
+  $("insetimg").style.backgroundImage = `url(${A}settings-meetings.png)`;
+  $("mbicon").innerHTML = [7, 13, 18, 11, 16, 8].map((h) => `<i style="height:${h}px"></i>`).join("");
+  $("mbars").innerHTML = Array.from({ length: 16 }, () => "<i></i>").join("");
+  $("chips").innerHTML = ["R", "T", "A", "L", "C", "I"].map((c) => `<span class="chip${c === "I" ? " on" : ""}">${c}</span>`).join("");
+  document.querySelectorAll(".tile .lv").forEach((el) => { el.innerHTML = "<i></i><i></i><i></i><i></i>"; });
+  document.querySelectorAll(".tile").forEach((el, i) => { const a = el.querySelector(".ava"); const s = i === 2 ? 96 : 132; a.style.width = a.style.height = s + "px"; if (i === 2) a.style.fontSize = "40px"; });
+  const micIcon = (c) => `<svg width="30" height="36" viewBox="0 0 30 36"><rect x="9" y="1.5" width="12" height="20" rx="6" fill="${c}"/><path d="M4 16.5a11 11 0 0 0 22 0M15 27.5v6M9 34h12" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round"/></svg>`;
+  $("nmeet").innerHTML = `<span style="width:26px;height:26px;border-radius:50%;background:var(--meeting);display:block"></span>`;
+  const traceCtx = $("trace").getContext("2d");
+  const pathCtx = $("pcanvas").getContext("2d");
+  const preload = ["both", "microphone", "system"].map((c) => { const i = new Image(); i.src = `${A}transcription-${c}.png`; return i; });
+
+  function show(el, alpha) { el.style.opacity = alpha; el.style.visibility = alpha <= 0.001 ? "hidden" : "visible"; }
+
+  function textHTML(doc, caret, sel, mark, blink) {
+    const cuts = new Set([0, doc.length]);
+    if (caret != null) cuts.add(caret);
+    if (mark != null) cuts.add(Math.min(mark, doc.length));
+    if (sel) { cuts.add(sel[0]); cuts.add(sel[1]); }
+    const pts = [...cuts].sort((a, b) => a - b);
+    let html = "";
+    for (let i = 0; i < pts.length; i++) {
+      const at = pts[i];
+      if (mark != null && at === Math.min(mark, doc.length)) html += '<span class="mk" id="mk"></span>';
+      if (caret != null && at === caret) html += `<span class="caret" style="opacity:${blink}"></span>`;
+      if (i + 1 < pts.length) {
+        const piece = esc(doc.slice(at, pts[i + 1]));
+        html += sel && at >= sel[0] && pts[i + 1] <= sel[1] ? `<span class="sel">${piece}</span>` : piece;
+      }
+    }
+    return html;
+  }
+
+  function drawTrace(ctx, W, H, t, level, color, alpha, seed) {
+    ctx.clearRect(0, 0, W, H);
+    if (alpha <= 0) return;
+    ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = 3.2; ctx.lineJoin = "round"; ctx.beginPath();
+    for (let x = 0; x <= W; x += 3) {
+      const u = x / W;
+      const env = Math.sin(Math.PI * u) ** 0.6;
+      const y = H / 2 + (Math.sin(u * 46 + t * 23 + seed) * 0.5 + Math.sin(u * 103 - t * 37) * 0.3 + (hash(Math.floor(u * 90) + Math.floor(t * 30) * 7.3) - 0.5) * 0.5)
+        * level * env * H * 0.44;
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+
+  let scale = 1;
+  function render(t) {
+    const w = worldAt(t);
+    const beat = w.beat;
+    const tl = t - beat.t0;
+
+    // Scenes cross-fade over the wallpaper at beat boundaries.
+    const idx = BEATS.indexOf(beat);
+    const before = BEATS[idx - 1], after = BEATS[idx + 1];
+    let a = 1;
+    if (!before || before.scene !== beat.scene) a = Math.min(a, ease(tl / 0.5));
+    if (!after || after.scene !== beat.scene) a = Math.min(a, ease((beat.dur - tl) / 0.45));
+    if (!before) a = Math.max(a, tl < 1 ? ease(tl / 0.8) : a);
+    const sc = beat.scene;
+    show($("logo"), sc === "intro" || sc === "outro" ? a : 0);
+    $("logo").style.transform = `scale(${lerp(0.96, 1, sc === "outro" ? out(tl / 1.2) : out(tl / 1.6))})`;
+    show($("sdict"), sc === "dict" ? a : 0);
+    show($("schat"), sc === "chat" ? a : 0);
+    show($("smeet"), sc === "meet" ? a : 0);
+    const ui = sc === "intro" || sc === "outro" ? 0 : a;
+    show($("menubar"), sc === "intro" || sc === "outro" ? 0 : 1);
+    $("mbapp").textContent = sc === "chat" ? "Messages" : sc === "meet" ? "Call" : "Notes";
+
+    // Text field of the scene.
+    const blink = w.ov.level > 0 || Math.floor(t * 1.8) % 2 === 0 ? 1 : 0;
+    if (sc === "dict") $("doc").innerHTML = textHTML(w.doc, w.caret, w.sel, w.mark, blink);
+    if (sc === "chat") {
+      $("composer").innerHTML = textHTML(w.chatInput, w.chatInput.length, null, null, blink);
+      $("thread").innerHTML = `<div class="bub in">${esc(L.chatIncoming)}</div>` +
+        (w.chatSent ? `<div class="bub out" style="opacity:${w.sentPop};transform:translateY(${(1 - out(w.sentPop)) * 40}px)">${esc(L.chatGood)}</div>` : "");
+    }
+
+    // Overlay.
+    const meetingOn = w.meetStart != null;
+    show($("overlay"), ui);
+    $("overlay").style.left = (sc === "meet" ? 316 : 686) + "px";   // beside the transcription window, not under it
+    const rec = w.ov.phase === "rec", fin = w.ov.phase === "final";
+    drawTrace(traceCtx, 548, 108, t, rec ? Math.max(0.035, w.ov.level) : 0.02, "#3B70E6", rec ? 1 : fin ? 0.7 : 0, 0);
+    show($("hint"), rec && w.ov.hint ? 1 : 0);
+    const card = meetingOn && w.ov.phase === "idle" && w.ov.tray <= 0;
+    show($("mcard"), card ? 1 : 0);
+    show($("tray"), w.ov.tray);
+    if (meetingOn) {
+      $("mtime").textContent = mmss(t - w.meetStart);
+      $("mdot").style.opacity = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 4));
+      const lv = Math.max(w.callLevel, w.muted ? 0 : w.youToMeeting);
+      [...$("mbars").children].forEach((b, i) => { b.style.height = Math.max(6, 36 * lv * (0.35 + 0.65 * hash(i * 3.1 + Math.floor(t * 12)))) + "px"; });
+    }
+
+    // Keys: the hotkey, how long it has been held, and any other key pressed.
+    show($("hud"), ui); show($("holdbar"), ui);
+    const keyStyle = (d) => d ? "background:var(--amber);color:#2a1c05;transform:translateY(5px);box-shadow:0 0 0 1.5px rgba(0,0,0,.18),0 2px 0 #b97a1e,0 6px 12px rgba(0,0,0,.14)" : "";
+    $("hud").innerHTML = `<span class="key" style="${keyStyle(w.keys.ctrl)}">⌃</span><span class="key" style="${keyStyle(w.keys.tick)}">\`</span>` +
+      w.keys.extra.map((k, i) => `<span class="key${i === 0 ? " gap" : ""}" style="${keyStyle(k.down)}">${esc(k.label)}</span>`).join("");
+    $("holdfill").style.width = clamp(w.hold / 6) * 100 + "%";
+
+    // Meeting scene.
+    if (sc === "meet") {
+      const note = w.noteShown;
+      const callH = lerp(730, 372, note);
+      $("callwin").style.height = callH + "px";
+      $("path").style.top = 70 + callH + 14 + "px"; show($("path"), note * a);
+      $("notewin").style.top = 70 + callH + 112 + "px"; $("notewin").style.height = 246 + "px"; show($("notewin"), note * a);
+      $("note").innerHTML = textHTML(w.note, w.note.length, null, null, blink);
+      document.querySelectorAll(".tile").forEach((el, i) => {
+        const on = w.speaking === i && !(i === 2 && false);
+        el.querySelector(".ring").style.opacity = on ? 0.9 : 0;
+        [...el.querySelector(".lv").children].forEach((b, j) => { b.style.height = (on ? 6 + 18 * w.callLevel * (0.4 + 0.6 * hash(j * 5.7 + Math.floor(t * 12))) : 5) + "px"; b.style.opacity = on ? 1 : 0.35; });
+      });
+      // Where the microphone goes: to the meeting, or (muted there) only to the text.
+      const pc = pathCtx; pc.clearRect(0, 0, 1000, 86);
+      const line2 = (y, color, level, dashed) => {
+        pc.strokeStyle = color; pc.lineWidth = 4; pc.setLineDash(dashed ? [10, 12] : []); pc.beginPath();
+        for (let x = 104; x <= 896; x += 4) {
+          const u = (x - 104) / 792;
+          const yy = y + Math.sin(u * 60 - t * 16) * 15 * level * Math.sin(Math.PI * u);
+          x === 104 ? pc.moveTo(x, yy) : pc.lineTo(x, yy);
+        }
+        pc.stroke(); pc.setLineDash([]);
+      };
+      line2(43, w.muted ? "#b9b9bf" : "#EB423D", w.muted ? 0 : Math.max(0.05, w.youToMeeting), !!w.muted);
+      $("nmic").innerHTML = micIcon(w.muted ? "#E08A1E" : "#3a3a3c");
+      $("nmeet").style.opacity = w.muted ? 0.35 : 1;
+      if (w.muted) {
+        pc.strokeStyle = "#8a8a8e"; pc.lineWidth = 5; pc.lineCap = "round";
+        pc.beginPath(); pc.moveTo(486, 29); pc.lineTo(514, 57); pc.moveTo(514, 29); pc.lineTo(486, 57); pc.stroke();
+      }
+      // Transcription window.
+      const tr = $("trwin");
+      show(tr, w.trOpen * a);
+      tr.style.transform = `translateY(${(1 - w.trOpen) * 40}px) scale(${lerp(0.96, 1, w.trOpen)})`;
+      $("trshot").style.backgroundImage = `url(${A}transcription-${w.channel}.png)`;
+      const shown = (side) => w.channel === "both" || (w.channel === "microphone") === (side === "you");
+      let rows = "";
+      for (const ln of w.lines) {
+        if (!shown(ln.side)) continue;
+        rows += `<div class="row"><div class="h"><span class="sp" style="color:${ln.side === "you" ? "#E6952E" : "#3478F6"}">${esc(ln.speaker)}</span><span class="tm">${hhmmss(ln.time)}</span></div><div class="tx">${esc(ln.text)}</div></div>`;
+      }
+      for (const side of ["you", "call"]) {
+        if (!w.prog[side] || !shown(side)) continue;
+        rows += `<div class="row pending"><div class="h"><span class="sp" style="color:${side === "you" ? "#E6952E" : "#3478F6"}">${side === "you" ? L.you : L.call}</span><span class="tm">…</span></div><div class="tx">${esc(w.prog[side])}</div></div>`;
+      }
+      const rowsEl = $("trrows");
+      rowsEl.innerHTML = rows;
+      rowsEl.style.top = Math.min(0, 744 - rowsEl.offsetHeight) + "px";   // Follow: the newest text stays in view
+      // The settings switch.
+      const ins = $("inset");
+      show(ins, w.inset * a);
+      ins.style.transform = `scale(${lerp(0.86, 1, w.inset)})`;
+      const pulse = w.insetPulse > 0 && w.insetPulse < 1 ? 0.5 + 0.5 * Math.sin(w.insetPulse * Math.PI * 6 - Math.PI / 2) : 0;
+      $("insetring").style.opacity = pulse; $("insetring").style.transform = `scale(${1 + 0.12 * pulse})`;
+    }
+
+    // Mouse.
+    const m = $("mouse"), rp = $("ripple");
+    if (w.mouse && ui > 0) {
+      let to = w.mouse.to;
+      if (w.mouse.toMark) {
+        const mk = document.getElementById("mk");
+        if (mk) { const r = mk.getBoundingClientRect(); to = [r.left / scale, (r.top + r.height * 0.55) / scale]; }
+      }
+      to = to || w.mouse.from;
+      const x = lerp(w.mouse.from[0], to[0], w.mouse.x), y = lerp(w.mouse.from[1], to[1], w.mouse.x);
+      m.style.left = x - 3 + "px"; m.style.top = y - 2 + "px";
+      show(m, (1 - (w.mouse.hide || 0)) * ui);
+      const c = w.click > 0 && w.click < 1 ? w.click : 0;
+      rp.style.left = x + "px"; rp.style.top = y + "px";
+      rp.style.transform = `scale(${0.3 + c * 0.9})`; show(rp, c > 0 ? (1 - c) * 0.9 : 0);
+    } else { show(m, 0); show(rp, 0); }
+
+    if (params.get("debug")) { $("debug").style.display = "block"; $("debug").textContent = `${t.toFixed(2)} / ${DURATION.toFixed(1)}  ${beat.id}  ${LANG}/${PROFILE}`; }
+  }
+
+  // ---------- player ----------
+  function fit() {
+    scale = Math.min(innerWidth / 1920, innerHeight / 1080);
+    const s = $("stage").style;
+    s.transform = `scale(${scale})`;
+    s.left = (innerWidth - 1920 * scale) / 2 + "px"; s.top = (innerHeight - 1080 * scale) / 2 + "px";
+  }
+  addEventListener("resize", () => { fit(); render(time); });
+  fit();
+
+  let time = Math.min(DURATION - 0.001, parseFloat(params.get("t") || "0"));
+  let playing = !params.has("t");
+  let lastTick = null;
+  function tick(now) {
+    if (lastTick === null) {
+      lastTick = now;
+      window.__ready = true;           // the first drawn frame is t = start
+      render(time);
+      return requestAnimationFrame(tick);
+    }
+    const dt = (now - lastTick) / 1000; lastTick = now;
+    if (playing && !window.__stepping) {
+      time += dt;
+      if (time >= DURATION) time = window.__recording ? DURATION - 0.001 : 0;
+      render(time);
+    }
+    requestAnimationFrame(tick);
+  }
+  window.__seek = (t) => { window.__stepping = true; time = Math.max(0, Math.min(DURATION - 0.001, t)); render(time); };
+  addEventListener("keydown", (e) => {
+    if (e.key === " ") playing = !playing;
+    if (e.key === "ArrowRight") { time = Math.min(DURATION - 0.001, time + (e.shiftKey ? 5 : 0.5)); render(time); }
+    if (e.key === "ArrowLeft") { time = Math.max(0, time - (e.shiftKey ? 5 : 0.5)); render(time); }
+  });
+  Promise.all([document.fonts.ready, ...preload.map((i) => i.decode().catch(() => {}))]).then(() => requestAnimationFrame(tick));
+})();
+</script>
+</body>
+</html>
