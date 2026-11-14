@@ -44,8 +44,12 @@ public struct MeetingRecordingOptions: Sendable {
     public let audio: MeetingAudioSettings
     /// The loudspeakers' sound is removed from the microphone.
     public let echoCancellation: Bool
+    /// The microphone's transcript keeps only the speaker of this voice
+    /// sample (nil: everything the microphone hears is transcribed).
+    public let voiceSample: VoiceSample?
 
-    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false) {
+    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false, voiceSample: VoiceSample? = nil) {
+        self.voiceSample = voiceSample
         self.apiKey = apiKey
         self.model = model
         self.endpoint = endpoint
@@ -59,7 +63,10 @@ public struct MeetingRecordingOptions: Sendable {
 
     /// Soniox key, model and endpoint from untype's configuration, plus the
     /// meeting settings.
-    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false) throws {
+    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false, voiceSample: VoiceSample? = nil) throws {
+        if let voiceSample, voiceSample.sampleRate != MeetingRecorder.sampleRate {
+            throw MeetingError.capture("the saved voice sample is at \(voiceSample.sampleRate) Hz but meetings are recorded at \(MeetingRecorder.sampleRate) Hz; learn your voice again (Settings → Speech → Learn)")
+        }
         guard config.sttProvider == .soniox else {
             throw MeetingError.requiresSoniox(config.sttProvider.rawValue)
         }
@@ -75,7 +82,8 @@ public struct MeetingRecordingOptions: Sendable {
             language: language,
             llm: config.llm,
             audio: audio,
-            echoCancellation: echoCancellation
+            echoCancellation: echoCancellation,
+            voiceSample: voiceSample
         )
     }
 }
@@ -253,7 +261,7 @@ public final class MeetingRecorder {
         }
         RunLoop.main.add(timer, forMode: .common)
         silenceTimer = timer
-        onEvent("diagnostic.info: [untype] meeting recording started (\(folder.lastPathComponent); auto-stop after \(options.silenceMinutes) min of silence; audio: \(options.audio.summary); echo cancellation: \(options.echoCancellation ? "on" : "off"))")
+        onEvent("diagnostic.info: [untype] meeting recording started (\(folder.lastPathComponent); auto-stop after \(options.silenceMinutes) min of silence; audio: \(options.audio.summary); echo cancellation: \(options.echoCancellation ? "on" : "off"); only my voice at the microphone: \(options.voiceSample == nil ? "off" : "on"))")
     }
 
     /// Stops the recording and saves the transcript.
@@ -328,7 +336,8 @@ public final class MeetingRecorder {
         MeetingSonioxStream(
             side: side,
             options: options,
-            diarize: side == .call,
+            diarize: side == .call || options.voiceSample != nil,
+            voiceSample: side == .you ? options.voiceSample : nil,
             offsetMs: Int((ProcessInfo.processInfo.systemUptime - startUptime) * 1000),
             onSegment: { [weak self] segment in
                 dispatchMeeting { self?.add(segment) }
@@ -388,6 +397,9 @@ public final class MeetingRecorder {
         for stream in streams {
             for segment in await stream.finish() {
                 add(segment)
+            }
+            if let summary = stream.voiceSummary {
+                onEvent("diagnostic.info: [untype] \(summary)")
             }
         }
     }
@@ -554,6 +566,10 @@ final class MeetingSonioxStream: @unchecked Sendable {
     private let configFrame: String
     private let lock = NSLock()
     private var aggregator: MeetingTokenAggregator
+    /// Only my voice: the sample sent ahead of the audio and the filter
+    /// that keeps its speaker (nil: everything is transcribed).
+    private let voiceSample: VoiceSample?
+    private var voiceFilter: MeetingUserVoiceFilter?
     private let audio: AsyncStream<Data>
     private let audioContinuation: AsyncStream<Data>.Continuation
     private var sender: Task<Void, Never>?
@@ -575,6 +591,7 @@ final class MeetingSonioxStream: @unchecked Sendable {
         side: MeetingSide,
         options: MeetingRecordingOptions,
         diarize: Bool,
+        voiceSample: VoiceSample? = nil,
         offsetMs: Int,
         onSegment: @escaping @Sendable (MeetingSegment) -> Void,
         onSpeech: @escaping @Sendable () -> Void,
@@ -583,6 +600,8 @@ final class MeetingSonioxStream: @unchecked Sendable {
         onInProgress: (@Sendable (String) -> Void)? = nil
     ) {
         self.side = side
+        self.voiceSample = voiceSample
+        voiceFilter = voiceSample.map { MeetingUserVoiceFilter(leadMs: $0.leadMs) }
         self.onLiveText = onLiveText
         self.onInProgress = onInProgress
         socket = URLSessionRealtimeWebSocketClient(url: options.endpoint)
@@ -626,6 +645,12 @@ final class MeetingSonioxStream: @unchecked Sendable {
         do {
             try await socket.connect()
             try await socket.sendText(configFrame)
+            if let voiceSample {
+                // The sample is finished at once, so its speaker label is
+                // known before the microphone's audio is recognised.
+                try await socket.sendBinary(voiceSample.lead)
+                try await socket.sendText(#"{"type":"finalize"}"#)
+            }
         } catch {
             throw MeetingError.soniox(error.localizedDescription)
         }
@@ -689,8 +714,9 @@ final class MeetingSonioxStream: @unchecked Sendable {
             return
         }
         if let tokens = object["tokens"] as? [[String: Any]] {
-            let parsed = MeetingToken.parse(tokens)
             lock.lock()
+            let all = MeetingToken.parse(tokens)
+            let parsed = voiceFilter?.filter(all) ?? all
             let segments = aggregator.add(parsed)
             let heard = onLiveText == nil ? nil : liveText.add(parsed)
             let speaking = onInProgress == nil ? nil : aggregator.inProgressText(with: parsed)
@@ -709,6 +735,20 @@ final class MeetingSonioxStream: @unchecked Sendable {
         if object["finished"] as? Bool == true {
             markFinished()
         }
+    }
+
+    /// Only my voice: what was kept and dropped, for the event log (numbers
+    /// only); nil when the filter is not used.
+    var voiceSummary: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let voiceFilter else {
+            return nil
+        }
+        guard voiceFilter.userSpeaker != nil else {
+            return "meeting, only my voice: your voice sample was not recognised, nothing was dropped from the microphone's transcript"
+        }
+        return "meeting, only my voice: about \(voiceFilter.keptWords) words kept in the microphone's transcript, \(voiceFilter.droppedWords) dropped"
     }
 
     private func reportError(_ message: String) {

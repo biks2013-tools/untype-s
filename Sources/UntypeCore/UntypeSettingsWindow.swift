@@ -440,10 +440,19 @@ struct UntypeSettingsView: View {
                     model.setMeetingPreferences(meeting)
                 }
             ))
+            Toggle("Only my voice in the microphone's transcript", isOn: Binding(
+                get: { model.settings.meeting.keepsOnlyMyVoice },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.onlyMyVoice = value
+                    model.setMeetingPreferences(meeting)
+                }
+            ))
+            .disabled(model.voiceSample == nil && !model.settings.meeting.keepsOnlyMyVoice)
         } header: {
             Text("Audio")
         } footer: {
-            caption("Saved next to the transcript as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). Without headphones the microphone also hears the call from the loudspeakers: “Remove speaker sound” takes it out of the microphone's audio and transcript (Apple voice processing, which also reduces noise and evens out your voice). It applies from the next recording; while such a recording runs, dictation uses the meeting's microphone.")
+            caption("Saved next to the transcript as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). Without headphones the microphone also hears the call from the loudspeakers: “Remove speaker sound” takes it out of the microphone's audio and transcript (Apple voice processing, which also reduces noise and evens out your voice). It applies from the next recording; while such a recording runs, dictation uses the meeting's microphone. Because it changes how the microphone itself works, the app you are calling with can pick up your voice worse. “Only my voice” leaves the microphone alone: it sends your saved voice sample (Settings → Speech → Other voices → Learn) to Soniox at the start of the recording and keeps only your words in the microphone's side of the transcript, so the call heard from the loudspeakers and other people in the room are not written as yours. The saved microphone audio still contains them. Words you say while the loudspeakers are talking can be lost.")
         }
 
         Section {

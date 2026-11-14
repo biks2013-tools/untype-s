@@ -2407,13 +2407,18 @@ final class UntypeUIModel: ObservableObject {
 
     private func meetingOptions() throws -> MeetingRecordingOptions {
         let config = try ConfigResolver(requireProtocolOutputForHybrid: false).resolve(argv: try settings.sessionArguments())
+        if settings.meeting.keepsOnlyMyVoice, voiceSample == nil {
+            appendEvent("diagnostic.warning: [untype] meeting: only my voice is on but your voice is not learned yet (Settings → Speech → Learn); everything the microphone hears is transcribed")
+            overlay?.showNotice("Voice not learned: the microphone's transcript is not filtered")
+        }
         return try MeetingRecordingOptions(
             config: config,
             folderRoot: settings.meeting.folderURL,
             silenceMinutes: settings.meeting.silenceMinutes,
             language: try settings.meeting.transcriptLanguage,
             audio: try settings.meeting.audioSettings,
-            echoCancellation: settings.meeting.removesSpeakerSound
+            echoCancellation: settings.meeting.removesSpeakerSound,
+            voiceSample: settings.meeting.keepsOnlyMyVoice ? voiceSample : nil
         )
     }
 
