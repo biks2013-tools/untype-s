@@ -1,7 +1,7 @@
 // Measures how well simple filters would keep one person's dictation and
 // drop the people talking around them.
 //
-//   node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--speed 2] [--out <dir>]
+//   node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--user-level <dBFS>] [--primer <audio file of the user's voice>] [--primer-wait <ms>] [--speed 2] [--out <dir>]
 //
 // The audio (any format ffmpeg reads; a meeting's `.mic.m4a` works) is sent
 // to Soniox realtime with speaker diarization. For every recognised word the
@@ -59,7 +59,10 @@ function db(pcm: Int16Array, startMs: number, endMs: number): number {
   return 10 * Math.log10(sum / (b - a) / (32768 * 32768) + 1e-12);
 }
 
-async function transcribe(pcm: Int16Array, speed: number): Promise<Word[]> {
+/** What a voice sample sent ahead of the audio did (see --primer). */
+type Primed = { ms: number; finAfterMs?: number; speakers: Record<string, number> };
+
+async function transcribe(pcm: Int16Array, speed: number, primer?: Int16Array, primed?: Primed): Promise<Word[]> {
   const socket = new WebSocket("wss://stt-rt.soniox.com/transcribe-websocket");
   socket.binaryType = "arraybuffer";
   type Token = { text: string; start_ms?: number; end_ms?: number; speaker?: string; is_final?: boolean };
@@ -72,6 +75,9 @@ async function transcribe(pcm: Int16Array, speed: number): Promise<Word[]> {
         failure = `${message.error_code}: ${message.error_message}`;
       }
       for (const token of (message.tokens ?? []) as Token[]) {
+        if (token.text === "<fin>" && primed && primed.finAfterMs === undefined) {
+          primed.finAfterMs = Date.now() - primerSentAt;
+        }
         if (token.is_final && token.text !== "<end>" && token.text !== "<fin>") {
           tokens.push(token);
         }
@@ -88,6 +94,21 @@ async function transcribe(pcm: Int16Array, speed: number): Promise<Word[]> {
     api_key: sonioxKey(), model: "stt-rt-v6", audio_format: "pcm_s16le", sample_rate: RATE, num_channels: 1,
     language_hints: ["el", "en"], enable_endpoint_detection: true, enable_speaker_diarization: true
   }));
+  let primerSentAt = 0;
+  if (primer && primed) {
+    // The sample in one burst, a short silence, and a request to finish it:
+    // its speaker label is then known before the real audio starts.
+    const lead = new Int16Array(primer.length + RATE / 5);
+    lead.set(primer);
+    primed.ms = Math.round(lead.length * 1000 / RATE);
+    socket.send(lead.buffer.slice(0));
+    socket.send(JSON.stringify({ type: "finalize" }));
+    primerSentAt = Date.now();
+    const wait = Number(arg("primer-wait") ?? 0);
+    if (wait > 0) {
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
   const chunk = RATE / 10;
   for (let i = 0; i < pcm.length; i += chunk) {
     const piece = pcm.subarray(i, Math.min(pcm.length, i + chunk));
@@ -114,6 +135,19 @@ async function transcribe(pcm: Int16Array, speed: number): Promise<Word[]> {
     } else {
       words.push({ text, startMs: token.start_ms ?? 0, endMs: token.end_ms ?? 0, speaker: token.speaker ?? "?", db: 0 });
     }
+  }
+  if (primed) {
+    // The sample's words name the user's speaker; they are not part of the result.
+    for (const word of words.filter((w) => w.startMs < primed.ms)) {
+      primed.speakers[word.speaker] = (primed.speakers[word.speaker] ?? 0) + 1;
+    }
+    const rest = words.filter((w) => w.startMs >= primed.ms);
+    for (const word of rest) {
+      word.startMs -= primed.ms;
+      word.endMs -= primed.ms;
+    }
+    words.length = 0;
+    words.push(...rest);
   }
   for (const word of words) {
     word.db = db(pcm, word.startMs, word.endMs);
@@ -149,7 +183,7 @@ const median = (values: number[]) => { const s = [...values].sort((x, y) => x - 
 async function main(): Promise<void> {
   const file = process.argv[2];
   if (!file || file.startsWith("--")) {
-    throw new Error("Usage: node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--speed 2] [--out <dir>]");
+    throw new Error("Usage: node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--user-level <dBFS>] [--primer <audio file of the user's voice>] [--primer-wait <ms>] [--speed 2] [--out <dir>]");
   }
   const speed = Number(arg("speed") ?? 2);
   const out = resolve(arg("out") ?? join("test_scripts/voice-filter/out", basename(file).replace(/\.[^.]+$/, "")));
@@ -163,7 +197,13 @@ async function main(): Promise<void> {
   frames.sort((x, y) => x - y);
   console.log(`audio: ${seconds.toFixed(1)} s, quietest tenth ${frames[Math.floor(frames.length * 0.1)].toFixed(0)} dBFS, loudest tenth ${frames[Math.floor(frames.length * 0.9)].toFixed(0)} dBFS`);
 
-  const words = await transcribe(pcm, speed);
+  const primerFile = arg("primer");
+  const primed: Primed | undefined = primerFile ? { ms: 0, speakers: {} } : undefined;
+  const words = await transcribe(pcm, speed, primerFile ? decode(primerFile) : undefined, primed);
+  const primerSpeaker = primed ? Object.entries(primed.speakers).sort((x, y) => y[1] - x[1])[0]?.[0] : undefined;
+  if (primed) {
+    console.log(`voice sample: ${(primed.ms / 1000).toFixed(1)} s sent ahead, recognised after ${primed.finAfterMs ?? "?"} ms, its words by speaker: ${JSON.stringify(primed.speakers)}`);
+  }
   const scriptFile = arg("script");
   if (scriptFile) {
     markScript(words, readFileSync(scriptFile, "utf8"));
@@ -197,6 +237,16 @@ async function main(): Promise<void> {
     ...[9, 12].map((d): [string, (w: Word) => boolean] => [`loudest speaker, or level within ${d} dB`, (w) => w.speaker === loudest || w.db >= top - d]),
     ...[9, 12].map((d): [string, (w: Word) => boolean] => [`loudest speaker and level within ${d} dB`, (w) => w.speaker === loudest && w.db >= top - d])
   ];
+  // The rule untype applies ("Only my voice"): a speaker is kept when the
+  // median level of their words is within 10 dB of the user's learned level.
+  if (primerSpeaker !== undefined) {
+    filters.push([`speaker of the voice sample (${primerSpeaker})`, (w) => w.speaker === primerSpeaker]);
+  }
+  const userLevel = arg("user-level");
+  if (userLevel !== undefined) {
+    const floor = Number(userLevel) - 10;
+    filters.push([`untype's rule (speakers at ${floor} dBFS or louder)`, (w) => level[w.speaker] >= floor]);
+  }
   console.log("filter                                             user's words kept    other words let through");
   for (const [name, keep] of filters) {
     const kept = mine.filter(keep).length, leaked = other.filter(keep).length;

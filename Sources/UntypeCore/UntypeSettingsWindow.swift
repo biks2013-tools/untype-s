@@ -669,11 +669,11 @@ struct UntypeSettingsView: View {
                 }
             ))
             .disabled(speechProvider != .soniox)
-            LabeledContent("My voice level") {
+            LabeledContent("My voice") {
                 HStack(spacing: 8) {
-                    Text(verbatim: model.settings.voiceFilter.voiceLevelDb.map { "\(Int($0.rounded())) dB" } ?? "Not learned")
+                    Text(verbatim: model.voiceSample.map { "Learned (\(String(format: "%.1f", $0.seconds)) s sample)" } ?? "Not learned")
                         .foregroundStyle(.secondary)
-                    Button(model.settings.voiceFilter.voiceLevelDb == nil ? "Learn" : "Learn again") { model.learnVoiceLevel() }
+                    Button(model.voiceSample == nil ? "Learn" : "Learn again") { model.learnVoiceLevel() }
                         .disabled(model.voiceLearnPending)
                 }
             }
@@ -686,7 +686,7 @@ struct UntypeSettingsView: View {
         } header: {
             Text("Other voices")
         } footer: {
-            caption("On: when other people talk around you, only the words of the speaker as loud as you are written (the others are usually much quieter at your microphone). Press Learn in a quiet moment and read a sentence aloud for \(UntypeUIModel.voiceLearnSeconds) seconds, with the microphone and at the distance you normally dictate with; nothing is typed. Learn again after changing microphone. Someone talking right next to you, or over you, can still get through. Works with Soniox; turn it off in a quiet place.")
+            caption("On: when other people talk around you, only your words are written. Press Learn in a quiet moment and read a sentence aloud for \(UntypeUIModel.voiceLearnSeconds) seconds; nothing is typed. untype saves a few seconds of your voice on this Mac (~/.tool-agents/untype/voice-sample.wav) and sends them to Soniox at the start of every dictation, so Soniox can tell which speaker is you. While two people talk at the same moment some words can still be mixed up, and the first words after a cold start can arrive a little later. Works with Soniox.")
         }
 
         Section {
