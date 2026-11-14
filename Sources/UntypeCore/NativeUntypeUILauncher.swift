@@ -3338,7 +3338,7 @@ private struct UntypeRootView: View {
         case "provider":
             return events.filter {
                 let lower = $0.lowercased()
-                return lower.contains("soniox") || lower.contains("elevenlabs") || lower.contains("llm") || lower.contains("provider") || lower.contains("stt")
+                return lower.contains("soniox") || lower.contains("elevenlabs") || lower.contains("google") || lower.contains("llm") || lower.contains("provider") || lower.contains("stt")
             }
         case "audio":
             return events.filter { $0.localizedCaseInsensitiveContains("audio") || $0.localizedCaseInsensitiveContains("capture") || $0.localizedCaseInsensitiveContains("mic") }
@@ -5250,7 +5250,8 @@ struct UntypeCredentialsEditorView: View {
 
     private static let speechFields: [Field] = [
         Field(key: "SONIOX_API_KEY", label: "Soniox API key", secret: true, hint: "Required when the provider is Soniox (default)."),
-        Field(key: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", secret: true, hint: "Required when the provider is ElevenLabs.")
+        Field(key: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", secret: true, hint: "Required when the provider is ElevenLabs."),
+        Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required when the provider is Google; also used for refinement with the google LLM provider.")
     ]
 
     private static let llmFields: [Field] = [
@@ -5258,7 +5259,6 @@ struct UntypeCredentialsEditorView: View {
         Field(key: "AZURE_OPENAI_ENDPOINT", label: "Azure OpenAI endpoint", secret: false, hint: "https://<resource>.openai.azure.com"),
         Field(key: "AZURE_OPENAI_DEPLOYMENT", label: "Azure OpenAI deployment", secret: false, hint: "Deployment name, e.g. gpt-5.4"),
         Field(key: "AZURE_OPENAI_API_VERSION", label: "Azure OpenAI API version", secret: false, hint: "Leave empty to use the built-in default."),
-        Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required for refinement with the google provider."),
         Field(key: "ANTHROPIC_FOUNDRY_API_KEY", label: "Claude on Azure Foundry key", secret: true, hint: "Foundry resource key; required with the azure-anthropic provider."),
         Field(key: "ANTHROPIC_FOUNDRY_RESOURCE", label: "Foundry resource name", secret: false, hint: "e.g. my-resource (https://my-resource.services.ai.azure.com)"),
         Field(key: "ANTHROPIC_API_KEY", label: "Anthropic API key", secret: true, hint: "Required with the anthropic provider (api.anthropic.com)."),
@@ -5477,7 +5477,7 @@ struct UntypeOnboardingView: View {
                 onboardingStep(
                     number: 3,
                     title: "Provider credentials",
-                    body: "At least one STT key (Soniox or ElevenLabs) and an LLM key if you want refinement.",
+                    body: "At least one STT key (Soniox, ElevenLabs or Google) and an LLM key if you want refinement.",
                     tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus),
                     actionLabel: needsCredential ? "Set keys…" : nil,
                     deepLink: nil,

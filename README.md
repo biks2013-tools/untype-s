@@ -10,7 +10,7 @@ Work in progress. The project is being built in autonomous phases tracked under 
 - Transcript renderer for `overwrite`, `append`, and `final-only` modes (with non-TTY overwrite downgrade)
 - Voice-agent protocol runtime: marker matching, operator state, section lifecycle, JSONL event writer, non-secret persisted settings, clipboard delivery, and focused-input helper integration
 - Provider-neutral session orchestration with native AVFoundation audio capture and signal-aware CLI shutdown
-- Soniox and ElevenLabs WebSocket adapters with live `URLSessionWebSocketTask` transport and mock-verified frame contracts
+- Soniox, ElevenLabs and Google (Gemini Live transcription) WebSocket adapters with live `URLSessionWebSocketTask` transport and mock-verified frame contracts
 - Azure OpenAI and Google Gemini LLM refiners, with accepted stubs for the other source-compatible provider names
 - Native SwiftUI/AppKit `untype ui` mode with non-secret UI settings, credential and transient macOS permission status, grouped transcript timeline, source-compatible active-session editability, Quartz event-tap push-to-talk monitoring with AppKit/UI-button fallback, warm session recycling, and an operator-aware non-activating overlay
 

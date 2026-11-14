@@ -105,9 +105,12 @@ public struct UntypeCommand {
       -V, --version                           Print the untype version and exit.
       --api-key <value>                       Soniox API key. Env: SONIOX_API_KEY.
       --api-key-expires-at <YYYY-MM-DD>       Reminder date for SONIOX_API_KEY renewal. Env: SONIOX_API_KEY_EXPIRES_AT.
-      --stt-provider <soniox|elevenlabs>      Realtime transcription provider. Env: UNTYPE_STT_PROVIDER.
+      --stt-provider <soniox|elevenlabs|google>
+                                              Realtime transcription provider. Env: UNTYPE_STT_PROVIDER.
       --elevenlabs-api-key <value>            ElevenLabs API key. Env: ELEVENLABS_API_KEY.
       --elevenlabs-api-key-expires-at <date>  Reminder date for ELEVENLABS_API_KEY renewal. Env: ELEVENLABS_API_KEY_EXPIRES_AT.
+      --google-api-key <value>                Google Gemini API key for speech-to-text. Env: GOOGLE_API_KEY.
+      --google-api-key-expires-at <date>      Reminder date for GOOGLE_API_KEY renewal. Env: GOOGLE_API_KEY_EXPIRES_AT.
       --model <name>                          STT provider realtime model. Env: UNTYPE_MODEL.
       --endpoint <wss-url>                    STT provider WebSocket endpoint. Env: UNTYPE_ENDPOINT.
       --language <code>                       Language hint or 'auto'. Env: UNTYPE_LANGUAGES.

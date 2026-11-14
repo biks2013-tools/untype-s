@@ -564,7 +564,7 @@ import Testing
     let config = try resolver.resolve(argv: ["--api-key", "flag-key", "--no-refine"])
 
     #expect(config.sttProvider == .soniox)
-    #expect(config.model == "stt-rt-v5")
+    #expect(config.model == "stt-rt-v6")
     #expect(config.endpoint == "wss://stt-rt.soniox.com/transcribe-websocket")
     #expect(config.languages == ["el", "en"])
     #expect(config.sampleRate == 16_000)
@@ -585,6 +585,40 @@ import Testing
     }
 }
 
+@Test func googleProviderUsesGoogleApiKeyAndItsDefaults() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: ["GOOGLE_API_KEY": "google-key"])
+
+    let config = try resolver.resolve(argv: ["--stt-provider", "google", "--no-refine"])
+
+    #expect(config.sttProvider == .google)
+    #expect(config.apiKey == "google-key")
+    #expect(config.apiKeyEnvName == "GOOGLE_API_KEY")
+    #expect(config.model == "gemini-3.5-transcribe-live")
+    #expect(config.endpoint == "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
+    #expect(config.languages == ["el", "en"])
+}
+
+@Test func googleProviderRequiresItsOwnApiKey() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: ["SONIOX_API_KEY": "soniox-key"])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: ["--stt-provider", "google", "--no-refine"])
+    }
+}
+
+@Test func googleProviderAcceptsOnlySixteenKilohertz() throws {
+    let temp = TemporaryDirectory()
+    let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
+
+    #expect(throws: UntypeError.self) {
+        _ = try resolver.resolve(argv: [
+            "--stt-provider", "google", "--google-api-key", "google-key", "--sample-rate", "24000", "--no-refine"
+        ])
+    }
+}
+
 @Test func elevenLabsProviderUsesProviderSpecificDefaults() throws {
     let temp = TemporaryDirectory()
     let resolver = ConfigResolver(cwd: temp.url, home: temp.url, shell: [:])
@@ -598,7 +632,7 @@ import Testing
     #expect(config.sttProvider == .elevenlabs)
     #expect(config.apiKey == "xi-key")
     #expect(config.apiKeyEnvName == "ELEVENLABS_API_KEY")
-    #expect(config.model == "scribe_v2_realtime")
+    #expect(config.model == "scribe_v3_live")
     #expect(config.endpoint == "wss://api.elevenlabs.io/v1/speech-to-text/realtime")
     #expect(config.languages == ["auto"])
 }

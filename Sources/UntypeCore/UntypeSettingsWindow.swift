@@ -587,14 +587,40 @@ struct UntypeSettingsView: View {
 
     // MARK: Speech
 
+    private var speechProvider: STTProvider {
+        STTProvider(rawValue: model.settings.provider) ?? .soniox
+    }
+
+    private var speechProviderCaption: String {
+        switch speechProvider {
+        case .soniox:
+            return "Uses SONIOX_API_KEY. Meeting recording always uses Soniox."
+        case .elevenlabs:
+            return "Uses ELEVENLABS_API_KEY. One language or “auto”. Meeting recording needs Soniox as the provider."
+        case .google:
+            return "Uses GOOGLE_API_KEY (the same key as the Google LLM provider). Sample rate must be 16000 Hz. Meeting recording needs Soniox as the provider."
+        }
+    }
+
     @ViewBuilder
     private var speechPane: some View {
-        Section("Speech recognition") {
+        Section {
             Picker("Provider", selection: binding(\.provider)) {
-                Text("Soniox").tag("soniox")
-                Text("ElevenLabs").tag("elevenlabs")
+                ForEach(STTProvider.allCases, id: \.rawValue) { provider in
+                    Text(provider.title).tag(provider.rawValue)
+                }
             }
-            TextField("Model", text: binding(\.model))
+            LabeledContent("Model") {
+                HStack(spacing: 8) {
+                    TextField("Model", text: binding(\.model))
+                        .labelsHidden()
+                    Button("Latest") {
+                        model.update(UntypeUISettingsPatch(model: speechProvider.defaultModel))
+                    }
+                    .disabled(model.settings.model == speechProvider.defaultModel)
+                    .help("Use \(speechProvider.title)'s current realtime model (\(speechProvider.defaultModel))")
+                }
+            }
             TextField("Languages", text: languagesBinding, prompt: Text("el, en"))
             LabeledContent("Sample rate") {
                 HStack(spacing: 8) {
@@ -605,6 +631,10 @@ struct UntypeSettingsView: View {
                 }
             }
             Toggle("Endpoint detection", isOn: binding(\.endpointDetection))
+        } header: {
+            Text("Speech recognition")
+        } footer: {
+            caption(speechProviderCaption)
         }
         .disabled(sessionShapingDisabled)
 
@@ -931,7 +961,15 @@ struct UntypeSettingsView: View {
     private func patch<T>(for keyPath: WritableKeyPath<UntypeUISettings, T>, value: T) -> UntypeUISettingsPatch {
         switch keyPath {
         case \UntypeUISettings.provider:
-            return UntypeUISettingsPatch(provider: value as? String)
+            // The model follows the provider: another provider's model would
+            // be refused by this one.
+            guard let raw = value as? String, let provider = STTProvider(rawValue: raw) else {
+                return UntypeUISettingsPatch(provider: value as? String)
+            }
+            return UntypeUISettingsPatch(
+                provider: raw,
+                model: STTProvider.model(model.settings.model, movingTo: provider)
+            )
         case \UntypeUISettings.model:
             return UntypeUISettingsPatch(model: value as? String)
         case \UntypeUISettings.endpointDetection:

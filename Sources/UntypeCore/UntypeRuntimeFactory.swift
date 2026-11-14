@@ -107,6 +107,8 @@ public enum UntypeRuntimeFactory {
             transcriber = try SonioxTranscriber(options: SonioxTranscriberOptions(config: config))
         case .elevenlabs:
             transcriber = try ElevenLabsTranscriber(options: ElevenLabsTranscriberOptions(config: config))
+        case .google:
+            transcriber = try GoogleTranscriber(options: GoogleTranscriberOptions(config: config))
         }
 
         return TranscriptionSessionRuntime(
@@ -261,6 +263,8 @@ public enum UntypeRuntimeFactory {
             transcriber = try SonioxTranscriber(options: SonioxTranscriberOptions(config: config))
         case .elevenlabs:
             transcriber = try ElevenLabsTranscriber(options: ElevenLabsTranscriberOptions(config: config))
+        case .google:
+            transcriber = try GoogleTranscriber(options: GoogleTranscriberOptions(config: config))
         }
 
         return TranscriptionSessionRuntime(
