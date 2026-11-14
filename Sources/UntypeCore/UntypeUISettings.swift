@@ -1464,6 +1464,9 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// The sound of the loudspeakers is removed from the microphone of a
     /// meeting recording (Apple voice processing; nil: the default, off).
     public var echoCancellation: Bool?
+    /// The microphone's transcript of a meeting keeps only the user's
+    /// words, recognised by the saved voice sample (nil: the default, off).
+    public var onlyMyVoice: Bool?
 
     public init(
         language: String = MeetingTranscriptLanguage.english.rawValue,
@@ -1473,8 +1476,10 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         audioSources: String? = nil,
         audioLayout: String? = nil,
         muteWhileDictating: Bool? = nil,
-        echoCancellation: Bool? = nil
+        echoCancellation: Bool? = nil,
+        onlyMyVoice: Bool? = nil
     ) {
+        self.onlyMyVoice = onlyMyVoice
         self.language = language
         self.silenceMinutes = silenceMinutes
         self.folder = folder
@@ -1489,6 +1494,11 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// the microphone.
     public var removesSpeakerSound: Bool {
         echoCancellation ?? false
+    }
+
+    /// Whether the microphone's transcript keeps only the user's words.
+    public var keepsOnlyMyVoice: Bool {
+        onlyMyVoice ?? false
     }
 
     /// Whether a dictation turn is kept out of the meeting being recorded.

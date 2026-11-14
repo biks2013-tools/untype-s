@@ -183,6 +183,76 @@ public struct MeetingTokenAggregator: Sendable {
     }
 }
 
+/// Keeps a meeting's microphone transcript to the user's own words: the
+/// stream starts with the user's voice sample (see `VoiceSample`), the
+/// speaker label Soniox gives it is the user's, and the tokens of every
+/// other speaker (the call heard from the loudspeakers, people in the room)
+/// are dropped. The microphone itself is not touched.
+public struct MeetingUserVoiceFilter: Sendable, Equatable {
+    /// Stream time at which the microphone's audio starts.
+    public let leadMs: Int
+    private var sampleSpeakers: [String: Int] = [:]
+    private var pastSample = false
+    /// Words kept and dropped so far (for the event log).
+    public private(set) var keptWords = 0
+    public private(set) var droppedWords = 0
+
+    public init(leadMs: Int) {
+        self.leadMs = leadMs
+    }
+
+    /// The user's speaker label; nil while the sample is not recognised.
+    public var userSpeaker: String? {
+        Self.most(sampleSpeakers)
+    }
+
+    private static func most(_ counts: [String: Int]) -> String? {
+        counts.max { $0.value == $1.value ? $0.key > $1.key : $0.value < $1.value }?.key
+    }
+
+    /// The tokens of one result frame without the sample and without other
+    /// speakers, with their times counted from the microphone's start.
+    /// While the user's label is not known, or a token has none, it is kept.
+    public mutating func filter(_ tokens: [MeetingToken]) -> [MeetingToken] {
+        var previousFromSample: Bool?
+        var result: [MeetingToken] = []
+        // The sample's pieces of this frame name the user before they are final.
+        var pendingSample: [String: Int] = [:]
+        for token in tokens where !token.isMarker && !token.isFinal && (token.startMs.map { $0 < leadMs } ?? false) {
+            if let speaker = token.speaker {
+                pendingSample[speaker, default: 0] += 1
+            }
+        }
+        for var token in tokens {
+            if token.isMarker {
+                result.append(token)
+                continue
+            }
+            let fromSample = token.startMs.map { $0 < leadMs } ?? (previousFromSample ?? !pastSample)
+            previousFromSample = fromSample
+            let spoken = token.text.contains { $0.isLetter || $0.isNumber }
+            if fromSample {
+                if token.isFinal, spoken, let speaker = token.speaker {
+                    sampleSpeakers[speaker, default: 0] += 1
+                }
+                continue
+            }
+            pastSample = true
+            token.startMs = token.startMs.map { $0 - leadMs }
+            token.endMs = token.endMs.map { $0 - leadMs }
+            let user = userSpeaker ?? Self.most(pendingSample)
+            let isWord = token.isFinal && spoken && token.text.first?.isWhitespace == true
+            if let user, let speaker = token.speaker, speaker != user {
+                droppedWords += isWord ? 1 : 0
+                continue
+            }
+            keptWords += isWord ? 1 : 0
+            result.append(token)
+        }
+        return result
+    }
+}
+
 /// The transcript language of a finished meeting.
 public enum MeetingTranscriptLanguage: String, Codable, Sendable, CaseIterable {
     /// Translated to English; lines already in English stay as spoken.
