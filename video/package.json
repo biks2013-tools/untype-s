@@ -1,0 +1,15 @@
+{
+  "name": "untype-demo-video",
+  "private": true,
+  "type": "module",
+  "description": "Timeline-driven demo video of untype: renders the animation frame by frame, builds subtitles and narration sheets, and fits the timing to recorded narration.",
+  "scripts": {
+    "sheets": "node tools/video.ts sheets",
+    "render": "node tools/video.ts render",
+    "fit": "node tools/video.ts fit",
+    "scratch-voice": "node tools/video.ts scratch-voice"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
+  }
+}
