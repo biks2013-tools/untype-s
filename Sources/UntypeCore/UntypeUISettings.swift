@@ -84,6 +84,10 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     /// Operator chips (letters, e.g. "R", "I") the idle overlay shows at
     /// rest; empty: all of them.
     public var pinnedOperators: [String] = []
+    /// Hands-free turns: who ends the sentences.
+    public var handsFree: HandsFreePreferences = HandsFreePreferences()
+    /// Only my voice: the filter and the learned loudness of the user.
+    public var voiceFilter: VoiceFilterPreferences = VoiceFilterPreferences()
 
     /// The overlay's operator letters, in chip order.
     public static let operatorLetters = ["R", "T", "A", "F", "S", "L", "W", "X", "C", "I"]
@@ -354,6 +358,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let experimentalOperators = patch.experimentalOperators {
             next.experimentalOperators = experimentalOperators
         }
+        if let handsFree = patch.handsFree {
+            next.handsFree = handsFree
+        }
+        if let voiceFilter = patch.voiceFilter {
+            next.voiceFilter = voiceFilter
+        }
         if let meeting = patch.meeting {
             next.meeting = meeting
         }
@@ -487,6 +497,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var resetOverlayPosition: Bool?
     public var experimentalOperators: Bool?
     public var meeting: MeetingPreferences?
+    public var handsFree: HandsFreePreferences?
+    public var voiceFilter: VoiceFilterPreferences?
     public var pinnedOperators: [String]?
 
     public init(
@@ -537,7 +549,9 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         resetOverlayPosition: Bool? = nil,
         experimentalOperators: Bool? = nil,
         meeting: MeetingPreferences? = nil,
-        pinnedOperators: [String]? = nil
+        pinnedOperators: [String]? = nil,
+        handsFree: HandsFreePreferences? = nil,
+        voiceFilter: VoiceFilterPreferences? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -586,6 +600,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.resetOverlayPosition = resetOverlayPosition
         self.experimentalOperators = experimentalOperators
         self.meeting = meeting
+        self.handsFree = handsFree
+        self.voiceFilter = voiceFilter
         self.pinnedOperators = pinnedOperators
     }
 }
@@ -859,7 +875,9 @@ public enum UntypeUISettingsStore {
             overlayPosition: current.overlayPosition,
             experimentalOperators: current.experimentalOperators,
             meeting: current.meeting,
-            pinnedOperators: current.pinnedOperators
+            pinnedOperators: current.pinnedOperators,
+            handsFree: current.handsFree,
+            voiceFilter: current.voiceFilter
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -936,6 +954,8 @@ private struct PersistedUISettings: Codable {
     let overlayPosition: UntypeOverlayPosition?
     let experimentalOperators: Bool?
     let meeting: MeetingPreferences?
+    let handsFree: HandsFreePreferences?
+    let voiceFilter: VoiceFilterPreferences?
     let pinnedOperators: [String]?
 
     enum CodingKeys: String, CodingKey {
@@ -985,6 +1005,8 @@ private struct PersistedUISettings: Codable {
         case overlayPosition
         case experimentalOperators
         case meeting
+        case handsFree
+        case voiceFilter
         case pinnedOperators
     }
 
@@ -1035,6 +1057,8 @@ private struct PersistedUISettings: Codable {
         self.overlayPosition = settings.overlayPosition
         self.experimentalOperators = settings.experimentalOperators
         self.meeting = settings.meeting
+        self.handsFree = settings.handsFree
+        self.voiceFilter = settings.voiceFilter
         self.pinnedOperators = settings.pinnedOperators
     }
 
@@ -1088,7 +1112,9 @@ private struct PersistedUISettings: Codable {
                 overlayPosition: overlayPosition,
                 experimentalOperators: experimentalOperators ?? defaults.experimentalOperators,
                 meeting: meeting ?? MeetingPreferences(),
-                pinnedOperators: pinnedOperators ?? []
+                pinnedOperators: pinnedOperators ?? [],
+                handsFree: handsFree ?? HandsFreePreferences(),
+                voiceFilter: voiceFilter ?? VoiceFilterPreferences()
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")

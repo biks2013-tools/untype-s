@@ -360,6 +360,17 @@ struct UntypeSettingsView: View {
 
     // MARK: Meetings
 
+    private func handsFreeBinding(_ keyPath: WritableKeyPath<HandsFreePreferences, Bool?>) -> Binding<Bool> {
+        Binding(
+            get: { model.settings.handsFree[keyPath: keyPath] ?? false },
+            set: { value in
+                var handsFree = model.settings.handsFree
+                handsFree[keyPath: keyPath] = value
+                model.setHandsFreePreferences(handsFree)
+            }
+        )
+    }
+
     private func meetingBinding<T>(_ keyPath: WritableKeyPath<MeetingPreferences, T>) -> Binding<T> {
         Binding(
             get: { model.settings.meeting[keyPath: keyPath] },
@@ -544,6 +555,16 @@ struct UntypeSettingsView: View {
         }
 
         Section {
+            Toggle("I end the sentences", isOn: handsFreeBinding(\.userPunctuates))
+            Toggle("Full stop after a long pause", isOn: handsFreeBinding(\.periodAfterPause))
+                .disabled(!model.settings.handsFree.leavesPunctuationToUser)
+        } header: {
+            Text("Hands-free (after a tap)")
+        } footer: {
+            caption("On: while untype listens hands-free it writes no full stop when you pause, starts with a capital only after a full stop (or at the start of the text), and puts a space before its words when the cursor stands right after text. You type the full stops; between phrases you can also move the cursor and the next words go there. A name at the start of a phrase is written in lower case. “Full stop after a long pause” closes the sentence after about four seconds of silence, when the cursor is still at the end of what was dictated. Needs Focused input, and a field that reports its text (not terminals). Held push-to-talk is not changed.")
+        }
+
+        Section {
             Toggle("Quick Close", isOn: binding(\.quickClose))
                 .disabled(sessionShapingDisabled)
         } footer: {
@@ -637,6 +658,36 @@ struct UntypeSettingsView: View {
             caption(speechProviderCaption)
         }
         .disabled(sessionShapingDisabled)
+
+        Section {
+            Toggle("Only my voice", isOn: Binding(
+                get: { model.settings.voiceFilter.isOn },
+                set: { value in
+                    var voiceFilter = model.settings.voiceFilter
+                    voiceFilter.enabled = value
+                    model.setVoiceFilterPreferences(voiceFilter)
+                }
+            ))
+            .disabled(speechProvider != .soniox)
+            LabeledContent("My voice level") {
+                HStack(spacing: 8) {
+                    Text(verbatim: model.settings.voiceFilter.voiceLevelDb.map { "\(Int($0.rounded())) dB" } ?? "Not learned")
+                        .foregroundStyle(.secondary)
+                    Button(model.settings.voiceFilter.voiceLevelDb == nil ? "Learn" : "Learn again") { model.learnVoiceLevel() }
+                        .disabled(model.voiceLearnPending)
+                }
+            }
+            .disabled(speechProvider != .soniox)
+            if !model.voiceLearnStatus.isEmpty {
+                Text(model.voiceLearnStatus)
+                    .font(.callout.weight(model.voiceLearnPending ? .semibold : .regular))
+                    .foregroundStyle(model.voiceLearnPending ? UntypeDesignTokens.accentAmberStrong : Color.secondary)
+            }
+        } header: {
+            Text("Other voices")
+        } footer: {
+            caption("On: when other people talk around you, only the words of the speaker as loud as you are written (the others are usually much quieter at your microphone). Press Learn in a quiet moment and read a sentence aloud for \(UntypeUIModel.voiceLearnSeconds) seconds, with the microphone and at the distance you normally dictate with; nothing is typed. Learn again after changing microphone. Someone talking right next to you, or over you, can still get through. Works with Soniox; turn it off in a quiet place.")
+        }
 
         Section {
             Picker("Mode", selection: binding(\.protocolMode)) {

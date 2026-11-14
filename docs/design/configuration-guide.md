@@ -530,3 +530,23 @@ Leave it unset (or `off`) for the default one-shot behavior.
 - Missing key for the chosen provider: startup fails with a configuration error; there is no fallback to another provider.
 - A model the provider has replaced (`stt-rt-v3`, `stt-rt-v4`, `stt-rt-v5`, `scribe_v2_realtime`) stored in the UI settings is replaced by its successor. `--model` / `UNTYPE_MODEL` given outside the UI is used as written.
 - In Settings → Speech, changing the provider sets the model to that provider's default unless you typed a model of your own; **Latest** sets the provider's current model.
+
+## Hands-free punctuation (plan-067)
+
+Stored in `~/.tool-agents/untype/ui-state.json` under `handsFree`; set in Settings → Push-to-Talk → Hands-free (after a tap). No environment variable or flag.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `handsFree.userPunctuates` | off | In a hands-free turn untype writes no full stop at a pause, a capital only after a full stop (or at the start of the text), and a space before its words only when the cursor stands right after text. |
+| `handsFree.periodAfterPause` | off | With the first on: a pause of about four seconds closes the sentence with a full stop, when the cursor is still at the end of the dictated text. |
+
+Both need Focused input and a field that reports its text through Accessibility; in terminals the words are typed as recognised without the closing full stop.
+
+## Only my voice (plan-068)
+
+Stored in `~/.tool-agents/untype/ui-state.json` under `voiceFilter`; set in Settings → Speech → Other voices. No environment variable or flag. Soniox only.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `voiceFilter.enabled` | off | Keep only the words of the speaker about as loud as the user; drop quieter speakers. |
+| `voiceFilter.voiceLevelDb` | not set | The user's loudness at the microphone in dBFS, written by **Learn** from the next dictation. Without it the filter does not run (a warning is logged) and all voices are transcribed. Learn again after changing microphone or distance. |
