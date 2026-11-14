@@ -42,8 +42,10 @@ public struct MeetingRecordingOptions: Sendable {
     public let llm: LLMConfig
     /// Which audio is saved next to the transcript.
     public let audio: MeetingAudioSettings
+    /// The loudspeakers' sound is removed from the microphone.
+    public let echoCancellation: Bool
 
-    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off) {
+    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false) {
         self.apiKey = apiKey
         self.model = model
         self.endpoint = endpoint
@@ -52,11 +54,12 @@ public struct MeetingRecordingOptions: Sendable {
         self.language = language
         self.llm = llm
         self.audio = audio
+        self.echoCancellation = echoCancellation
     }
 
     /// Soniox key, model and endpoint from untype's configuration, plus the
     /// meeting settings.
-    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off) throws {
+    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false) throws {
         guard config.sttProvider == .soniox else {
             throw MeetingError.requiresSoniox(config.sttProvider.rawValue)
         }
@@ -71,8 +74,37 @@ public struct MeetingRecordingOptions: Sendable {
             silenceMinutes: silenceMinutes,
             language: language,
             llm: config.llm,
-            audio: audio
+            audio: audio,
+            echoCancellation: echoCancellation
         )
+    }
+}
+
+/// The gate on the meeting's microphone. Muted, the meeting gets silence
+/// in place of what the microphone hears (the user is dictating). Set on
+/// the main actor, read on the audio thread.
+public final class MeetingMicrophoneGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var muted = false
+
+    public init() {}
+
+    public var isMuted: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return muted
+        }
+        set {
+            lock.lock()
+            muted = newValue
+            lock.unlock()
+        }
+    }
+
+    /// The audio the meeting gets: `pcm`, or silence of the same length.
+    public func filter(_ pcm: Data) -> Data {
+        isMuted ? Data(count: pcm.count) : pcm
     }
 }
 
@@ -86,6 +118,14 @@ public struct MeetingRecordingOptions: Sendable {
 @MainActor
 public final class MeetingRecorder {
     public nonisolated static let sampleRate = 16_000
+
+    /// Closed while the user dictates and the meeting must not hear it.
+    public let microphoneGate = MeetingMicrophoneGate()
+    /// The microphone, shared with dictation while a recording runs with
+    /// echo cancellation.
+    public let sharedMicrophone = MeetingSharedMicrophone()
+    /// The microphone became shared (true), or is free again (false).
+    public var onSharedMicrophoneChanged: (Bool) -> Void = { _ in }
 
     public private(set) var isRecording = false
     public private(set) var startDate: Date?
@@ -187,9 +227,9 @@ public final class MeetingRecorder {
             self.systemAudio = systemAudio
             try await systemAudio.start()
 
-            let microphone = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(sampleRate: Self.sampleRate))
+            let microphone = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(sampleRate: Self.sampleRate, voiceProcessing: options.echoCancellation))
             self.microphone = microphone
-            try await Self.startMicrophone(microphone, waveform: micWaveform, stream: micStream, audio: savedAudio) { [weak self] error in
+            try await Self.startMicrophone(microphone, waveform: micWaveform, stream: micStream, audio: savedAudio, gate: microphoneGate, shared: sharedMicrophone) { [weak self] error in
                 dispatchMeeting { self?.fail("microphone: \(error.localizedDescription)") }
             }
             try await Self.connect(micStream, callStream)
@@ -204,12 +244,16 @@ public final class MeetingRecorder {
         }
 
         isRecording = true
+        if options.echoCancellation {
+            sharedMicrophone.setActive(true)
+            onSharedMicrophoneChanged(true)
+        }
         let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             dispatchMeeting { self?.checkSilence() }
         }
         RunLoop.main.add(timer, forMode: .common)
         silenceTimer = timer
-        onEvent("diagnostic.info: [untype] meeting recording started (\(folder.lastPathComponent); auto-stop after \(options.silenceMinutes) min of silence; audio: \(options.audio.summary))")
+        onEvent("diagnostic.info: [untype] meeting recording started (\(folder.lastPathComponent); auto-stop after \(options.silenceMinutes) min of silence; audio: \(options.audio.summary); echo cancellation: \(options.echoCancellation ? "on" : "off"))")
     }
 
     /// Stops the recording and saves the transcript.
@@ -242,15 +286,34 @@ public final class MeetingRecorder {
         _ = try await (a, b)
     }
 
+    /// Mutes or unmutes the meeting's microphone (a dictation turn starts
+    /// or ends). The system audio is not affected.
+    public func setMicrophoneMuted(_ muted: Bool) {
+        guard microphoneGate.isMuted != muted else {
+            return
+        }
+        microphoneGate.isMuted = muted
+        if isRecording {
+            onEvent("diagnostic.info: [untype] meeting microphone \(muted ? "muted for a dictation turn" : "unmuted")")
+        }
+    }
+
     private nonisolated static func startMicrophone(
         _ microphone: AVFoundationAudioSource,
         waveform: UntypeWaveformBuffer,
         stream: MeetingSonioxStream,
         audio: MeetingAudioRecorder?,
+        gate: MeetingMicrophoneGate,
+        shared: MeetingSharedMicrophone,
         onError: @escaping @Sendable (Error) -> Void
     ) async throws {
         try await microphone.start(handlers: AudioSourceEventHandlers(
-            audio: { pcm in
+            audio: { captured in
+                // Dictation (when the microphone is shared) hears everything.
+                shared.publish(captured)
+                // Silence of the same length while muted: the times of the
+                // transcript and of the audio file stay aligned.
+                let pcm = gate.filter(captured)
                 let now = ProcessInfo.processInfo.systemUptime
                 waveform.append(pcm: pcm, at: now)
                 stream.push(pcm)
@@ -306,6 +369,10 @@ public final class MeetingRecorder {
     private func tearDown() async {
         try? await microphone?.stop()
         microphone = nil
+        if sharedMicrophone.isActive {
+            sharedMicrophone.setActive(false)
+            onSharedMicrophoneChanged(false)
+        }
         await systemAudio?.stop()
         systemAudio = nil
         if let audioRecorder {

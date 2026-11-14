@@ -341,7 +341,11 @@ final class UntypeUIModel: ObservableObject {
     @Published var timeline = UntypeUITimelineState()
     @Published var events: [String] = []
     @Published var isRunning = false
-    @Published var hotkeyPressed = false
+    @Published var hotkeyPressed = false {
+        didSet {
+            updateMeetingMicrophoneMute()
+        }
+    }
     @Published var hotkeyMonitorStatus = "disabled"
     @Published var audioStatus = "idle"
     /// Bumped whenever a prompt file changes on disk, so open editors refresh.
@@ -366,6 +370,8 @@ final class UntypeUIModel: ObservableObject {
 
     /// Meeting recording (both sides of a call, separate from push-to-talk).
     let meetingRecorder = MeetingRecorder()
+    /// The running session takes its audio from the meeting's microphone.
+    private var sessionUsesSharedMicrophone = false
     /// The live transcript of the meeting, for the transcription window.
     let transcriptFeed = MeetingTranscriptFeed()
     var showTranscriptionWindow: (() -> Void)?
@@ -909,6 +915,7 @@ final class UntypeUIModel: ObservableObject {
             settings = try settings.merged(UntypeUISettingsPatch(meeting: meeting))
             try UntypeUISettingsStore.save(settings)
             overlay?.refreshOperators()
+            updateMeetingMicrophoneMute()
             appendEvent("config.saved: meeting recording settings")
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
@@ -1629,6 +1636,13 @@ final class UntypeUIModel: ObservableObject {
         let turnContextStore = turnContext
         let askConversationStore = askConversation
         let modelBox = WeakUntypeUIModelBox(self)
+        // A meeting recorded with echo cancellation shares its microphone:
+        // a capture of our own would get no audio while it runs.
+        let sharedMicrophone = meetingRecorder.sharedMicrophone.isActive ? meetingRecorder.sharedMicrophone : nil
+        sessionUsesSharedMicrophone = sharedMicrophone != nil
+        if sharedMicrophone != nil {
+            appendEvent("diagnostic.info: [untype] the session takes its audio from the meeting's microphone")
+        }
         sessionTask = Task.detached { [modelBox] in
             do {
                 dispatchToUI { [modelBox] in
@@ -1652,6 +1666,7 @@ final class UntypeUIModel: ObservableObject {
                 let runtime = try UntypeRuntimeFactory.makeForUI(
                     config: config,
                     audioGate: audioGate,
+                    audioSource: sharedMicrophone.map { SharedMicrophoneAudioSource(shared: $0, sampleRate: config.sampleRate) },
                     transcript: { event in
                         dispatchToUI { [modelBox] in
                             modelBox.model?.handleTranscript(event)
@@ -2095,6 +2110,13 @@ final class UntypeUIModel: ObservableObject {
             meetingStartFailed(error)
             return
         }
+        if options.echoCancellation, hotkeyPressed || runtimeStopInFlight || sessionOwner == .manual {
+            // Echo cancellation takes over the microphone: a turn or a
+            // manual session in progress would lose its audio.
+            appendEvent("diagnostic.warning: [untype] meeting recording not started: a dictation is in progress and echo cancellation takes over the microphone")
+            overlay?.showNotice("Finish the dictation, then start the recording")
+            return
+        }
         meetingBusy = true
         recordingStartedAt = Date()
         if let me = calendarMe, let meeting = recordingCalendarMeeting
@@ -2113,6 +2135,9 @@ final class UntypeUIModel: ObservableObject {
         meetingRecorder.onFinished = { [weak self] reason, folder in
             self?.transcriptFeed.end()
             self?.meetingFinished(reason: reason, folder: folder)
+        }
+        meetingRecorder.onSharedMicrophoneChanged = { [weak self] shared in
+            self?.sharedMicrophoneChanged(shared)
         }
         meetingRecorder.onSegment = { [weak self] segment in
             self?.transcriptFeed.add(segment)
@@ -2141,6 +2166,49 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
+    /// The meeting's microphone became shared (a recording with echo
+    /// cancellation started) or free again (it ended). A dictation session
+    /// that runs with the other kind of microphone is started again as soon
+    /// as it is idle; a turn in progress is not interrupted, and the session
+    /// that follows it picks the right microphone by itself.
+    private func alignSessionMicrophone(attempt: Int = 0) {
+        let shared = meetingRecorder.sharedMicrophone.isActive
+        guard sessionOwner == .hotkey, runtime != nil, sessionUsesSharedMicrophone != shared else {
+            return
+        }
+        if !hotkeyPressed, !runtimeStopInFlight, captureState == "warm" {
+            appendEvent("diagnostic.info: [untype] push-to-talk session restarts with \(shared ? "the meeting's microphone" : "its own microphone")")
+            recycleWarmSession()
+            return
+        }
+        guard attempt < 120 else {
+            appendEvent("diagnostic.warning: [untype] push-to-talk still runs with the \(shared ? "old" : "meeting's") microphone; it changes after the next turn")
+            return
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self?.alignSessionMicrophone(attempt: attempt + 1)
+        }
+    }
+
+    private func sharedMicrophoneChanged(_ shared: Bool) {
+        appendEvent("diagnostic.info: [untype] meeting microphone \(shared ? "is shared with dictation (echo cancellation on)" : "released")")
+        if sessionOwner == .manual, runtime != nil {
+            appendEvent("diagnostic.warning: [untype] the manual session may hear nothing now; stop and start it again")
+        }
+        Task { [weak self] in
+            // Released: give macOS a moment to leave voice processing.
+            try? await Task.sleep(nanoseconds: shared ? 100_000_000 : 700_000_000)
+            self?.alignSessionMicrophone()
+        }
+    }
+
+    /// A dictation turn (hotkey held, or hands-free) is kept out of the
+    /// meeting being recorded when Settings → Meetings says so.
+    private func updateMeetingMicrophoneMute() {
+        meetingRecorder.setMicrophoneMuted(hotkeyPressed && settings.meeting.mutesMicrophoneWhileDictating)
+    }
+
     private func meetingOptions() throws -> MeetingRecordingOptions {
         let config = try ConfigResolver(requireProtocolOutputForHybrid: false).resolve(argv: try settings.sessionArguments())
         return try MeetingRecordingOptions(
@@ -2148,7 +2216,8 @@ final class UntypeUIModel: ObservableObject {
             folderRoot: settings.meeting.folderURL,
             silenceMinutes: settings.meeting.silenceMinutes,
             language: try settings.meeting.transcriptLanguage,
-            audio: try settings.meeting.audioSettings
+            audio: try settings.meeting.audioSettings,
+            echoCancellation: settings.meeting.removesSpeakerSound
         )
     }
 

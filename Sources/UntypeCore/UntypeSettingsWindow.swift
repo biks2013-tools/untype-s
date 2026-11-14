@@ -421,10 +421,35 @@ struct UntypeSettingsView: View {
                     }
                 }
             }
+            Toggle("Remove speaker sound from the microphone", isOn: Binding(
+                get: { model.settings.meeting.removesSpeakerSound },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.echoCancellation = value
+                    model.setMeetingPreferences(meeting)
+                }
+            ))
         } header: {
             Text("Audio")
         } footer: {
-            caption("Saved next to the transcript as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). Headphones avoid the call being heard twice.")
+            caption("Saved next to the transcript as .mic.m4a and .system.m4a, or one .m4a when mixed (AAC, speech quality). Without headphones the microphone also hears the call from the loudspeakers: “Remove speaker sound” takes it out of the microphone's audio and transcript (Apple voice processing, which also reduces noise and evens out your voice). It applies from the next recording; while such a recording runs, dictation uses the meeting's microphone.")
+        }
+
+        Section {
+            Toggle("Mute the microphone while dictating", isOn: Binding(
+                get: { model.settings.meeting.mutesMicrophoneWhileDictating },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.muteWhileDictating = value
+                    model.setMeetingPreferences(meeting)
+                }
+            ))
+        } header: {
+            Text("Dictation during a meeting")
+        } footer: {
+            caption(model.settings.meeting.mutesMicrophoneWhileDictating
+                ? "Push-to-talk and Push-to-Act work while a meeting is recorded. On: during a push-to-talk turn the meeting gets silence from your microphone, so what you dictate stays out of the transcript, the transcription window and the saved audio. The call's side is still recorded. This does not mute you in the call itself: do that in Teams or Zoom."
+                : "Push-to-talk and Push-to-Act work while a meeting is recorded. Off: what you dictate is also recorded in the meeting, as your side of the conversation.")
         }
 
         Section {

@@ -1422,6 +1422,13 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// `MeetingAudioLayout` raw value, used when both sides are saved (nil:
     /// separate files).
     public var audioLayout: String?
+    /// While the user dictates (a push-to-talk turn) during a recording,
+    /// the meeting gets silence from the microphone instead of the
+    /// dictation (nil: the default, on).
+    public var muteWhileDictating: Bool?
+    /// The sound of the loudspeakers is removed from the microphone of a
+    /// meeting recording (Apple voice processing; nil: the default, off).
+    public var echoCancellation: Bool?
 
     public init(
         language: String = MeetingTranscriptLanguage.english.rawValue,
@@ -1429,7 +1436,9 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         folder: String? = nil,
         calendarCLI: String? = nil,
         audioSources: String? = nil,
-        audioLayout: String? = nil
+        audioLayout: String? = nil,
+        muteWhileDictating: Bool? = nil,
+        echoCancellation: Bool? = nil
     ) {
         self.language = language
         self.silenceMinutes = silenceMinutes
@@ -1437,6 +1446,19 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         self.calendarCLI = calendarCLI
         self.audioSources = audioSources
         self.audioLayout = audioLayout
+        self.muteWhileDictating = muteWhileDictating
+        self.echoCancellation = echoCancellation
+    }
+
+    /// Whether a meeting recording removes the loudspeakers' sound from
+    /// the microphone.
+    public var removesSpeakerSound: Bool {
+        echoCancellation ?? false
+    }
+
+    /// Whether a dictation turn is kept out of the meeting being recorded.
+    public var mutesMicrophoneWhileDictating: Bool {
+        muteWhileDictating ?? true
     }
 
     /// Which audio a meeting recording saves.

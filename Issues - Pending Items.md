@@ -2,6 +2,12 @@
 
 ## Pending Items
 
+### P1 - Meeting echo cancellation: on-device check pending (2026-11-14)
+Plan-065 / FR-71, not released, not installed. Off by default. Changes how push-to-talk gets its microphone while a recording with the switch on runs (shared microphone), so push-to-talk must be checked. Verified: `swift build`, 412/412 tests, hardware runs of the capture code (speaker sound from -20 dB to -60 dB and lower; unprocessed capture normal again afterwards). To check in a real call without headphones, switch on: (1) `.mic.m4a` and the microphone transcript do not hold the call; (2) the call's volume is not lowered noticeably; (3) the voice sounds acceptable; (4) push-to-talk held and hands-free during the recording and after it ends (`focused_input.ok=true`; log lines "push-to-talk session restarts with the meeting's microphone" / "its own microphone"); (5) Push-to-Act; (6) the dictation mute of plan-064 still keeps the dictation out of the meeting. Open: duplicate lines in the transcript are not removed when the switch is off (option 3 of the plan).
+
+### P1 - Dictation while a meeting is recorded: on-device check pending (2026-11-14)
+Plan-064 / FR-70, not released. Touches the meeting's microphone path; push-to-talk code is unchanged apart from a `didSet` on `hotkeyPressed`. Checked with `swift build` and 406/406 tests; no dictation turn has ever been made during a recording. To check during a recording: (1) push-to-talk held and hands-free deliver as usual (`focused_input.ok=true`); (2) switch on: the dictation is not in the transcript, the transcription window or `.mic.m4a` (silence there), the log has "meeting microphone muted for a dictation turn" / "unmuted"; (3) switch off: it is recorded; (4) Push-to-Act works; (5) the call's side keeps being transcribed during the turn.
+
 ### P2 - Settings reorganized: on-device check pending (2026-11-13)
 Plan-063 / FR-69, released in build 63. Checked with `swift build`, 401/401 tests and off-screen renders of five panes. To check in the installed app: the Meetings pane (every control still changes its setting, the transcription window button), the Operators order, the Screen & System Audio Recording rows, and that the main window's hotkey "Change…" opens Push-to-Talk.
 
