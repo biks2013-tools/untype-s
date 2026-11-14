@@ -4,10 +4,15 @@ import Foundation
 public struct AVFoundationAudioSourceOptions: Sendable, Equatable {
     public let sampleRate: Int
     public let bufferFrameCount: AVAudioFrameCount
+    /// Apple's voice processing on the microphone: the sound the Mac itself
+    /// plays (the loudspeakers) is removed from what the microphone hears.
+    /// While it runs, any other capture in this process gets no audio.
+    public let voiceProcessing: Bool
 
-    public init(sampleRate: Int, bufferFrameCount: AVAudioFrameCount = 1_024) {
+    public init(sampleRate: Int, bufferFrameCount: AVAudioFrameCount = 1_024, voiceProcessing: Bool = false) {
         self.sampleRate = sampleRate
         self.bufferFrameCount = bufferFrameCount
+        self.voiceProcessing = voiceProcessing
     }
 
     public init(config: ResolvedConfig, bufferFrameCount: AVAudioFrameCount = 1_024) {
@@ -37,8 +42,19 @@ public final class AVFoundationAudioSource: RuntimeAudioSource, @unchecked Senda
         try await Self.ensureMicrophonePermission()
 
         let inputNode = engine.inputNode
+        if options.voiceProcessing {
+            do {
+                try inputNode.setVoiceProcessingEnabled(true)
+            } catch {
+                throw UntypeError.microphoneCapture("Failed to enable voice processing on the microphone: \(error.localizedDescription)")
+            }
+            // The other apps (the call) keep their volume as far as macOS allows.
+            inputNode.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+        }
         let inputFormat = inputNode.outputFormat(forBus: 0)
-        let converter = try PCM16MonoConverter(inputFormat: inputFormat, sampleRate: options.sampleRate)
+        // With voice processing the node has several channels; the first
+        // carries the processed microphone.
+        let converter = try PCM16MonoConverter(inputFormat: inputFormat, sampleRate: options.sampleRate, firstChannelOnly: options.voiceProcessing)
         self.converter = converter
         self.handlers = handlers
 
@@ -56,6 +72,9 @@ public final class AVFoundationAudioSource: RuntimeAudioSource, @unchecked Senda
             started = true
         } catch {
             inputNode.removeTap(onBus: 0)
+            if options.voiceProcessing {
+                try? inputNode.setVoiceProcessingEnabled(false)
+            }
             self.converter = nil
             self.handlers = nil
             throw UntypeError.microphoneCapture("Failed to start AVAudioEngine: \(error.localizedDescription)")
@@ -68,6 +87,10 @@ public final class AVFoundationAudioSource: RuntimeAudioSource, @unchecked Senda
         }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        if options.voiceProcessing {
+            // Off again, so that an ordinary capture works afterwards.
+            try? engine.inputNode.setVoiceProcessingEnabled(false)
+        }
         converter = nil
         handlers = nil
         started = false
@@ -116,8 +139,10 @@ public final class PCM16MonoConverter: @unchecked Sendable {
     private let inputFormat: AVAudioFormat
     private let outputFormat: AVAudioFormat
     private let converter: AVAudioConverter
+    /// Set when only the first channel of a multichannel input is used.
+    private let monoInputFormat: AVAudioFormat?
 
-    public init(inputFormat: AVAudioFormat, sampleRate: Int) throws {
+    public init(inputFormat: AVAudioFormat, sampleRate: Int, firstChannelOnly: Bool = false) throws {
         guard sampleRate > 0 else {
             throw UntypeError.microphoneCapture("Audio sample rate must be positive. Got: \(sampleRate).")
         }
@@ -129,17 +154,39 @@ public final class PCM16MonoConverter: @unchecked Sendable {
         ) else {
             throw UntypeError.microphoneCapture("Failed to create mono PCM16 output audio format.")
         }
-        guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else {
+        var monoInputFormat: AVAudioFormat?
+        if firstChannelOnly, inputFormat.channelCount > 1 {
+            guard let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inputFormat.sampleRate, channels: 1, interleaved: false) else {
+                throw UntypeError.microphoneCapture("Failed to create the mono format for the processed microphone.")
+            }
+            monoInputFormat = mono
+        }
+        guard let converter = AVAudioConverter(from: monoInputFormat ?? inputFormat, to: outputFormat) else {
             throw UntypeError.microphoneCapture("Failed to create AVAudioConverter for microphone input.")
         }
+        self.monoInputFormat = monoInputFormat
         self.inputFormat = inputFormat
         self.outputFormat = outputFormat
         self.converter = converter
     }
 
-    public func convert(_ inputBuffer: AVAudioPCMBuffer) throws -> Data {
-        guard inputBuffer.frameLength > 0 else {
+    public func convert(_ capturedBuffer: AVAudioPCMBuffer) throws -> Data {
+        guard capturedBuffer.frameLength > 0 else {
             return Data()
+        }
+        let inputBuffer: AVAudioPCMBuffer
+        if let monoInputFormat {
+            guard let channels = capturedBuffer.floatChannelData,
+                  let mono = AVAudioPCMBuffer(pcmFormat: monoInputFormat, frameCapacity: capturedBuffer.frameLength),
+                  let target = mono.floatChannelData
+            else {
+                throw UntypeError.microphoneCapture("The processed microphone audio is not in the expected format.")
+            }
+            target[0].update(from: channels[0], count: Int(capturedBuffer.frameLength))
+            mono.frameLength = capturedBuffer.frameLength
+            inputBuffer = mono
+        } else {
+            inputBuffer = capturedBuffer
         }
 
         let ratio = outputFormat.sampleRate / inputFormat.sampleRate

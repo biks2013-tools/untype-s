@@ -145,6 +145,7 @@ public enum UntypeRuntimeFactory {
     public static func makeForUI(
         config: ResolvedConfig,
         audioGate: RuntimeAudioGate? = nil,
+        audioSource suppliedAudioSource: RuntimeAudioSource? = nil,
         transcript: @escaping @Sendable (_ event: UITranscriptEvent) -> Void,
         protocolOutput: TextOutput,
         diagnosticsOutput: TextOutput,
@@ -253,7 +254,7 @@ public enum UntypeRuntimeFactory {
             visibleOperatorDiagnostics: true,
             streamingProgress: streamingProgress
         )
-        let audioSource = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(config: config))
+        let audioSource: RuntimeAudioSource = suppliedAudioSource ?? AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(config: config))
         let transcriber: RuntimeTranscriber
         switch config.sttProvider {
         case .soniox:
