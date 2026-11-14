@@ -227,6 +227,12 @@ The adapter is verified with mocked transport tests. Live ElevenLabs smoke testi
 
 Provider defaults live on `STTProvider` (`defaultModel`: `stt-rt-v6`, `scribe_v3_live`, `gemini-3.5-transcribe-live`); `STTProvider.currentModel(for:)` replaces a stored superseded model.
 
+## Hands-free Punctuation
+With Settings → Push-to-Talk → Hands-free → "I end the sentences" on (plan-067), a hands-free turn is typed through `HandsFreeTextFlow` instead of the plain transcript: each utterance is shaped by `LiveUtteranceShaper` for the text before the caret, read through Accessibility (`LiveCaretContextReader`) once when the utterance starts. The provider's closing full stop is dropped, the first letter follows the context, a space is added only after text; an optional rule writes a full stop after a long pause when the caret is still at the end of the dictated text. `LiveFocusedInputTyper.reconcile` leaves the field untouched when the delivered text equals the spoken text. Off by default; held push-to-talk never uses it.
+
+## Only My Voice
+With Settings → Speech → "Only my voice" on (plan-068), `SonioxTranscriber` asks for speaker diarization and passes every recognised piece through `SpeakerLevelFilter`: `StreamLevelMeter` gives the loudness of the audio between the piece's start and end, speakers are judged by their median loudness over the stream, and only speakers within 10 dB of the user's learned level reach the partial and final text. The level is learned from one dictation in learning mode (the loudest speaker). The mode is fixed when a session starts; the launcher restarts the warm session when the switch or the level changes.
+
 ## Native UI Mode
 `untype ui` now dispatches to a SwiftUI/AppKit launcher instead of returning a placeholder error. The UI is implemented inside the SwiftPM executable process and reuses the existing Swift runtime factory rather than spawning the CLI or parsing terminal output.
 

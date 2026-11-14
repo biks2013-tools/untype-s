@@ -185,10 +185,72 @@ final class LiveFocusedInputTyper {
     /// While held, the transcript accumulates but nothing is typed (the
     /// selection is being read; typing would replace it).
     private var isHeld = false
+    /// A hands-free turn in which the user ends the sentences: the text as
+    /// it is written then (nil: the transcript is typed as recognised).
+    private var flow: HandsFreeTextFlow?
+    private let readContext: (pid_t) -> LiveCaretContext?
+    private let now: () -> TimeInterval
+    /// What the field answered about its caret, for the event log (no text).
+    var onCaretContext: ((String) -> Void)?
 
-    init(targetPID: pid_t, poster: LiveKeyboardPoster = LiveKeyboardPoster()) {
+    init(
+        targetPID: pid_t,
+        poster: LiveKeyboardPoster = LiveKeyboardPoster(),
+        readContext: @escaping @MainActor (pid_t) -> LiveCaretContext? = { LiveCaretContextReader.read(pid: $0) },
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
         self.targetPID = targetPID
         self.poster = poster
+        self.readContext = { pid in MainActor.assumeIsolated { readContext(pid) } }
+        self.now = now
+    }
+
+    /// From now on, in this turn, the user ends the sentences (see
+    /// `HandsFreeTextFlow`). What was typed so far is rewritten the same way.
+    func leavePunctuationToUser(pausePeriodSeconds: TimeInterval?) {
+        guard flow == nil else {
+            return
+        }
+        var flow = HandsFreeTextFlow(pausePeriodSeconds: pausePeriodSeconds)
+        // The field as it was before this turn typed into it.
+        var context = caretContext()
+        if !typed.isEmpty {
+            context = context.flatMap { field in
+                field.before.hasSuffix(typed)
+                    ? LiveCaretContext(before: String(field.before.dropLast(typed.count)), endsLine: field.endsLine)
+                    : nil
+            }
+        }
+        let time = now()
+        if !transcript.committed.isEmpty {
+            flow.commitFinal(transcript.committed, now: time, context: { context })
+            flow.updatePartial(transcript.partial, now: time, context: { nil })
+        } else {
+            flow.updatePartial(transcript.partial, now: time, context: { context })
+        }
+        self.flow = flow
+        sync()
+    }
+
+    /// A key or click of the user during the turn (not untype's own keys).
+    func userKeystroke(_ keystroke: UserKeystroke) {
+        flow?.note(keystroke)
+    }
+
+    private func caretContext() -> LiveCaretContext? {
+        let context = targetIsFrontmost ? readContext(targetPID) : nil
+        if let onCaretContext {
+            if let context {
+                let last = context.before.last
+                let kind = last == nil ? "nothing" : last!.isNewline ? "a line break" : last!.isWhitespace ? "a space"
+                    : last!.isLetter || last!.isNumber ? "a letter or digit" : "punctuation"
+                let line = context.endsLine.map { $0 ? "line ends after it" : "text follows" } ?? "what follows is not known"
+                onCaretContext("before the cursor: \(kind) (\(context.before.count) characters read), \(line)")
+            } else {
+                onCaretContext("the field does not report its cursor")
+            }
+        }
+        return context
     }
 
     func hold() {
@@ -202,11 +264,13 @@ final class LiveFocusedInputTyper {
 
     func partial(_ text: String) {
         transcript.updatePartial(text)
+        flow?.updatePartial(text, now: now(), context: caretContext)
         sync()
     }
 
     func final(_ text: String) {
         transcript.commitFinal(text)
+        flow?.commitFinal(text, now: now(), context: caretContext)
         sync()
     }
 
@@ -218,10 +282,19 @@ final class LiveFocusedInputTyper {
     /// starts a new live run.
     func reconcile(with delivered: String) async -> LiveInputReconciliation {
         let alreadyTyped = typed
+        let spoken = transcript.text
+        let userPunctuated = flow != nil
         typed = ""
         transcript = LiveTranscriptText()
+        flow = nil
         guard !alreadyTyped.isEmpty, targetIsFrontmost else {
             return .notLive
+        }
+        // The user ended the sentences and nothing processed the text: what
+        // is in the field (with the user's own edits) is the result.
+        if userPunctuated, Self.sameWords(delivered, spoken) {
+            await flush()
+            return .completed
         }
         let edit = LiveInputEdit.between(typed: alreadyTyped, target: delivered)
         if edit.insert.contains(where: { $0.isNewline }) {
@@ -242,6 +315,12 @@ final class LiveFocusedInputTyper {
     func discard() {
         typed = ""
         transcript = LiveTranscriptText()
+        flow = nil
+    }
+
+    /// The same text, whatever the spacing.
+    static func sameWords(_ a: String, _ b: String) -> Bool {
+        a.split(whereSeparator: { $0.isWhitespace }) == b.split(whereSeparator: { $0.isWhitespace })
     }
 
     private var targetIsFrontmost: Bool {
@@ -254,7 +333,7 @@ final class LiveFocusedInputTyper {
         guard !isHeld, targetIsFrontmost else {
             return
         }
-        let target = transcript.text
+        let target = flow?.text ?? transcript.text
         let edit = LiveInputEdit.between(typed: typed, target: target)
         guard !edit.isEmpty else {
             return

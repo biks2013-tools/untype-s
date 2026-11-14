@@ -438,6 +438,12 @@ final class UntypeUIModel: ObservableObject {
     private var focusedInputReturnApplication: NSRunningApplication?
     /// Types the current push-to-talk turn into the focused control live.
     private var liveTyper: LiveFocusedInputTyper?
+    /// The next dictation teaches the voice filter the user's loudness.
+    @Published private(set) var voiceLearnPending = false
+    /// What the learning is doing, or how it ended, for Settings.
+    @Published private(set) var voiceLearnStatus = ""
+    /// The voice-filter mode the running session was built with.
+    private var sessionVoiceFilter: SonioxVoiceFilterMode?
     /// The sentence around the caret at press time (see `SentenceAnchor`).
     private var sentenceAnchor: SentenceAnchor?
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
@@ -908,6 +914,153 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
+    /// Settings → Speech → Only my voice. The warm push-to-talk session is
+    /// restarted so the next turn uses the new values.
+    func setVoiceFilterPreferences(_ voiceFilter: VoiceFilterPreferences) {
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(voiceFilter: voiceFilter))
+            try UntypeUISettingsStore.save(settings)
+            appendEvent("config.saved: only my voice \(voiceFilter.isOn ? "on" : "off")")
+            alignVoiceFilter()
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    /// Seconds untype listens to learn the user's voice level.
+    static let voiceLearnSeconds = 8
+
+    /// Listens now, for a few seconds, to learn how loud the user's voice
+    /// is: a push-to-talk turn untype starts and ends itself, whose text is
+    /// not delivered anywhere.
+    func learnVoiceLevel() {
+        guard !voiceLearnPending else {
+            return
+        }
+        guard settings.hotkeyEnabled, sessionOwner != .manual, !hotkeyPressed else {
+            voiceLearnStatus = settings.hotkeyEnabled
+                ? "Finish the current dictation or session first, then press Learn."
+                : "Enable push-to-talk first (Settings → Push-to-Talk)."
+            return
+        }
+        voiceLearnPending = true
+        voiceLearnStatus = "Preparing…"
+        appendEvent("diagnostic.info: [untype] only my voice: learning your voice level")
+        alignVoiceFilter()
+        Task { [weak self] in
+            // The warm session restarts in learning mode first.
+            var ready = false
+            for _ in 0..<40 {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard let self, self.voiceLearnPending else {
+                    return
+                }
+                if self.sessionVoiceFilter == .learn, self.captureState == "warm", self.runtime != nil, !self.hotkeyPressed {
+                    ready = true
+                    break
+                }
+            }
+            guard let self else {
+                return
+            }
+            guard ready else {
+                self.finishVoiceLearning("Could not start listening. Try again.")
+                return
+            }
+            self.startHotkeySession(source: "voice-learn")
+            for left in stride(from: Self.voiceLearnSeconds, to: 0, by: -1) {
+                self.voiceLearnStatus = "Listening: read a sentence aloud now… \(left)"
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            self.voiceLearnStatus = "Measuring…"
+            if self.hotkeyPressed {
+                self.discardHotkeySession(source: "voice-learn")
+            }
+            // The level arrives when the stream has stopped.
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if self.voiceLearnPending {
+                self.finishVoiceLearning("No speech was heard. Try again.")
+            }
+        }
+    }
+
+    private func finishVoiceLearning(_ status: String) {
+        voiceLearnPending = false
+        voiceLearnStatus = status
+        appendEvent("diagnostic.info: [untype] only my voice: \(status)")
+        alignVoiceFilter()
+    }
+
+    /// How the next session treats other voices; nil: all are transcribed.
+    private func wantedVoiceFilter() -> SonioxVoiceFilterMode? {
+        guard settings.provider == STTProvider.soniox.rawValue else {
+            return nil
+        }
+        if voiceLearnPending {
+            return .learn
+        }
+        guard settings.voiceFilter.isOn, let level = settings.voiceFilter.voiceLevelDb else {
+            return nil
+        }
+        return .filter(userLevelDb: level)
+    }
+
+    /// Restarts the warm push-to-talk session when it was built for another
+    /// voice-filter mode; never during a turn.
+    private func alignVoiceFilter(attempt: Int = 0) {
+        guard sessionOwner == .hotkey, runtime != nil, sessionVoiceFilter != wantedVoiceFilter() else {
+            return
+        }
+        if !hotkeyPressed, !runtimeStopInFlight, captureState == "warm" {
+            recycleWarmSession()
+            return
+        }
+        guard attempt < 120 else {
+            return
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self?.alignVoiceFilter(attempt: attempt + 1)
+        }
+    }
+
+    fileprivate func handleVoiceFilterEvent(_ event: VoiceFilterEvent) {
+        switch event {
+        case .summary(let text):
+            appendEvent("diagnostic.info: [untype] \(text)")
+        case .learned(let levelDb, let words):
+            guard voiceLearnPending else {
+                return
+            }
+            voiceLearnPending = false
+            voiceLearnStatus = "Learned: your voice is at \(Int(levelDb.rounded())) dB."
+            var voiceFilter = settings.voiceFilter
+            voiceFilter.voiceLevelDb = (levelDb * 10).rounded() / 10
+            appendEvent("diagnostic.info: [untype] only my voice: your voice level is \(Int(levelDb.rounded())) dB (from \(words) pieces of words)")
+            overlay?.showNotice("Voice level learned", seconds: 2)
+            setVoiceFilterPreferences(voiceFilter)
+        case .notLearned(let words):
+            guard voiceLearnPending else {
+                return
+            }
+            finishVoiceLearning(words > 0
+                ? "Too little speech was heard (\(words) pieces). Read a full sentence and try again."
+                : "No speech was heard. Check the microphone and try again.")
+        }
+    }
+
+    /// Settings → Push-to-Talk → Hands-free. Nothing is reconfigured; the
+    /// next hands-free turn uses the new values.
+    func setHandsFreePreferences(_ handsFree: HandsFreePreferences) {
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(handsFree: handsFree))
+            try UntypeUISettingsStore.save(settings)
+            appendEvent("config.saved: hands-free settings")
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
     /// Settings → Meetings. Nothing else is
     /// reconfigured; the next meeting uses the new values.
     func setMeetingPreferences(_ meeting: MeetingPreferences) {
@@ -1051,6 +1204,15 @@ final class UntypeUIModel: ObservableObject {
     /// A tap: the turn goes on recording; Enter, Esc and the hotkey end it.
     private func beginHandsFreeTurn(source: String) {
         hotkeyHandsFree = true
+        if settings.handsFree.leavesPunctuationToUser, liveTyper != nil {
+            // The user's own keys tell what stands before the cursor where
+            // the field does not (a full stop typed by hand).
+            handsFreeKeys.onUserKeystroke = { [weak self] keystroke in
+                dispatchToUI { [weak self] in
+                    self?.liveTyper?.userKeystroke(keystroke)
+                }
+            }
+        }
         let keysCaught = handsFreeKeys.start()
         overlay?.setHandsFreeHint(keysCaught
             ? "Enter send · tap again type · Esc cancel"
@@ -1058,6 +1220,14 @@ final class UntypeUIModel: ObservableObject {
         appendEvent("diagnostic.info: [untype] push-to-talk tapped: recording hands-free until Enter (type and send), \(settings.hotkey) (type only) or Esc (discard) (\(source))")
         if !keysCaught {
             appendEvent("diagnostic.warning: [untype] Enter and Esc cannot be caught (macOS did not allow the key tap); press \(settings.hotkey) to finish the turn")
+        }
+        if settings.handsFree.leavesPunctuationToUser, let liveTyper {
+            let pause = settings.handsFree.addsPeriodAfterPause ? HandsFreePreferences.pausePeriodSeconds : nil
+            liveTyper.onCaretContext = { [weak self] answer in
+                self?.appendEvent("diagnostic.info: [untype] hands-free: \(answer)")
+            }
+            liveTyper.leavePunctuationToUser(pausePeriodSeconds: pause)
+            appendEvent("diagnostic.info: [untype] hands-free: you end the sentences (no full stop at a pause\(pause == nil ? "" : " shorter than \(Int(HandsFreePreferences.pausePeriodSeconds)) s"), a capital only after one)")
         }
     }
 
@@ -1084,6 +1254,7 @@ final class UntypeUIModel: ObservableObject {
             return
         }
         hotkeyHandsFree = false
+        handsFreeKeys.onUserKeystroke = nil
         handsFreeKeys.stop()
         overlay?.setHandsFreeHint(nil)
     }
@@ -1643,6 +1814,13 @@ final class UntypeUIModel: ObservableObject {
         if sharedMicrophone != nil {
             appendEvent("diagnostic.info: [untype] the session takes its audio from the meeting's microphone")
         }
+        let voiceFilter = wantedVoiceFilter()
+        sessionVoiceFilter = voiceFilter
+        if settings.voiceFilter.isOn, voiceFilter == nil {
+            appendEvent(settings.provider == STTProvider.soniox.rawValue
+                ? "diagnostic.warning: [untype] only my voice is on but your voice level is not learned yet (Settings → Speech → Learn); all voices are transcribed"
+                : "diagnostic.warning: [untype] only my voice works with Soniox only; all voices are transcribed")
+        }
         sessionTask = Task.detached { [modelBox] in
             do {
                 dispatchToUI { [modelBox] in
@@ -1734,7 +1912,13 @@ final class UntypeUIModel: ObservableObject {
                         }
                     },
                     turnContext: turnContextStore,
-                    askConversation: askConversationStore
+                    askConversation: askConversationStore,
+                    voiceFilter: voiceFilter,
+                    voiceFilterEvents: { event in
+                        dispatchToUI { [modelBox] in
+                            modelBox.model?.handleVoiceFilterEvent(event)
+                        }
+                    }
                 )
                 dispatchToUI { [modelBox] in
                     modelBox.model?.runtime = runtime
@@ -6378,6 +6562,28 @@ private final class UntypeReturnEscapeKeyTap {
     private var caught: Set<Int64> = []
     private static let returnKeys: Set<Int64> = [36, 76]
     private static let escapeKey: Int64 = 53
+    /// Every other key the user presses, and their clicks, as far as they
+    /// change what stands before the caret (never swallowed). Set before
+    /// `start()`; nil: not watched.
+    var onUserKeystroke: (@Sendable (UserKeystroke) -> Void)?
+    private static let backspaceKey: Int64 = 51
+    /// Arrows, Home, End, Page Up, Page Down, forward Delete, Tab.
+    private static let caretKeys: Set<Int64> = [123, 124, 125, 126, 115, 119, 116, 121, 117, 48]
+
+    /// What a key press does to the text before the caret.
+    static func keystroke(key: Int64, flags: CGEventFlags, characters: String) -> UserKeystroke? {
+        if !flags.intersection([.maskCommand, .maskControl]).isEmpty || caretKeys.contains(key) {
+            return .move
+        }
+        if key == backspaceKey {
+            return flags.contains(.maskAlternate) ? .move : .erase
+        }
+        if returnKeys.contains(key) {
+            return .text("\n")
+        }
+        let printable = characters.filter { !$0.unicodeScalars.contains { $0.properties.generalCategory == .control || (0xF700...0xF8FF).contains($0.value) } }
+        return printable.isEmpty ? nil : .text(printable)
+    }
 
     init(onKey: @escaping @Sendable (Bool) -> Void) {
         self.onKey = onKey
@@ -6388,7 +6594,10 @@ private final class UntypeReturnEscapeKeyTap {
         if eventTap != nil {
             return true
         }
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.keyUp.rawValue)
+        var mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.keyUp.rawValue)
+        if onUserKeystroke != nil {
+            mask |= CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+        }
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -6434,15 +6643,30 @@ private final class UntypeReturnEscapeKeyTap {
         if isUntypeSyntheticKeyboardEvent(event) {
             return false
         }
+        if type == .leftMouseDown {
+            onUserKeystroke?(.move)
+            return false
+        }
         let key = event.getIntegerValueField(.keyboardEventKeycode)
         if type == .keyUp {
             return caught.remove(key) != nil
         }
-        guard type == .keyDown, Self.returnKeys.contains(key) || key == Self.escapeKey else {
+        guard type == .keyDown else {
             return false
         }
-        // With a modifier it is some app's shortcut, not an answer.
-        guard event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty else {
+        let answers = (Self.returnKeys.contains(key) || key == Self.escapeKey)
+            // With a modifier it is some app's shortcut, not an answer.
+            && event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty
+        guard answers else {
+            if let onUserKeystroke, key != Self.escapeKey {
+                var length = 0
+                var units = [UniChar](repeating: 0, count: 8)
+                event.keyboardGetUnicodeString(maxStringLength: 8, actualStringLength: &length, unicodeString: &units)
+                let characters = String(utf16CodeUnits: units, count: length)
+                if let keystroke = Self.keystroke(key: key, flags: event.flags, characters: characters) {
+                    onUserKeystroke(keystroke)
+                }
+            }
             return false
         }
         caught.insert(key)

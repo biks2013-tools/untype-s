@@ -158,7 +158,9 @@ public enum UntypeRuntimeFactory {
         focusedInputSentenceDelivery: @escaping @Sendable (_ text: String) async -> SentenceDeliveryPlan = { _ in .notUsed },
         streamingProgress: (@Sendable (String) -> Void)? = nil,
         turnContext: UntypeTurnContext? = nil,
-        askConversation: AskConversation = AskConversation()
+        askConversation: AskConversation = AskConversation(),
+        voiceFilter: SonioxVoiceFilterMode? = nil,
+        voiceFilterEvents: (@Sendable (VoiceFilterEvent) -> Void)? = nil
     ) throws -> UntypeRuntimeSession {
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
         let controllerDiagnostics = ProtocolControllerDiagnostics { line, warning in
@@ -260,7 +262,9 @@ public enum UntypeRuntimeFactory {
         let transcriber: RuntimeTranscriber
         switch config.sttProvider {
         case .soniox:
-            transcriber = try SonioxTranscriber(options: SonioxTranscriberOptions(config: config))
+            let soniox = try SonioxTranscriber(options: SonioxTranscriberOptions(config: config, voiceFilter: voiceFilter))
+            soniox.onVoiceFilterEvent = voiceFilterEvents
+            transcriber = soniox
         case .elevenlabs:
             transcriber = try ElevenLabsTranscriber(options: ElevenLabsTranscriberOptions(config: config))
         case .google:

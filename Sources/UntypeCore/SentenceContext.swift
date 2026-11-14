@@ -168,7 +168,7 @@ public enum SentenceDeliveryPlan: Equatable, Sendable {
 @MainActor
 final class SentenceAnchor {
     /// Terminals: their text area holds the screen, not an editable sentence.
-    private static let terminalBundleIdentifiers: Set<String> = [
+    static let terminalBundleIdentifiers: Set<String> = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "com.mitchellh.ghostty",

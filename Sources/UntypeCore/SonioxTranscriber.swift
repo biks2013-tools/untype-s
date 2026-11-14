@@ -148,6 +148,9 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
     public let transcriptionContext: String?
     public let verbose: Bool
     public let finalizeDrainNanoseconds: UInt64
+    /// Keep only the user's voice (or learn its level); nil: everyone's
+    /// words are transcribed.
+    public let voiceFilter: SonioxVoiceFilterMode?
 
     public init(
         apiKey: String,
@@ -158,8 +161,10 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
         enableEndpointDetection: Bool,
         transcriptionContext: String? = nil,
         verbose: Bool = false,
-        finalizeDrainNanoseconds: UInt64 = 250_000_000
+        finalizeDrainNanoseconds: UInt64 = 250_000_000,
+        voiceFilter: SonioxVoiceFilterMode? = nil
     ) {
+        self.voiceFilter = voiceFilter
         self.apiKey = apiKey
         self.model = model
         self.endpoint = endpoint
@@ -171,7 +176,11 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
         self.finalizeDrainNanoseconds = finalizeDrainNanoseconds
     }
 
-    public init(config: ResolvedConfig, finalizeDrainNanoseconds: UInt64 = 250_000_000) {
+    public init(
+        config: ResolvedConfig,
+        finalizeDrainNanoseconds: UInt64 = 250_000_000,
+        voiceFilter: SonioxVoiceFilterMode? = nil
+    ) {
         self.init(
             apiKey: config.apiKey,
             model: config.model,
@@ -181,7 +190,8 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
             enableEndpointDetection: config.enableEndpointDetection,
             transcriptionContext: config.prompts.sonioxTranscriptionContext,
             verbose: config.verbose,
-            finalizeDrainNanoseconds: finalizeDrainNanoseconds
+            finalizeDrainNanoseconds: finalizeDrainNanoseconds,
+            voiceFilter: voiceFilter
         )
     }
 }
@@ -194,10 +204,19 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
     private var started = false
     private var shuttingDown = false
     private var committedFinals = ""
+    /// Only my voice: who said what, how loud (nil: the filter is not used).
+    private var speakerFilter: SpeakerLevelFilter?
+    private var utteranceTokens: [VoiceFilterToken] = []
+    private var levelMeter: StreamLevelMeter
+    private let meterLock = NSLock()
+    /// What the voice filter dropped or learned (no dictated text).
+    public var onVoiceFilterEvent: (@Sendable (VoiceFilterEvent) -> Void)?
 
     public init(options: SonioxTranscriberOptions, socket: RealtimeWebSocketClient) {
         self.options = options
         self.socket = socket
+        self.speakerFilter = options.voiceFilter.map(SpeakerLevelFilter.init(mode:))
+        self.levelMeter = StreamLevelMeter(sampleRate: options.sampleRate)
     }
 
     public convenience init(options: SonioxTranscriberOptions) throws {
@@ -243,6 +262,9 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         guard connected, !shuttingDown else {
             return
         }
+        if speakerFilter != nil {
+            measure(pcm)
+        }
         do {
             try await socket.sendBinary(pcm)
         } catch let error as UntypeError {
@@ -273,6 +295,7 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
             return
         }
         shuttingDown = true
+        reportLearnedVoiceLevel()
         guard connected else {
             socket.close()
             return
@@ -339,6 +362,9 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
             "enable_endpoint_detection": options.enableEndpointDetection
         ]
 
+        if options.voiceFilter != nil {
+            object["enable_speaker_diarization"] = true
+        }
         if options.languages.count == 1, options.languages[0] == "auto" {
             object["enable_language_identification"] = true
         } else {
@@ -365,6 +391,9 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
     // carried such a marker so the caller can flush committed finals — the same
     // event synthesis the official @soniox/node SDK performs.
     private func handleTokens(_ tokens: [[String: Any]]) -> Bool {
+        if speakerFilter != nil {
+            return handleTokensKeepingOneVoice(tokens)
+        }
         var newFinals = ""
         var currentNonFinals = ""
         var sawUtteranceBoundaryMarker = false
@@ -396,7 +425,77 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         return sawUtteranceBoundaryMarker
     }
 
+    /// The same as `handleTokens`, but the pieces of speakers who are not
+    /// the user never reach the text.
+    private func handleTokensKeepingOneVoice(_ tokens: [[String: Any]]) -> Bool {
+        var pending: [VoiceFilterToken] = []
+        var sawUtteranceBoundaryMarker = false
+        for token in tokens {
+            guard let text = token["text"] as? String else {
+                continue
+            }
+            if text == "<end>" || text == "<fin>" {
+                sawUtteranceBoundaryMarker = true
+                continue
+            }
+            var level: Double?
+            if text.contains(where: { $0.isLetter || $0.isNumber }),
+               let start = token["start_ms"] as? Int, let end = token["end_ms"] as? Int {
+                meterLock.lock()
+                level = levelMeter.levelDb(fromMs: start, toMs: end)
+                meterLock.unlock()
+            }
+            let piece = VoiceFilterToken(text: text, speaker: Self.speakerLabel(token["speaker"]), levelDb: level)
+            if token["is_final"] as? Bool == true {
+                utteranceTokens.append(piece)
+                speakerFilter?.record(piece)
+            } else {
+                pending.append(piece)
+            }
+        }
+        if let speakerFilter {
+            committedFinals = speakerFilter.kept(utteranceTokens).map(\.text).joined()
+            let display = speakerFilter.kept(utteranceTokens, pending: pending).map(\.text).joined()
+            if !display.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                handlers?.partial(display)
+            }
+        }
+        return sawUtteranceBoundaryMarker
+    }
+
+    private func measure(_ pcm: Data) {
+        meterLock.lock()
+        levelMeter.append(pcm)
+        meterLock.unlock()
+    }
+
+    private static func speakerLabel(_ value: Any?) -> String? {
+        if let label = value as? String {
+            return label
+        }
+        return (value as? Int).map(String.init)
+    }
+
+    private func reportLearnedVoiceLevel() {
+        guard let speakerFilter, speakerFilter.mode == .learn else {
+            return
+        }
+        if let learned = speakerFilter.learned(), learned.words >= SpeakerLevelFilter.wordsToLearn {
+            onVoiceFilterEvent?(.learned(levelDb: learned.levelDb, words: learned.words))
+        } else {
+            onVoiceFilterEvent?(.notLearned(words: speakerFilter.learned()?.words ?? 0))
+        }
+    }
+
     private func flushCommittedFinals() async {
+        if let speakerFilter {
+            // Decided again with everything heard so far in this stream.
+            committedFinals = speakerFilter.kept(utteranceTokens).map(\.text).joined()
+            if let summary = speakerFilter.summary(of: utteranceTokens) {
+                onVoiceFilterEvent?(.summary(summary))
+            }
+            utteranceTokens = []
+        }
         let text = committedFinals.trimmingCharacters(in: .whitespacesAndNewlines)
         committedFinals = ""
         if !text.isEmpty {
