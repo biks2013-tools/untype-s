@@ -225,7 +225,7 @@ Give recipients these instructions (they are also inside the image as `INSTALL.t
 
 1. Open the `.dmg`, drag **untype** onto **Applications**. No Gatekeeper warning appears because the app is notarized. macOS 14 or newer.
 2. Launch untype from Applications and follow the welcome screen's **How to enable Microphone, Accessibility and Input Monitoring** guide: start listening once and allow the Microphone, add untype under **Accessibility**, and under **Input Monitoring** only if the hotkey does not fire while another app is in front; quit and relaunch after changing permissions.
-3. On the welcome screen click **Set keys…** and enter at least one speech-to-text key (Soniox or ElevenLabs), plus the Azure OpenAI or Google entries only for LLM refinement; the app stores them in `~/.tool-agents/untype/.env`, readable only by the user. The file can also be edited by hand: the first session start creates it as a fully commented template. Missing required values are reported, never defaulted.
+3. On the welcome screen click **Set keys…** and enter at least one speech-to-text key (Soniox, ElevenLabs or Google), plus the Azure OpenAI or Google entries only for LLM refinement; the app stores them in `~/.tool-agents/untype/.env`, readable only by the user. The file can also be edited by hand: the first session start creates it as a fully commented template. Missing required values are reported, never defaulted.
 4. Upgrading later: replace the app in Applications; permissions and settings are kept.
 
 Do **not** share the `.zip` files or a bare `untype.app` copied from `/Applications`; they lack the install notes, and a bare copy can lose the stapled ticket if it travels through tools that strip extended attributes.

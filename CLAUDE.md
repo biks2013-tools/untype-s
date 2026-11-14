@@ -61,6 +61,7 @@
 ## Tools
 
 - `scripts/install-local-build.sh` — builds untype, signs it with the personal "untype Local Signing" certificate (stable signature, so macOS permissions survive rebuilds), installs it in `/Applications` and relaunches it. Docs: `docs/tools/install-local-build.md`.
+- `video/tools/video.ts` — builds the untype demo video from a timeline: renders the animation frame by frame to MP4, writes narration sheets and subtitles per language, fits the timing to recorded narration clips and lays the voice over the picture. Docs: `docs/tools/demo-video.md`.
 
 ## Document Archiving Strategy
 

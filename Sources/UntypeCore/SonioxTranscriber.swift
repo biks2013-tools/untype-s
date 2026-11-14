@@ -16,6 +16,21 @@ public struct RealtimeWebSocketHandlers: Sendable {
     }
 }
 
+/// The server closed the socket and gave a reason.
+public struct RealtimeWebSocketCloseError: LocalizedError, Equatable, Sendable {
+    public let code: Int
+    public let reason: String
+
+    public init(code: Int, reason: String) {
+        self.code = code
+        self.reason = reason
+    }
+
+    public var errorDescription: String? {
+        "The server closed the connection (\(code)): \(reason)"
+    }
+}
+
 public protocol RealtimeWebSocketClient: AnyObject {
     func setHandlers(_ handlers: RealtimeWebSocketHandlers)
     func connect() async throws
@@ -83,6 +98,18 @@ public final class URLSessionRealtimeWebSocketClient: RealtimeWebSocketClient, @
         task = nil
     }
 
+    /// What the server said when it closed the socket, when it said anything:
+    /// some providers report a wrong key or model only this way.
+    private static func closeError(of task: URLSessionWebSocketTask) -> RealtimeWebSocketCloseError? {
+        guard task.closeCode != .invalid,
+              let data = task.closeReason,
+              let reason = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reason.isEmpty else {
+            return nil
+        }
+        return RealtimeWebSocketCloseError(code: task.closeCode.rawValue, reason: reason)
+    }
+
     private func receiveLoop(task: URLSessionWebSocketTask) async {
         while !Task.isCancelled {
             do {
@@ -99,7 +126,7 @@ public final class URLSessionRealtimeWebSocketClient: RealtimeWebSocketClient, @
                 }
             } catch {
                 if !closing && !Task.isCancelled {
-                    await handlers.error(error)
+                    await handlers.error(Self.closeError(of: task) ?? error)
                 }
                 break
             }

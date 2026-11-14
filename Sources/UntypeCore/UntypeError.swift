@@ -39,6 +39,18 @@ public struct UntypeError: Error, Equatable, Sendable {
         UntypeError(code: "soniox_protocol", message: message, exitCode: .providerProtocol)
     }
 
+    public static func googleSpeechAuth(_ message: String) -> UntypeError {
+        UntypeError(code: "google_speech_auth", message: message, exitCode: .providerAuth)
+    }
+
+    public static func googleSpeechNetwork(_ message: String) -> UntypeError {
+        UntypeError(code: "google_speech_network", message: message, exitCode: .providerNetwork)
+    }
+
+    public static func googleSpeechProtocol(_ message: String) -> UntypeError {
+        UntypeError(code: "google_speech_protocol", message: message, exitCode: .providerProtocol)
+    }
+
     public static func elevenLabsAuth(_ message: String) -> UntypeError {
         UntypeError(code: "elevenlabs_auth", message: message, exitCode: .providerAuth)
     }

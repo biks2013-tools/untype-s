@@ -186,7 +186,7 @@ cask "untype" do
   caveats <<~EOS
     First launch:
       1. Click "Set keys..." on the welcome screen and enter at least one
-         speech-to-text key (Soniox or ElevenLabs). Keys are stored in
+         speech-to-text key (Soniox, ElevenLabs or Google). Keys are stored in
          ~/.tool-agents/untype/.env, readable only by you.
       2. Click Start Listening once and allow the Microphone when macOS asks.
       3. System Settings > Privacy & Security > Accessibility > enable untype

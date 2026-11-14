@@ -98,8 +98,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     }
 
     public static let `default` = UntypeUISettings(
-        provider: "soniox",
-        model: "stt-rt-v5",
+        provider: STTProvider.soniox.rawValue,
+        model: STTProvider.soniox.defaultModel,
         languages: ["el", "en"],
         sampleRate: 16_000,
         endpointDetection: true,
@@ -157,7 +157,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         let protocolMode = try normalizeProtocolMode(protocolMode)
         let translationPolicy = try normalizeTranslationPolicy(translationPolicy)
         let llmProvider = try normalizeLLMProvider(llmProvider)
-        let model = try normalizeNonEmpty(model, field: "model")
+        // A model its provider has replaced gives way to the successor.
+        let model = STTProvider.currentModel(for: try normalizeNonEmpty(model, field: "model"))
         let llmModel = try normalizeNonEmpty(llmModel, field: "llmModel")
         let hotkey = try normalizeHotkey(hotkey)
         let selectionHotkey = try normalizeHotkey(selectionHotkey)
@@ -198,7 +199,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         let alt2Provider = alt2LlmProvider.trimmingCharacters(in: .whitespacesAndNewlines)
         next.alt2LlmProvider = alt2Provider.isEmpty ? "" : try normalizeLLMProvider(alt2Provider)
         next.alt2LlmModel = alt2LlmModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        next.apiKeyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
+        next.apiKeyName = try sttProvider(provider).apiKeyEnvName
         next.apiKeyStatus = nonEmptyStatus(apiKeyStatus, fallback: "unknown")
         next.expiryStatus = nonEmptyStatus(expiryStatus, fallback: "not set")
         next.storageStatus = nonEmptyStatus(storageStatus, fallback: "resolved config")
@@ -407,9 +408,12 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         permissionStatus: @Sendable () -> UntypePermissionStatus = UntypePermissionStatus.current
     ) -> UntypeUISettings {
         var next = (try? normalized()) ?? self
-        let provider = (try? normalizeProvider(next.provider)) ?? STTProvider.soniox.rawValue
-        let keyName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY" : "SONIOX_API_KEY"
-        let expiryName = provider == STTProvider.elevenlabs.rawValue ? "ELEVENLABS_API_KEY_EXPIRES_AT" : "SONIOX_API_KEY_EXPIRES_AT"
+        guard let provider = try? sttProvider(next.provider) else {
+            next.apiKeyStatus = "unknown"
+            return next
+        }
+        let keyName = provider.apiKeyEnvName
+        let expiryName = provider.apiKeyExpiryEnvName
         next.apiKeyName = keyName
         do {
             let chain = try EnvChain(cwd: cwd, home: home, shell: shell)
@@ -1094,10 +1098,15 @@ private struct PersistedUISettings: Codable {
 
 private func normalizeProvider(_ value: String) throws -> String {
     let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized == STTProvider.soniox.rawValue || normalized == STTProvider.elevenlabs.rawValue {
-        return normalized
+    return try sttProvider(normalized).rawValue
+}
+
+private func sttProvider(_ value: String) throws -> STTProvider {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard let provider = STTProvider(rawValue: normalized) else {
+        throw UntypeError.invalidConfiguration("Unsupported STT provider: \(value).")
     }
-    throw UntypeError.invalidConfiguration("Unsupported STT provider: \(value).")
+    return provider
 }
 
 private func normalizeProtocolMode(_ value: String) throws -> String {

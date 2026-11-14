@@ -8,12 +8,9 @@ public struct ConfigResolver: Sendable {
     private let requireProtocolOutputForHybrid: Bool
     private let validateLLMProviderConfig: Bool
 
-    private static let defaultSonioxModel = "stt-rt-v5"
-    private static let defaultSonioxEndpoint = "wss://stt-rt.soniox.com/transcribe-websocket"
     private static let defaultSonioxLanguages = "el,en"
-    private static let defaultElevenLabsModel = "scribe_v2_realtime"
-    private static let defaultElevenLabsEndpoint = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
     private static let defaultElevenLabsLanguages = "auto"
+    private static let defaultGoogleLanguages = "el,en"
     private static let defaultSampleRate = 16_000
     private static let elevenLabsSampleRates: Set<Int> = [8_000, 16_000, 22_050, 24_000, 44_100, 48_000]
     private static let defaultGuardPhrase = "τέλος εντολής"
@@ -57,26 +54,25 @@ public struct ConfigResolver: Sendable {
         )
         guard let provider = STTProvider(rawValue: providerRaw) else {
             throw UntypeError.invalidConfiguration(
-                "--stt-provider / UNTYPE_STT_PROVIDER must be one of: soniox, elevenlabs."
+                "--stt-provider / UNTYPE_STT_PROVIDER must be one of: soniox, elevenlabs, google."
             )
         }
         let promptConfig = try resolvePromptConfig(provider: provider)
 
-        let keyName: String
+        let keyName = provider.apiKeyEnvName
+        let expiryEnvName = provider.apiKeyExpiryEnvName
         let flagName: String
         let expiryFlagName: String
-        let expiryEnvName: String
         switch provider {
         case .soniox:
-            keyName = "SONIOX_API_KEY"
             flagName = "--api-key"
             expiryFlagName = "--api-key-expires-at"
-            expiryEnvName = "SONIOX_API_KEY_EXPIRES_AT"
         case .elevenlabs:
-            keyName = "ELEVENLABS_API_KEY"
             flagName = "--elevenlabs-api-key"
             expiryFlagName = "--elevenlabs-api-key-expires-at"
-            expiryEnvName = "ELEVENLABS_API_KEY_EXPIRES_AT"
+        case .google:
+            flagName = "--google-api-key"
+            expiryFlagName = "--google-api-key-expires-at"
         }
 
         let key: EnvValue?
@@ -98,18 +94,16 @@ public struct ConfigResolver: Sendable {
             envName: expiryEnvName
         )
 
-        let defaultModel: String
-        let defaultEndpoint: String
+        let defaultModel = provider.defaultModel
+        let defaultEndpoint = provider.defaultEndpoint
         let defaultLanguagesCsv: String
         switch provider {
         case .soniox:
-            defaultModel = Self.defaultSonioxModel
-            defaultEndpoint = Self.defaultSonioxEndpoint
             defaultLanguagesCsv = Self.defaultSonioxLanguages
         case .elevenlabs:
-            defaultModel = Self.defaultElevenLabsModel
-            defaultEndpoint = Self.defaultElevenLabsEndpoint
             defaultLanguagesCsv = Self.defaultElevenLabsLanguages
+        case .google:
+            defaultLanguagesCsv = Self.defaultGoogleLanguages
         }
 
         let model = resolveString(
@@ -166,6 +160,11 @@ public struct ConfigResolver: Sendable {
             let values = Self.elevenLabsSampleRates.sorted().map(String.init).joined(separator: ", ")
             throw UntypeError.invalidConfiguration(
                 "--sample-rate / UNTYPE_SAMPLE_RATE must be one of \(values) when --stt-provider=elevenlabs. Got: \(sampleRate)."
+            )
+        }
+        if provider == .google && sampleRate != GoogleTranscriber.sampleRate {
+            throw UntypeError.invalidConfiguration(
+                "--sample-rate / UNTYPE_SAMPLE_RATE must be \(GoogleTranscriber.sampleRate) when --stt-provider=google. Got: \(sampleRate)."
             )
         }
 
@@ -654,6 +653,8 @@ public struct ConfigResolver: Sendable {
                     "ElevenLabs keyterm '\(invalidKeyterm)' in \(displayPath(directory.appendingPathComponent("006-elevenlabs-keyterms.txt"))) must be 20 characters or fewer."
                 )
             }
+        case .google:
+            break
         }
 
         return PromptConfig(
@@ -1313,6 +1314,7 @@ struct ParsedArguments: Sendable {
                 switches["--release-latency-log"] = false
                 index += 1
             case "--api-key", "--api-key-expires-at", "--elevenlabs-api-key", "--elevenlabs-api-key-expires-at",
+                "--google-api-key", "--google-api-key-expires-at",
                 "--stt-provider", "--model", "--endpoint", "--language", "--sample-rate", "--output-mode",
                 "--guard-phrase", "--interaction-mode", "--command-phrase", "--section-end-phrase",
                 "--section-cancel-phrase", "--literal-next-phrase", "--refine-default", "--translate-default",

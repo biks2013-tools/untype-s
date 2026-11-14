@@ -37,16 +37,18 @@ public enum UntypeEnvTemplate {
     # Reminder date (YYYY-MM-DD) for renewing ELEVENLABS_API_KEY. Optional.
     # ELEVENLABS_API_KEY_EXPIRES_AT=
 
-    # Realtime transcription provider: soniox or elevenlabs. Default: soniox.
+    # Realtime transcription provider: soniox, elevenlabs or google. Default: soniox.
+    # google uses GOOGLE_API_KEY (the same key as the google LLM provider).
     # UNTYPE_STT_PROVIDER=
 
-    # STT realtime model. Default: stt-rt-v5 (Soniox) or scribe_v2_realtime (ElevenLabs).
+    # STT realtime model. Default: stt-rt-v6 (Soniox), scribe_v3_live (ElevenLabs)
+    # or gemini-3.5-transcribe-live (Google).
     # UNTYPE_MODEL=
 
     # STT WebSocket endpoint. Default: the selected provider's public endpoint.
     # UNTYPE_ENDPOINT=
 
-    # Language hints, comma separated, or auto. Default: el,en (Soniox) or auto (ElevenLabs).
+    # Language hints, comma separated, or auto. Default: el,en (Soniox, Google) or auto (ElevenLabs).
     # UNTYPE_LANGUAGES=
 
     # PCM sample rate in Hz. Default: 16000.

@@ -118,7 +118,7 @@ The configuration precedence chain is:
 
 Missing required values raise typed errors. The project must not invent fallback values for required settings.
 
-The current Swift configuration resolver implements the source CLI/config surface for STT provider selection (`soniox`, `elevenlabs`), provider-specific model/endpoint/language defaults, language and sample-rate validation, endpoint detection, Quick Close push-to-talk release policy, push-to-talk release latency logging, output mode, protocol marker/operator defaults, hybrid protocol-output validation, LLM provider/model startup validation, API-key expiry warnings, source-compatible `.env` parsing behavior, and the legacy `~/.tool-agents/mic-tool-ts/` migration guard. This design follows the source contract documented in `docs/reference/source-study-untype.md`, the CLI/config phase in `docs/design/plan-001-swift-drop-in-replacement.md`, the Quick Close extension in `docs/reference/codebase-scan-quick-close.md`, and the release latency logging integration points in `docs/reference/codebase-scan-push-to-talk-release-latency-logging.md`.
+The current Swift configuration resolver implements the source CLI/config surface for STT provider selection (`soniox`, `elevenlabs`, `google`), provider-specific model/endpoint/language defaults, language and sample-rate validation, endpoint detection, Quick Close push-to-talk release policy, push-to-talk release latency logging, output mode, protocol marker/operator defaults, hybrid protocol-output validation, LLM provider/model startup validation, API-key expiry warnings, source-compatible `.env` parsing behavior, and the legacy `~/.tool-agents/mic-tool-ts/` migration guard. This design follows the source contract documented in `docs/reference/source-study-untype.md`, the CLI/config phase in `docs/design/plan-001-swift-drop-in-replacement.md`, the Quick Close extension in `docs/reference/codebase-scan-quick-close.md`, and the release latency logging integration points in `docs/reference/codebase-scan-push-to-talk-release-latency-logging.md`.
 
 Release latency logging is disabled by default and can be enabled with `--release-latency-log` or `UNTYPE_RELEASE_LATENCY_LOG=on`. When enabled, records append to `~/.tool-agents/untype/release-latency.jsonl` unless `--release-latency-log-path` / `UNTYPE_RELEASE_LATENCY_LOG_PATH` specifies another path. `UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START=on` clears the configured log once per application process startup before new records are written; the reset is guarded per process so UI warm-session restarts do not erase records mid-run. The full setting guide, log schema, privacy boundary, and manual analysis workflow are maintained in `docs/design/configuration-guide.md`.
 
@@ -216,6 +216,16 @@ The current Swift ElevenLabs adapter implements the provider-facing WebSocket fr
 - ElevenLabs server errors and transport failures are mapped to typed `elevenlabs_auth`, `elevenlabs_network`, or `elevenlabs_protocol` errors.
 
 The adapter is verified with mocked transport tests. Live ElevenLabs smoke testing remains pending. The live smoke procedure is documented in `test_scripts/elevenlabs-live-smoke.md`.
+
+## Google Provider Adapter
+`GoogleTranscriber` (plan-066) transcribes with `gemini-3.5-transcribe-live` over the Gemini Live API WebSocket, behind the same `RealtimeWebSocketClient` boundary:
+- the key (`GOOGLE_API_KEY`) is sent in the `x-goog-api-key` header; `start()` sends the `setup` frame and waits for `setupComplete`, so a wrong key or model fails the start with a typed error taken from the WebSocket close reason (`RealtimeWebSocketCloseError`);
+- audio goes as base64 PCM16 16 kHz in `realtimeInput.audio` frames; `interimInputTranscription` is partial output, `inputTranscription` final output;
+- endpoint detection on: `commit()` sends `audioStreamEnd`; off: `activityStart` with the first non-silent audio and `activityEnd` at `commit()`;
+- the service limits a session to 10 minutes and closes one without audio after about 60 s, so the adapter replaces its own connection (new one first, then the switch): after 7 minutes at a quiet moment, after 9 min 20 s in any case, or on `goAway`;
+- no speaker diarization, so meeting recording stays on Soniox.
+
+Provider defaults live on `STTProvider` (`defaultModel`: `stt-rt-v6`, `scribe_v3_live`, `gemini-3.5-transcribe-live`); `STTProvider.currentModel(for:)` replaces a stored superseded model.
 
 ## Native UI Mode
 `untype ui` now dispatches to a SwiftUI/AppKit launcher instead of returning a placeholder error. The UI is implemented inside the SwiftPM executable process and reuses the existing Swift runtime factory rather than spawning the CLI or parsing terminal output.

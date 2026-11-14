@@ -22,7 +22,7 @@ On every configuration resolution (CLI start or a native-UI session start) `unty
 - Users enable a setting by deleting the leading `# ` and filling the value. Comments elsewhere in the file are preserved by the parser.
 
 ### Recommended Use
-Point new users at this file instead of a separate example: after the first launch they open `~/.tool-agents/untype/.env`, uncomment `SONIOX_API_KEY=` (or `ELEVENLABS_API_KEY=` plus `UNTYPE_STT_PROVIDER=elevenlabs`) and, if they keep refinement on, the LLM provider block, then start a session again.
+Point new users at this file instead of a separate example: after the first launch they open `~/.tool-agents/untype/.env`, uncomment `SONIOX_API_KEY=` (or `ELEVENLABS_API_KEY=` plus `UNTYPE_STT_PROVIDER=elevenlabs`, or `GOOGLE_API_KEY=` plus `UNTYPE_STT_PROVIDER=google`) and, if they keep refinement on, the LLM provider block, then start a session again.
 
 ## Credentials Editor (native UI)
 
@@ -30,7 +30,7 @@ Point new users at this file instead of a separate example: after the first laun
 The native UI can write provider credentials into `~/.tool-agents/untype/.env` so a new user never has to edit the file by hand. The editor is reachable from the onboarding sheet (step 3 "Provider credentials" → **Set keys…**, and the footer button when credentials are the only missing item) and from the Settings window (General tab → Session group → **Edit keys…**).
 
 ### Variables it manages
-`SONIOX_API_KEY`, `ELEVENLABS_API_KEY` (speech-to-text, at least one) and `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `GOOGLE_API_KEY`, `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_API_KEY` (LLM refinement/translation, optional). Secret fields are masked; a "Show" switch reveals them while editing. Every other variable stays file-only.
+`SONIOX_API_KEY`, `ELEVENLABS_API_KEY`, `GOOGLE_API_KEY` (speech-to-text, at least one; the Google key also serves the google LLM provider) and `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_API_KEY` (LLM refinement/translation, optional). Secret fields are masked; a "Show" switch reveals them while editing. Every other variable stays file-only.
 
 ### Behavior
 - Saving writes only the fields that changed, through `DotenvEditor` (`Sources/UntypeCore/DotenvEditor.swift`): an active `KEY=value` line is replaced in place (later duplicates of the same key are removed so a stale last-wins entry cannot shadow the new value), a commented `# KEY=` template line is activated in place so its description stays above it, and an unknown key is appended. Comments, ordering, and unrelated variables are preserved. An emptied field unsets the key by turning its line back into `# KEY=`.
@@ -518,3 +518,15 @@ UNTYPE_LLM_STREAMING=on
 ```
 
 Leave it unset (or `off`) for the default one-shot behavior.
+
+## Speech-to-text providers and models (plan-066)
+
+| Provider (`--stt-provider` / `UNTYPE_STT_PROVIDER` / Settings → Speech) | Key | Default model (`--model` / `UNTYPE_MODEL`) | Languages (`--language` / `UNTYPE_LANGUAGES`) | Notes |
+|---|---|---|---|---|
+| `soniox` (default) | `SONIOX_API_KEY` (`--api-key`) | `stt-rt-v6` | hints, default `el,en`, or `auto` | The only provider meeting recording works with. |
+| `elevenlabs` | `ELEVENLABS_API_KEY` (`--elevenlabs-api-key`) | `scribe_v3_live` | one code or `auto` (default) | Sample rate one of 8000, 16000, 22050, 24000, 44100, 48000. |
+| `google` | `GOOGLE_API_KEY` (`--google-api-key`), from https://aistudio.google.com/apikey | `gemini-3.5-transcribe-live` | codes such as `el`, `en` or `el-GR` (default `el,en`), or `auto` | Sample rate must be 16000. The connection is replaced automatically before the service's 10-minute limit. Optional renewal reminder: `GOOGLE_API_KEY_EXPIRES_AT`. |
+
+- Missing key for the chosen provider: startup fails with a configuration error; there is no fallback to another provider.
+- A model the provider has replaced (`stt-rt-v3`, `stt-rt-v4`, `stt-rt-v5`, `scribe_v2_realtime`) stored in the UI settings is replaced by its successor. `--model` / `UNTYPE_MODEL` given outside the UI is used as written.
+- In Settings → Speech, changing the provider sets the model to that provider's default unless you typed a model of your own; **Latest** sets the provider's current model.

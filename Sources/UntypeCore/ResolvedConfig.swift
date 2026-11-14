@@ -1,6 +1,70 @@
-public enum STTProvider: String, Sendable, Equatable {
+public enum STTProvider: String, Sendable, Equatable, CaseIterable {
     case soniox
     case elevenlabs
+    case google
+
+    /// The provider's name as shown to the user.
+    public var title: String {
+        switch self {
+        case .soniox: return "Soniox"
+        case .elevenlabs: return "ElevenLabs"
+        case .google: return "Google"
+        }
+    }
+
+    /// The provider's current realtime model, used when none is configured.
+    public var defaultModel: String {
+        switch self {
+        case .soniox: return "stt-rt-v6"
+        case .elevenlabs: return "scribe_v3_live"
+        case .google: return "gemini-3.5-transcribe-live"
+        }
+    }
+
+    public var defaultEndpoint: String {
+        switch self {
+        case .soniox:
+            return "wss://stt-rt.soniox.com/transcribe-websocket"
+        case .elevenlabs:
+            return "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+        case .google:
+            return "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+        }
+    }
+
+    public var apiKeyEnvName: String {
+        switch self {
+        case .soniox: return "SONIOX_API_KEY"
+        case .elevenlabs: return "ELEVENLABS_API_KEY"
+        case .google: return "GOOGLE_API_KEY"
+        }
+    }
+
+    public var apiKeyExpiryEnvName: String {
+        apiKeyEnvName + "_EXPIRES_AT"
+    }
+
+    /// Realtime models a provider has replaced, with their successor.
+    private static let supersededModels: [String: String] = [
+        "stt-rt-v3": "stt-rt-v6",
+        "stt-rt-v4": "stt-rt-v6",
+        "stt-rt-v5": "stt-rt-v6",
+        "scribe_v2_realtime": "scribe_v3_live"
+    ]
+
+    /// `model`, or its successor when the provider has replaced it.
+    public static func currentModel(for model: String) -> String {
+        supersededModels[model] ?? model
+    }
+
+    /// The model to use after the provider changed to `provider`: a model
+    /// that belongs to another provider gives way to the new provider's
+    /// default; a model the user typed themselves is kept.
+    public static func model(_ model: String, movingTo provider: STTProvider) -> String {
+        let current = currentModel(for: model)
+        let knownDefaults = Set(allCases.map(\.defaultModel))
+        return knownDefaults.contains(current) ? provider.defaultModel : model
+    }
 }
 
 public enum OutputMode: String, Sendable, Equatable, CaseIterable {
