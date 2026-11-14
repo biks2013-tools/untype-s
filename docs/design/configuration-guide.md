@@ -548,5 +548,5 @@ Stored in `~/.tool-agents/untype/ui-state.json` under `voiceFilter`; set in Sett
 
 | Key | Default | Meaning |
 |---|---|---|
-| `voiceFilter.enabled` | off | Keep only the words of the speaker about as loud as the user; drop quieter speakers. |
-| `voiceFilter.voiceLevelDb` | not set | The user's loudness at the microphone in dBFS, written by **Learn** from the next dictation. Without it the filter does not run (a warning is logged) and all voices are transcribed. Learn again after changing microphone or distance. |
+| `voiceFilter.enabled` | off | Keep only the words of the speaker heard in the user's voice sample; drop the other speakers. |
+| (file) `~/.tool-agents/untype/voice-sample.wav` | absent | About four seconds of the user's voice (16-bit mono WAV, mode 0600), written by **Learn** (untype listens for 8 seconds; nothing is typed). It is sent to Soniox at the start of every filtered stream. Without it the filter does not run (a warning is logged) and all voices are transcribed. Delete the file to forget the voice. A `voiceFilter.voiceLevelDb` left by builds 70-71 is ignored. |

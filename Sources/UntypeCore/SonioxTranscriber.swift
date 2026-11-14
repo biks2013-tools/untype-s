@@ -148,7 +148,7 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
     public let transcriptionContext: String?
     public let verbose: Bool
     public let finalizeDrainNanoseconds: UInt64
-    /// Keep only the user's voice (or learn its level); nil: everyone's
+    /// Keep only the user's voice (or learn a sample of it); nil: everyone's
     /// words are transcribed.
     public let voiceFilter: SonioxVoiceFilterMode?
 
@@ -204,18 +204,26 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
     private var started = false
     private var shuttingDown = false
     private var committedFinals = ""
-    /// Only my voice: who said what, how loud (nil: the filter is not used).
-    private var speakerFilter: SpeakerLevelFilter?
+    /// Only my voice: who said what (nil: the filter is not used).
+    private var speakerFilter: UserSpeakerFilter?
     private var utteranceTokens: [VoiceFilterToken] = []
     private var levelMeter: StreamLevelMeter
     private let meterLock = NSLock()
+    /// A piece of the user's own audio was seen in this stream.
+    private var pastSample = false
+    /// Stream time at which the user's own audio starts: the length of the
+    /// voice sample sent ahead of it (0: none was sent).
+    private var sampleLeadMs = 0
+    /// Learning: the audio heard so far, to cut the voice sample from.
+    private var learnAudio = Data()
+    private static let learnAudioSeconds = 60
     /// What the voice filter dropped or learned (no dictated text).
     public var onVoiceFilterEvent: (@Sendable (VoiceFilterEvent) -> Void)?
 
     public init(options: SonioxTranscriberOptions, socket: RealtimeWebSocketClient) {
         self.options = options
         self.socket = socket
-        self.speakerFilter = options.voiceFilter.map(SpeakerLevelFilter.init(mode:))
+        self.speakerFilter = options.voiceFilter.map(UserSpeakerFilter.init(mode:))
         self.levelMeter = StreamLevelMeter(sampleRate: options.sampleRate)
     }
 
@@ -250,6 +258,7 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         do {
             try await socket.connect()
             try await socket.sendText(configFrame())
+            try await sendVoiceSample()
             connected = true
         } catch let error as UntypeError {
             throw error
@@ -274,6 +283,22 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         }
     }
 
+    /// Only my voice: the user's voice sample goes first and is finished at
+    /// once, so its speaker label is known before the user's audio starts.
+    private func sendVoiceSample() async throws {
+        guard case .filter(let sample)? = options.voiceFilter else {
+            return
+        }
+        guard sample.sampleRate == options.sampleRate else {
+            throw UntypeError.invalidConfiguration("The saved voice sample is at \(sample.sampleRate) Hz but the stream is at \(options.sampleRate) Hz. Learn your voice again (Settings → Speech → Learn).")
+        }
+        let lead = sample.lead
+        measure(lead)
+        sampleLeadMs = sample.leadMs
+        try await socket.sendBinary(lead)
+        try await socket.sendText(#"{"type":"finalize"}"#)
+    }
+
     public func commit() async throws {
         guard connected else {
             return
@@ -295,7 +320,7 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
             return
         }
         shuttingDown = true
-        reportLearnedVoiceLevel()
+        reportLearnedVoiceSample()
         guard connected else {
             socket.close()
             return
@@ -430,6 +455,7 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
     private func handleTokensKeepingOneVoice(_ tokens: [[String: Any]]) -> Bool {
         var pending: [VoiceFilterToken] = []
         var sawUtteranceBoundaryMarker = false
+        var previousFromSample: Bool?
         for token in tokens {
             guard let text = token["text"] as? String else {
                 continue
@@ -439,13 +465,20 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
                 continue
             }
             var level: Double?
+            let start = token["start_ms"] as? Int
             if text.contains(where: { $0.isLetter || $0.isNumber }),
-               let start = token["start_ms"] as? Int, let end = token["end_ms"] as? Int {
+               let start, let end = token["end_ms"] as? Int {
                 meterLock.lock()
                 level = levelMeter.levelDb(fromMs: start, toMs: end)
                 meterLock.unlock()
             }
-            let piece = VoiceFilterToken(text: text, speaker: Self.speakerLabel(token["speaker"]), levelDb: level)
+            // A piece without a time belongs with the piece before it.
+            let fromSample = start.map { $0 < sampleLeadMs } ?? (previousFromSample ?? (sampleLeadMs > 0 && utteranceTokens.isEmpty && !pastSample))
+            previousFromSample = fromSample
+            if !fromSample {
+                pastSample = true
+            }
+            let piece = VoiceFilterToken(text: text, speaker: Self.speakerLabel(token["speaker"]), levelDb: level, startMs: start, fromSample: fromSample)
             if token["is_final"] as? Bool == true {
                 utteranceTokens.append(piece)
                 speakerFilter?.record(piece)
@@ -466,7 +499,24 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
     private func measure(_ pcm: Data) {
         meterLock.lock()
         levelMeter.append(pcm)
+        if options.voiceFilter == .learn, learnAudio.count < Self.learnAudioSeconds * options.sampleRate * 2 {
+            learnAudio.append(pcm)
+        }
         meterLock.unlock()
+    }
+
+    /// The first seconds of the user's speech in the audio heard while learning.
+    private func learnedSample(firstStartMs: Int) -> VoiceSample? {
+        meterLock.lock()
+        let audio = learnAudio
+        meterLock.unlock()
+        let bytesPerSecond = options.sampleRate * 2
+        let from = min(audio.count, max(0, firstStartMs - 100) * options.sampleRate / 1000 * 2)
+        let to = min(audio.count, from + Int(VoiceSample.wantedSeconds * Double(bytesPerSecond)))
+        guard Double(to - from) >= VoiceSample.minimumSeconds * Double(bytesPerSecond) else {
+            return nil
+        }
+        return VoiceSample(pcm: audio.subdata(in: from..<to), sampleRate: options.sampleRate)
     }
 
     private static func speakerLabel(_ value: Any?) -> String? {
@@ -476,12 +526,13 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         return (value as? Int).map(String.init)
     }
 
-    private func reportLearnedVoiceLevel() {
+    private func reportLearnedVoiceSample() {
         guard let speakerFilter, speakerFilter.mode == .learn else {
             return
         }
-        if let learned = speakerFilter.learned(), learned.words >= SpeakerLevelFilter.wordsToLearn {
-            onVoiceFilterEvent?(.learned(levelDb: learned.levelDb, words: learned.words))
+        if let learned = speakerFilter.learned(), learned.words >= UserSpeakerFilter.wordsToLearn,
+           let sample = learnedSample(firstStartMs: learned.firstStartMs) {
+            onVoiceFilterEvent?(.learned(sample: sample, words: learned.words))
         } else {
             onVoiceFilterEvent?(.notLearned(words: speakerFilter.learned()?.words ?? 0))
         }

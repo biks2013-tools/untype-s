@@ -438,8 +438,10 @@ final class UntypeUIModel: ObservableObject {
     private var focusedInputReturnApplication: NSRunningApplication?
     /// Types the current push-to-talk turn into the focused control live.
     private var liveTyper: LiveFocusedInputTyper?
-    /// The next dictation teaches the voice filter the user's loudness.
+    /// untype is listening to learn the user's voice.
     @Published private(set) var voiceLearnPending = false
+    /// The saved sample of the user's voice (nil: not learned yet).
+    @Published private(set) var voiceSample: VoiceSample? = UntypeUIModel.savedVoiceSample()
     /// What the learning is doing, or how it ended, for Settings.
     @Published private(set) var voiceLearnStatus = ""
     /// The voice-filter mode the running session was built with.
@@ -927,11 +929,17 @@ final class UntypeUIModel: ObservableObject {
         }
     }
 
-    /// Seconds untype listens to learn the user's voice level.
+    /// Seconds untype listens to learn the user's voice.
     static let voiceLearnSeconds = 8
 
-    /// Listens now, for a few seconds, to learn how loud the user's voice
-    /// is: a push-to-talk turn untype starts and ends itself, whose text is
+    /// The voice sample on disk; a file that cannot be read counts as not
+    /// learned (the session start says so in the event log).
+    private static func savedVoiceSample() -> VoiceSample? {
+        (try? VoiceSampleStore.load()) ?? nil
+    }
+
+    /// Listens now, for a few seconds, to take a sample of the user's
+    /// voice: a push-to-talk turn untype starts and ends itself, whose text is
     /// not delivered anywhere.
     func learnVoiceLevel() {
         guard !voiceLearnPending else {
@@ -945,7 +953,7 @@ final class UntypeUIModel: ObservableObject {
         }
         voiceLearnPending = true
         voiceLearnStatus = "Preparing…"
-        appendEvent("diagnostic.info: [untype] only my voice: learning your voice level")
+        appendEvent("diagnostic.info: [untype] only my voice: learning your voice")
         alignVoiceFilter()
         Task { [weak self] in
             // The warm session restarts in learning mode first.
@@ -976,7 +984,7 @@ final class UntypeUIModel: ObservableObject {
             if self.hotkeyPressed {
                 self.discardHotkeySession(source: "voice-learn")
             }
-            // The level arrives when the stream has stopped.
+            // The sample arrives when the stream has stopped.
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             if self.voiceLearnPending {
                 self.finishVoiceLearning("No speech was heard. Try again.")
@@ -999,10 +1007,10 @@ final class UntypeUIModel: ObservableObject {
         if voiceLearnPending {
             return .learn
         }
-        guard settings.voiceFilter.isOn, let level = settings.voiceFilter.voiceLevelDb else {
+        guard settings.voiceFilter.isOn, let voiceSample else {
             return nil
         }
-        return .filter(userLevelDb: level)
+        return .filter(sample: voiceSample)
     }
 
     /// Restarts the warm push-to-talk session when it was built for another
@@ -1028,17 +1036,21 @@ final class UntypeUIModel: ObservableObject {
         switch event {
         case .summary(let text):
             appendEvent("diagnostic.info: [untype] \(text)")
-        case .learned(let levelDb, let words):
+        case .learned(let sample, let words):
             guard voiceLearnPending else {
                 return
             }
-            voiceLearnPending = false
-            voiceLearnStatus = "Learned: your voice is at \(Int(levelDb.rounded())) dB."
-            var voiceFilter = settings.voiceFilter
-            voiceFilter.voiceLevelDb = (levelDb * 10).rounded() / 10
-            appendEvent("diagnostic.info: [untype] only my voice: your voice level is \(Int(levelDb.rounded())) dB (from \(words) pieces of words)")
-            overlay?.showNotice("Voice level learned", seconds: 2)
-            setVoiceFilterPreferences(voiceFilter)
+            do {
+                try VoiceSampleStore.save(sample)
+            } catch {
+                finishVoiceLearning("The voice sample could not be saved: \(error.localizedDescription)")
+                return
+            }
+            voiceSample = sample
+            let seconds = String(format: "%.1f", sample.seconds)
+            appendEvent("diagnostic.info: [untype] only my voice: a \(seconds) s sample of your voice was saved (from \(words) pieces of words)")
+            overlay?.showNotice("Voice learned", seconds: 2)
+            finishVoiceLearning("Learned: a \(seconds) s sample of your voice is saved.")
         case .notLearned(let words):
             guard voiceLearnPending else {
                 return
@@ -1818,7 +1830,7 @@ final class UntypeUIModel: ObservableObject {
         sessionVoiceFilter = voiceFilter
         if settings.voiceFilter.isOn, voiceFilter == nil {
             appendEvent(settings.provider == STTProvider.soniox.rawValue
-                ? "diagnostic.warning: [untype] only my voice is on but your voice level is not learned yet (Settings → Speech → Learn); all voices are transcribed"
+                ? "diagnostic.warning: [untype] only my voice is on but your voice is not learned yet (Settings → Speech → Learn); all voices are transcribed"
                 : "diagnostic.warning: [untype] only my voice works with Soniox only; all voices are transcribed")
         }
         sessionTask = Task.detached { [modelBox] in
