@@ -1,6 +1,6 @@
 cask "untype" do
-  version "0.1.0,65"
-  sha256 "ea4497fa44dd01091095ad8671b7f43f5b8af9bd54ee59b683a0249eaedd5c0a"
+  version "0.1.0,71"
+  sha256 "f6e3e99f067c03a6c772015aaaa53dc985b254f77e1f5ea862b619523ea143cc"
 
   url "https://github.com/biks2013-tools/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
   name "untype"
@@ -33,7 +33,7 @@ cask "untype" do
   caveats <<~EOS
     First launch:
       1. Click "Set keys..." on the welcome screen and enter at least one
-         speech-to-text key (Soniox or ElevenLabs). Keys are stored in
+         speech-to-text key (Soniox, ElevenLabs or Google). Keys are stored in
          ~/.tool-agents/untype/.env, readable only by you.
       2. Click Start Listening once and allow the Microphone when macOS asks.
       3. System Settings > Privacy & Security > Accessibility > enable untype
