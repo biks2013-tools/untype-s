@@ -448,6 +448,15 @@ final class UntypeUIModel: ObservableObject {
     private var sessionVoiceFilter: SonioxVoiceFilterMode?
     /// The sentence around the caret at press time (see `SentenceAnchor`).
     private var sentenceAnchor: SentenceAnchor?
+    /// Where this turn's text goes, to read it back when the turn ends: the
+    /// user may edit it in the field while dictating (plan-071).
+    private var turnFieldAnchor: TurnFieldAnchor?
+    /// The turn's text was edited in the field and is what the model
+    /// processed: the delivery replaces it there.
+    private var replacesEditedFieldText = false
+    /// Refine, Translate or Ask processes this turn's text (the field was
+    /// asked for it).
+    private var turnTextIsProcessed = false
     private let warmSessionRecycleNanoseconds: UInt64 = 5 * 60 * 1_000_000_000
     /// Per-turn inputs (the selected text) and the Ask conversation; both
     /// outlive the per-turn runtimes, which read them.
@@ -702,6 +711,31 @@ final class UntypeUIModel: ObservableObject {
     /// insertion replaces it. When the sentence cannot be selected, the
     /// dictation part alone is delivered instead.
     func prepareSentenceDelivery(_ text: String) async -> SentenceDeliveryPlan {
+        if replacesEditedFieldText {
+            // The model processed the turn's text as the user left it in
+            // the field: the result replaces it there.
+            replacesEditedFieldText = false
+            guard let anchor = turnFieldAnchor else {
+                return .notUsed
+            }
+            await liveTyper?.flush()
+            let replacement = await anchor.replace(with: text)
+            liveTyper?.discard()
+            switch replacement {
+            case .selected(let method):
+                appendEvent("diagnostic.info: [untype] the edited text in the field is replaced with the processed text (selected with \(method))")
+                return .regionSelected
+            case .typed:
+                appendEvent("diagnostic.info: [untype] the edited text in the \(anchor.name) was erased and the processed text typed")
+                return .typed
+            case .paste(let rest):
+                appendEvent("diagnostic.info: [untype] the edited text in the \(anchor.name) was erased; the processed text has a line break and is pasted")
+                return .paste(rest)
+            case .failed(let reason):
+                noteEditedTextLeft(reason)
+                return .untouched(reason)
+            }
+        }
         guard let dictation = turnContext.takeSentenceDelivery() else {
             return .notUsed
         }
@@ -748,6 +782,60 @@ final class UntypeUIModel: ObservableObject {
             return
         }
         liveTyper = LiveFocusedInputTyper(targetPID: frontmost.processIdentifier)
+        turnFieldAnchor = TurnFieldAnchor.capture(in: frontmost)
+        appendEvent("diagnostic.info: [untype] the dictated text can\(turnFieldAnchor.map { " be read back from the field (\($0.name))" } ?? "not be read back from the field")")
+    }
+
+    /// Called before a turn's text is processed: the turn's text as it
+    /// stands in the field, when the user changed it or moved the caret
+    /// while dictating (plan-071). nil: the field holds what was dictated,
+    /// or the field cannot tell. Only lengths are logged, never the text.
+    func editedTurnText() async -> String? {
+        replacesEditedFieldText = false
+        turnTextIsProcessed = true
+        // In another app the live text is not up to date; the delivery
+        // brings the app back and writes it the regular way.
+        guard sessionOwner == .hotkey, let typer = liveTyper, !typer.typedText.isEmpty, typer.isTargetFrontmost else {
+            return nil
+        }
+        await typer.flush()
+        var reading: TurnFieldReading = .notFollowed("the field cannot be read")
+        if let anchor = turnFieldAnchor {
+            // The last keystrokes may still be on their way into the field:
+            // read until it holds what was typed, or stops changing.
+            reading = anchor.read(typed: typer.typedText, userTouched: typer.userTouchedField)
+            var unchanged = 0
+            for _ in 0..<12 where reading != .asTyped && unchanged < 2 {
+                try? await Task.sleep(for: .milliseconds(50))
+                let next = anchor.read(typed: typer.typedText, userTouched: typer.userTouchedField)
+                unchanged = next == reading ? unchanged + 1 : 0
+                reading = next
+            }
+            switch reading {
+            case .asTyped:
+                typer.fieldConfirmedAsTyped()
+                return nil
+            case .edited(let text):
+                replacesEditedFieldText = true
+                appendEvent("diagnostic.info: [untype] the text was edited in the field during the dictation: the field's text is processed (\(anchor.name), \(text.count) characters; \(typer.typedText.count) were dictated)")
+                return text
+            case .notFollowed(let reason):
+                appendEvent("diagnostic.info: [untype] the dictated text was not read back from the field: \(reason)")
+            }
+        }
+        // A field that cannot be read: what the keys tell.
+        if case .edited(let text) = typer.readingFromKeys {
+            appendEvent("diagnostic.info: [untype] the text was typed over during the dictation: the text as typed is processed (\(text.count) characters; \(typer.typedText.count) were dictated)")
+            return text
+        }
+        return nil
+    }
+
+    /// The edited text in the field could not be replaced: it stays as the
+    /// user left it, and the overlay says so.
+    private func noteEditedTextLeft(_ reason: String) {
+        appendEvent("diagnostic.warning: [untype] the text edited during the dictation was left as it is in the field: \(reason)")
+        overlay?.showNotice("Edited by hand: left as it is", seconds: 3)
     }
 
     /// Called by focused-input delivery with the final (processed) text:
@@ -756,7 +844,17 @@ final class UntypeUIModel: ObservableObject {
         guard let liveTyper else {
             return .notLive
         }
-        return await liveTyper.reconcile(with: text)
+        let reconciliation = await liveTyper.reconcile(with: text)
+        if case .untouched(let reason) = reconciliation {
+            guard turnTextIsProcessed else {
+                // Nothing processed the text: the field as the user has it
+                // is the result.
+                appendEvent("diagnostic.info: [untype] the text was edited by hand during the dictation and nothing processes it: the field is left as it is")
+                return .completed
+            }
+            noteEditedTextLeft(reason)
+        }
+        return reconciliation
     }
 
     /// Before a turn's text is delivered: makes sure the right app is in
@@ -1216,12 +1314,18 @@ final class UntypeUIModel: ObservableObject {
     /// A tap: the turn goes on recording; Enter, Esc and the hotkey end it.
     private func beginHandsFreeTurn(source: String) {
         hotkeyHandsFree = true
-        if settings.handsFree.leavesPunctuationToUser, liveTyper != nil {
+        if liveTyper != nil {
             // The user's own keys tell what stands before the cursor where
-            // the field does not (a full stop typed by hand).
+            // the field does not (a full stop typed by hand), and whether
+            // the cursor was moved during the turn. The hotkey that ends
+            // the turn is not one of them.
+            handsFreeKeys.ignoredShortcutKey = (try? UntypeHotkeyDescriptor(settings.hotkey))?.keyCode.map { Int64($0) }
             handsFreeKeys.onUserKeystroke = { [weak self] keystroke in
                 dispatchToUI { [weak self] in
-                    self?.liveTyper?.userKeystroke(keystroke)
+                    guard let self, self.hotkeyHandsFree else {
+                        return
+                    }
+                    self.liveTyper?.userKeystroke(keystroke)
                 }
             }
         }
@@ -1605,6 +1709,9 @@ final class UntypeUIModel: ObservableObject {
         turnContext.begin(selectionRole: settings.selectionRoleValue)
         selectionCopyTask = nil
         sentenceAnchor = nil
+        turnFieldAnchor = nil
+        replacesEditedFieldText = false
+        turnTextIsProcessed = false
         startLiveTyping()
         captureSelectedText()
         captureWindowScreenshot()
@@ -1819,6 +1926,9 @@ final class UntypeUIModel: ObservableObject {
         let turnContextStore = turnContext
         let askConversationStore = askConversation
         let modelBox = WeakUntypeUIModelBox(self)
+        turnContextStore.setFieldTextReader { @MainActor in
+            await modelBox.model?.editedTurnText()
+        }
         // A meeting recorded with echo cancellation shares its microphone:
         // a capture of our own would get no audio while it runs.
         let sharedMicrophone = meetingRecorder.sharedMicrophone.isActive ? meetingRecorder.sharedMicrophone : nil
@@ -6583,6 +6693,9 @@ private final class UntypeReturnEscapeKeyTap {
     /// change what stands before the caret (never swallowed). Set before
     /// `start()`; nil: not watched.
     var onUserKeystroke: (@Sendable (UserKeystroke) -> Void)?
+    /// A key that, pressed with a modifier, is untype's own hotkey and not
+    /// a key of the user in the field.
+    var ignoredShortcutKey: Int64?
     private static let backspaceKey: Int64 = 51
     /// Arrows, Home, End, Page Up, Page Down, forward Delete, Tab.
     private static let caretKeys: Set<Int64> = [123, 124, 125, 126, 115, 119, 116, 121, 117, 48]
@@ -6675,7 +6788,9 @@ private final class UntypeReturnEscapeKeyTap {
             // With a modifier it is some app's shortcut, not an answer.
             && event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty
         guard answers else {
-            if let onUserKeystroke, key != Self.escapeKey {
+            let isHotkey = key == ignoredShortcutKey
+                && !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate]).isEmpty
+            if let onUserKeystroke, key != Self.escapeKey, !isHotkey {
                 var length = 0
                 var units = [UniChar](repeating: 0, count: 8)
                 event.keyboardGetUnicodeString(maxStringLength: 8, actualStringLength: &length, unicodeString: &units)

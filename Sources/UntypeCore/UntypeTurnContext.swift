@@ -36,6 +36,7 @@ public final class UntypeTurnContext: @unchecked Sendable {
     private var pendingWindowText: Task<WindowText?, Never>?
     private var storedSentence: SentenceSpan?
     private var storedSentenceDictation: String?
+    private var fieldTextReader: (@Sendable () async -> String?)?
 
     public init(
         selectedText: String? = nil,
@@ -144,6 +145,21 @@ public final class UntypeTurnContext: @unchecked Sendable {
             defer { storedSentenceDictation = nil }
             return storedSentenceDictation
         }
+    }
+
+    /// Reads the turn's text as it stands in the field when the user changed
+    /// it during the turn (plan-071); nil: it is what was dictated. Set once
+    /// by the owner of the field (the UI model); kept across turns.
+    public func setFieldTextReader(_ reader: (@Sendable () async -> String?)?) {
+        lock.withLock { fieldTextReader = reader }
+    }
+
+    /// The turn's text as the user left it in the field, when it is not the
+    /// dictation as spoken: that text is what the section processes, and
+    /// its output replaces it in the field.
+    public func editedFieldText() async -> String? {
+        let reader = lock.withLock { fieldTextReader }
+        return await reader?()
     }
 
     public func setSelection(_ text: String?) {

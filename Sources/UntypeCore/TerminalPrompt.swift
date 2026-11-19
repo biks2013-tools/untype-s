@@ -11,6 +11,12 @@ public enum TerminalPromptParser {
     /// prompt box or it is empty. Lines the terminal wrapped are joined with
     /// a space, lines the user broke with a newline.
     public static func prompt(in screen: String) -> String? {
+        box(in: screen).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The text in the last prompt box of `screen`: empty for an empty box,
+    /// nil when there is no prompt box.
+    public static func box(in screen: String) -> String? {
         let lines = screen.components(separatedBy: "\n")
         var bottom = lines.count - 1
         while bottom > 0 {
@@ -43,7 +49,7 @@ public enum TerminalPromptParser {
             && trimmed.hasSuffix("─")
     }
 
-    private static func text(_ content: [String], width: Int) -> String? {
+    private static func text(_ content: [String], width: Int) -> String {
         let available = width - 2
         var pieces: [String] = []
         for (index, raw) in content.enumerated() {
@@ -73,8 +79,7 @@ public enum TerminalPromptParser {
                 && previous.count + 1 + firstWord.count > available
             result += (wrapped ? " " : "\n") + next
         }
-        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -98,5 +103,17 @@ final class TerminalPromptAnchor: @unchecked Sendable {
             return nil
         }
         return TerminalPromptParser.prompt(in: screen)
+    }
+
+    /// The prompt box now on screen: empty for an empty box, nil when no
+    /// prompt box is on screen.
+    func currentBox() -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success,
+              let screen = value as? String
+        else {
+            return nil
+        }
+        return TerminalPromptParser.box(in: screen)
     }
 }

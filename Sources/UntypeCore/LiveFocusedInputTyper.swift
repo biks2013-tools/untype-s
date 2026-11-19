@@ -54,6 +54,10 @@ public enum LiveInputReconciliation: Equatable, Sendable {
     /// The live text was trimmed to the common prefix; the rest contains a
     /// line break, which must be pasted (a typed newline would press Return).
     case paste(String)
+    /// The user moved the caret or used a shortcut during the turn in a
+    /// field that cannot be read: where the live text stands is not known,
+    /// so nothing was changed. Why (never text).
+    case untouched(String)
 }
 
 /// The transcript of one push-to-talk turn as it should appear in the field:
@@ -190,6 +194,9 @@ final class LiveFocusedInputTyper {
     private var flow: HandsFreeTextFlow?
     private let readContext: (pid_t) -> LiveCaretContext?
     private let now: () -> TimeInterval
+    /// The turn's text in the field as far as the keys tell (untype's own
+    /// and the user's), for fields that cannot be read.
+    private var tail = TypedTailModel()
     /// What the field answered about its caret, for the event log (no text).
     var onCaretContext: ((String) -> Void)?
 
@@ -235,6 +242,35 @@ final class LiveFocusedInputTyper {
     /// A key or click of the user during the turn (not untype's own keys).
     func userKeystroke(_ keystroke: UserKeystroke) {
         flow?.note(keystroke)
+        tail.note(keystroke)
+    }
+
+    /// What untype has typed into the field in this turn.
+    var typedText: String {
+        typed
+    }
+
+    /// The user pressed a key or clicked during the turn.
+    var userTouchedField: Bool {
+        tail.touched
+    }
+
+    var isTargetFrontmost: Bool {
+        targetIsFrontmost
+    }
+
+    /// The turn's text in the field as far as the keys tell.
+    var readingFromKeys: TurnFieldReading {
+        guard let text = tail.text else {
+            return .notFollowed("the cursor was moved during the dictation and this field cannot be read")
+        }
+        return text == typed ? .asTyped : .edited(text)
+    }
+
+    /// The field was read: it holds what untype typed, with the caret
+    /// right after it, whatever the keys suggested.
+    func fieldConfirmedAsTyped() {
+        tail = TypedTailModel(text: typed)
     }
 
     private func caretContext() -> LiveCaretContext? {
@@ -284,9 +320,11 @@ final class LiveFocusedInputTyper {
         let alreadyTyped = typed
         let spoken = transcript.text
         let userPunctuated = flow != nil
+        let inField = tail.text
         typed = ""
         transcript = LiveTranscriptText()
         flow = nil
+        tail = TypedTailModel()
         guard !alreadyTyped.isEmpty, targetIsFrontmost else {
             return .notLive
         }
@@ -296,7 +334,20 @@ final class LiveFocusedInputTyper {
             await flush()
             return .completed
         }
-        let edit = LiveInputEdit.between(typed: alreadyTyped, target: delivered)
+        // Nothing processed the text: the field stays as it is.
+        if delivered == alreadyTyped {
+            await flush()
+            return .completed
+        }
+        // The caret was moved in a field that cannot be read: Backspaces
+        // would erase the wrong characters.
+        guard let inField else {
+            await flush()
+            return .untouched("the cursor was moved during the dictation and this field cannot be read")
+        }
+        // What the user typed at the end of the live text is part of what
+        // is replaced.
+        let edit = LiveInputEdit.between(typed: inField, target: delivered)
         if edit.insert.contains(where: { $0.isNewline }) {
             await poster.applyAndWait(LiveInputEdit(deleteCount: edit.deleteCount, insert: ""))
             return .paste(edit.insert)
@@ -316,6 +367,7 @@ final class LiveFocusedInputTyper {
         typed = ""
         transcript = LiveTranscriptText()
         flow = nil
+        tail = TypedTailModel()
     }
 
     /// The same text, whatever the spacing.
@@ -339,6 +391,7 @@ final class LiveFocusedInputTyper {
             return
         }
         poster.apply(edit)
+        tail.typed(edit)
         typed = target
     }
 }
