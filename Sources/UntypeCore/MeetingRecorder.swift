@@ -90,12 +90,28 @@ public struct MeetingRecordingOptions: Sendable {
     }
 }
 
-/// The gate on the meeting's microphone. Muted, the meeting gets silence
-/// in place of what the microphone hears (the user is dictating). Set on
-/// the main actor, read on the audio thread.
+/// The gate on one side of the meeting's audio (the microphone, or the
+/// system audio). Muted (the user is dictating) or paused (the user paused
+/// that side), the meeting gets silence in place of what was captured. Set
+/// on the main actor, read on the audio thread.
 public final class MeetingMicrophoneGate: @unchecked Sendable {
     private let lock = NSLock()
     private var muted = false
+    private var paused = false
+
+    /// The user paused this side of the recording (plan-074).
+    public var isPaused: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return paused
+        }
+        set {
+            lock.lock()
+            paused = newValue
+            lock.unlock()
+        }
+    }
 
     public init() {}
 
@@ -114,7 +130,10 @@ public final class MeetingMicrophoneGate: @unchecked Sendable {
 
     /// The audio the meeting gets: `pcm`, or silence of the same length.
     public func filter(_ pcm: Data) -> Data {
-        isMuted ? Data(count: pcm.count) : pcm
+        lock.lock()
+        let silent = muted || paused
+        lock.unlock()
+        return silent ? Data(count: pcm.count) : pcm
     }
 }
 
@@ -131,6 +150,8 @@ public final class MeetingRecorder {
 
     /// Closed while the user dictates and the meeting must not hear it.
     public let microphoneGate = MeetingMicrophoneGate()
+    /// Closed while the user has paused the system audio.
+    public let systemGate = MeetingMicrophoneGate()
 
     public private(set) var isRecording = false
     public private(set) var startDate: Date?
@@ -190,6 +211,9 @@ public final class MeetingRecorder {
         startDate = now
         startUptime = ProcessInfo.processInfo.systemUptime
         silence = MeetingSilenceMonitor(limit: TimeInterval(options.silenceMinutes * 60), start: startUptime)
+        // A pause never carries over to the next recording.
+        microphoneGate.isPaused = false
+        systemGate.isPaused = false
         micWaveform.clear()
         callWaveform.clear()
 
@@ -239,11 +263,16 @@ public final class MeetingRecorder {
             self.echoCanceller = echoCanceller
             let echo = echoCanceller
 
-            let systemAudio = MeetingSystemAudioCapture(sampleRate: Self.sampleRate, onPCM: { [callWaveform] pcm, capturedAt in
+            let systemAudio = MeetingSystemAudioCapture(sampleRate: Self.sampleRate, onPCM: { [callWaveform, systemGate] captured, capturedAt in
+                // The loudspeakers go on playing while the system audio is
+                // paused: the canceller keeps the sound as it is.
+                echo?.pushReference(captured, capturedAt: capturedAt)
+                // Silence of the same length while paused: the times of the
+                // transcript and of the audio file stay aligned.
+                let pcm = systemGate.filter(captured)
                 callWaveform.append(pcm: pcm, at: ProcessInfo.processInfo.systemUptime)
                 callStream.push(pcm)
                 savedAudio?.push(pcm, side: .call, capturedAt: capturedAt)
-                echo?.pushReference(pcm, capturedAt: capturedAt)
             }, onError: { [weak self] error in
                 dispatchMeeting { self?.fail("system audio: \(error.localizedDescription)") }
             })
@@ -317,6 +346,34 @@ public final class MeetingRecorder {
         if isRecording {
             onEvent("diagnostic.info: [untype] meeting microphone \(muted ? "muted for a dictation turn" : "unmuted")")
         }
+    }
+
+    /// Whether the user has paused `side` of the recording.
+    public func isPaused(_ side: MeetingSide) -> Bool {
+        (side == .you ? microphoneGate : systemGate).isPaused
+    }
+
+    /// Pauses or resumes one side of the recording (plan-074). Paused, that
+    /// side gets silence: nothing of it is transcribed or saved, the other
+    /// side goes on, and the times stay aligned. Only while recording.
+    /// Returns whether the side is paused now.
+    @discardableResult
+    public func setPaused(_ paused: Bool, side: MeetingSide) -> Bool {
+        let gate = side == .you ? microphoneGate : systemGate
+        guard isRecording else {
+            return gate.isPaused
+        }
+        guard gate.isPaused != paused else {
+            return paused
+        }
+        gate.isPaused = paused
+        if !paused {
+            // The stop after silence counts from the resume.
+            silence.speechHeard(at: ProcessInfo.processInfo.systemUptime)
+        }
+        let seconds = Int(ProcessInfo.processInfo.systemUptime - startUptime)
+        onEvent("diagnostic.info: [untype] meeting \(side == .you ? "microphone" : "system audio") \(paused ? "paused" : "resumed") by the user (at \(seconds) s)")
+        return paused
     }
 
     private nonisolated static func startMicrophone(
@@ -404,7 +461,11 @@ public final class MeetingRecorder {
     }
 
     private func checkSilence() {
-        guard isRecording, let options, silence.shouldStop(at: ProcessInfo.processInfo.systemUptime) else {
+        // While the user has a side paused, silence is not the end of the
+        // meeting.
+        guard isRecording, let options, !microphoneGate.isPaused, !systemGate.isPaused,
+              silence.shouldStop(at: ProcessInfo.processInfo.systemUptime)
+        else {
             return
         }
         Task { await stop(reason: .silence(minutes: options.silenceMinutes)) }

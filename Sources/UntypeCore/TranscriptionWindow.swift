@@ -45,8 +45,30 @@ public final class MeetingTranscriptFeed: ObservableObject {
     /// Lines before this id were cleared from the window (they are still in
     /// the meeting's files).
     @Published public private(set) var clearedBefore = 0
+    /// The sides whose capture the user has paused.
+    @Published public private(set) var paused: Set<MeetingSide> = []
+    /// Asks the recorder to pause or resume a side (set by the owner of
+    /// the recorder); it answers with `setPaused`.
+    public var onPauseRequest: ((_ side: MeetingSide, _ paused: Bool) -> Void)?
 
     public init() {}
+
+    /// The window's button: pause the side, or resume it.
+    public func togglePause(_ side: MeetingSide) {
+        guard isRecording else {
+            return
+        }
+        onPauseRequest?(side, !paused.contains(side))
+    }
+
+    /// The recorder's answer: `side` is paused, or runs.
+    public func setPaused(_ isPaused: Bool, side: MeetingSide) {
+        if isPaused {
+            paused.insert(side)
+        } else {
+            paused.remove(side)
+        }
+    }
 
     /// Empties the window: the lines shown so far are no longer shown. The
     /// recording and its files are not touched; new text keeps coming.
@@ -59,6 +81,7 @@ public final class MeetingTranscriptFeed: ObservableObject {
         lines = []
         clearedBefore = 0
         inProgress = [:]
+        paused = []
         self.meetingName = meetingName
         isRecording = true
     }
@@ -84,6 +107,7 @@ public final class MeetingTranscriptFeed: ObservableObject {
 
     public func end() {
         inProgress = [:]
+        paused = []
         isRecording = false
     }
 
@@ -189,6 +213,20 @@ struct UntypeTranscriptionView: View {
             .labelsHidden()
             .fixedSize()
             .help("Show what the microphone heard, what the system played (the call), or both")
+            if let side = pausableSide {
+                let isPaused = feed.paused.contains(side)
+                Button {
+                    feed.togglePause(side)
+                } label: {
+                    Label(isPaused ? "Resume" : "Pause", systemImage: isPaused ? "play.fill" : "pause.fill")
+                }
+                .controlSize(.small)
+                .tint(isPaused ? UntypeDesignTokens.accentAmber : nil)
+                .disabled(!feed.isRecording)
+                .help(isPaused
+                    ? "Resume capturing the \(Self.name(of: side))"
+                    : "Pause capturing the \(Self.name(of: side)): nothing of it is transcribed or saved until you resume. The other side goes on.")
+            }
             Spacer(minLength: 8)
             Button {
                 copyTranscript()
@@ -321,6 +359,9 @@ struct UntypeTranscriptionView: View {
             if feed.clearedBefore > 0 {
                 return "Cleared. New text will appear here; the meeting's files keep everything."
             }
+            if let side = pausableSide, feed.paused.contains(side) {
+                return "The \(Self.name(of: side)) is paused. Press Resume to capture it again."
+            }
             return channel == .both ? "Listening…" : "Nothing from this side yet."
         }
         return feed.meetingName.isEmpty
@@ -331,7 +372,7 @@ struct UntypeTranscriptionView: View {
     private var status: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(feed.isRecording ? Color.red : Color.secondary.opacity(0.5))
+                .fill(feed.isRecording ? (feed.paused.isEmpty ? Color.red : UntypeDesignTokens.accentAmber) : Color.secondary.opacity(0.5))
                 .frame(width: 7, height: 7)
             Text(statusText)
                 .font(.system(size: 11))
@@ -345,8 +386,25 @@ struct UntypeTranscriptionView: View {
         }
     }
 
+    /// The side the Pause button of the chosen tab acts on; none on Both.
+    private var pausableSide: MeetingSide? {
+        switch channel {
+        case .both: return nil
+        case .microphone: return .you
+        case .system: return .call
+        }
+    }
+
+    private static func name(of side: MeetingSide) -> String {
+        side == .you ? "microphone" : "system audio"
+    }
+
     private var statusText: String {
         if feed.isRecording {
+            let paused = [MeetingSide.you, .call].filter { feed.paused.contains($0) }.map { Self.name(of: $0) }
+            if !paused.isEmpty {
+                return "Recording · \(paused.joined(separator: " and ")) paused · \(feed.meetingName)"
+            }
             return "Recording · \(feed.meetingName)"
         }
         return feed.meetingName.isEmpty ? "Not recording" : "Ended · \(feed.meetingName)"

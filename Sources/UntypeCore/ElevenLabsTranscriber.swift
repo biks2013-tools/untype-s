@@ -36,7 +36,24 @@ public struct ElevenLabsTranscriberOptions: Sendable, Equatable {
         self.commitDrainNanoseconds = commitDrainNanoseconds
     }
 
-    public init(config: ResolvedConfig, commitDrainNanoseconds: UInt64 = 250_000_000) {
+    /// ElevenLabs takes up to 50 keyterms of up to 20 characters each.
+    public static let maxKeyterms = 50
+    public static let maxKeytermLength = 20
+
+    /// The keyterms of the prompt file, then the user's dictionary words
+    /// that ElevenLabs can take, up to its limit.
+    public static func keyterms(file: [String], dictionary: [String]) -> [String] {
+        var result = file
+        for term in dictionary where term.count <= maxKeytermLength && !result.contains(term) {
+            guard result.count < maxKeyterms else {
+                break
+            }
+            result.append(term)
+        }
+        return result
+    }
+
+    public init(config: ResolvedConfig, commitDrainNanoseconds: UInt64 = 250_000_000, dictionaryTerms: [String] = []) {
         self.init(
             apiKey: config.apiKey,
             model: config.model,
@@ -45,7 +62,7 @@ public struct ElevenLabsTranscriberOptions: Sendable, Equatable {
             sampleRate: config.sampleRate,
             enableEndpointDetection: config.enableEndpointDetection,
             previousText: config.prompts.elevenLabsPreviousText,
-            keyterms: config.prompts.elevenLabsKeyterms,
+            keyterms: Self.keyterms(file: config.prompts.elevenLabsKeyterms, dictionary: dictionaryTerms),
             verbose: config.verbose,
             commitDrainNanoseconds: commitDrainNanoseconds
         )

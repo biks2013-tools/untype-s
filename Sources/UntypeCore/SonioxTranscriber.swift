@@ -151,6 +151,9 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
     /// Keep only the user's voice (or learn a sample of it); nil: everyone's
     /// words are transcribed.
     public let voiceFilter: SonioxVoiceFilterMode?
+    /// The user's dictionary words (names, abbreviations, terms), sent as
+    /// the context's `terms` so they are recognised and written this way.
+    public let terms: [String]
 
     public init(
         apiKey: String,
@@ -162,9 +165,11 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
         transcriptionContext: String? = nil,
         verbose: Bool = false,
         finalizeDrainNanoseconds: UInt64 = 250_000_000,
-        voiceFilter: SonioxVoiceFilterMode? = nil
+        voiceFilter: SonioxVoiceFilterMode? = nil,
+        terms: [String] = []
     ) {
         self.voiceFilter = voiceFilter
+        self.terms = terms
         self.apiKey = apiKey
         self.model = model
         self.endpoint = endpoint
@@ -179,7 +184,8 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
     public init(
         config: ResolvedConfig,
         finalizeDrainNanoseconds: UInt64 = 250_000_000,
-        voiceFilter: SonioxVoiceFilterMode? = nil
+        voiceFilter: SonioxVoiceFilterMode? = nil,
+        terms: [String] = []
     ) {
         self.init(
             apiKey: config.apiKey,
@@ -191,7 +197,8 @@ public struct SonioxTranscriberOptions: Sendable, Equatable {
             transcriptionContext: config.prompts.sonioxTranscriptionContext,
             verbose: config.verbose,
             finalizeDrainNanoseconds: finalizeDrainNanoseconds,
-            voiceFilter: voiceFilter
+            voiceFilter: voiceFilter,
+            terms: terms
         )
     }
 }
@@ -395,9 +402,16 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         } else {
             object["language_hints"] = options.languages
         }
+        var context: [String: Any] = [:]
         if let transcriptionContext = options.transcriptionContext,
            !transcriptionContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            object["context"] = ["text": transcriptionContext]
+            context["text"] = transcriptionContext
+        }
+        if !options.terms.isEmpty {
+            context["terms"] = options.terms
+        }
+        if !context.isEmpty {
+            object["context"] = context
         }
 
         let data = try JSONSerialization.data(
