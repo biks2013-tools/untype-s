@@ -147,8 +147,7 @@ final class UntypeTranscriptionWindowController: NSObject {
     func show() {
         let window = self.window ?? makeWindow()
         self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        window.showOnActiveDesktop()
     }
 
     private func makeWindow() -> NSWindow {
