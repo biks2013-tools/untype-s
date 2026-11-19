@@ -308,6 +308,7 @@ final class MeetingAudioFileWriter {
 /// write error stops the audio (reported once) and never the meeting.
 final class MeetingAudioRecorder: @unchecked Sendable {
     let settings: MeetingAudioSettings
+    private let sampleRate: Int
     private let queue = DispatchQueue(label: "untype.meeting.audio-file")
     private let onError: @Sendable (String) -> Void
     private var timelines: [MeetingSide: MeetingAudioTimeline]
@@ -325,6 +326,7 @@ final class MeetingAudioRecorder: @unchecked Sendable {
         onError: @escaping @Sendable (String) -> Void
     ) throws {
         self.settings = settings
+        self.sampleRate = sampleRate
         self.onError = onError
         mixer = MeetingAudioMixer(maxLag: sampleRate * 2)
         timelines = [
@@ -352,11 +354,16 @@ final class MeetingAudioRecorder: @unchecked Sendable {
         }
     }
 
-    /// PCM16 mono audio of one side, as it arrived at `uptime`.
-    func push(_ pcm: Data, side: MeetingSide, at uptime: TimeInterval) {
+    /// PCM16 mono audio of one side whose first sample was captured at
+    /// `capturedAt` (`ProcessInfo.systemUptime` clock). Placing by capture
+    /// time, not arrival, keeps the sides in step when one is delivered late
+    /// (2026-11-19: system audio delivered 2 s late left `.system.m4a` 1.96 s
+    /// behind `.mic.m4a` for a whole recording).
+    func push(_ pcm: Data, side: MeetingSide, capturedAt: TimeInterval) {
         guard settings.sources.includes(side) else {
             return
         }
+        let sampleRate = self.sampleRate
         queue.async { [self] in
             guard !failed else {
                 return
@@ -365,7 +372,8 @@ final class MeetingAudioRecorder: @unchecked Sendable {
             guard !samples.isEmpty, var timeline = timelines[side] else {
                 return
             }
-            let gap = timeline.place(sampleCount: samples.count, at: uptime)
+            // The timeline takes the time the chunk ends.
+            let gap = timeline.place(sampleCount: samples.count, at: capturedAt + Double(samples.count) / Double(sampleRate))
             timelines[side] = timeline
             do {
                 if let mixedWriter {
@@ -414,6 +422,11 @@ final class MeetingAudioRecorder: @unchecked Sendable {
         }
         failed = true
         onError(error.localizedDescription)
+    }
+
+    /// The length of PCM16 mono audio in seconds.
+    static func seconds(_ pcm: Data, sampleRate: Int) -> TimeInterval {
+        Double(pcm.count / MemoryLayout<Int16>.size) / Double(max(1, sampleRate))
     }
 
     static func samples(_ pcm: Data) -> [Int16] {

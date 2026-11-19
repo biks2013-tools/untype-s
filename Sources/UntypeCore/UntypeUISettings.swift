@@ -1462,7 +1462,9 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// dictation (nil: the default, on).
     public var muteWhileDictating: Bool?
     /// The sound of the loudspeakers is removed from the microphone of a
-    /// meeting recording (Apple voice processing; nil: the default, off).
+    /// meeting recording (`MeetingEchoCanceller`, with the system audio as
+    /// the reference; the microphone itself is not changed; nil: the
+    /// default, off).
     public var echoCancellation: Bool?
     /// The microphone's transcript of a meeting keeps only the user's
     /// words, recognised by the saved voice sample (nil: the default, off).
