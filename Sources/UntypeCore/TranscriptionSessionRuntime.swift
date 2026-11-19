@@ -2,15 +2,22 @@ import Foundation
 
 public struct AudioSourceEventHandlers {
     public let audio: (_ pcm: Data) async -> Void
+    /// The same audio with the time its first sample was captured (seconds
+    /// on the `ProcessInfo.systemUptime` clock). When set, a source that
+    /// knows the capture time calls this instead of `audio`; a source that
+    /// does not know it always calls `audio`.
+    public let timedAudio: ((_ pcm: Data, _ capturedAt: TimeInterval) async -> Void)?
     public let error: (_ error: Error) async -> Void
     public let end: () async -> Void
 
     public init(
         audio: @escaping (_ pcm: Data) async -> Void,
+        timedAudio: ((_ pcm: Data, _ capturedAt: TimeInterval) async -> Void)? = nil,
         error: @escaping (_ error: Error) async -> Void,
         end: @escaping () async -> Void
     ) {
         self.audio = audio
+        self.timedAudio = timedAudio
         self.error = error
         self.end = end
     }

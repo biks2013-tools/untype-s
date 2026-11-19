@@ -61,6 +61,8 @@
 ## Tools
 
 - `scripts/install-local-build.sh` — builds untype, signs it with the personal "untype Local Signing" certificate (stable signature, so macOS permissions survive rebuilds), installs it in `/Applications` and relaunches it. Docs: `docs/tools/install-local-build.md`.
+- `scripts/build-webrtc-apm.sh` — rebuilds `Vendor/UntypeAEC/UntypeAEC.xcframework`, the echo canceller (WebRTC audio processing, static, behind a C interface) for the echo cancellation of meeting recording (plan-072); needed only for a new library version or a change to the interface. Docs: `docs/tools/build-webrtc-apm.md`.
+- `test_scripts/aec-eval/replay.py` — replays a saved meeting recording through untype's own echo cancellation, prints the levels before and after and, after transcribing both with Soniox, how many of the call's words are left on the user's side; with timing probes for the two capture paths. Docs: `docs/tools/aec-eval.md`.
 - `video/tools/video.ts` — builds the untype demo video from a timeline: renders the animation frame by frame to MP4, writes narration sheets and subtitles per language, fits the timing to recorded narration clips and lays the voice over the picture. Docs: `docs/tools/demo-video.md`.
 
 ## Document Archiving Strategy
