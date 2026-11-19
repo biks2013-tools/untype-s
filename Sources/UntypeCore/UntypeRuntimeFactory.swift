@@ -12,6 +12,12 @@ extension TranscriptionSessionRuntime: UntypeRuntimeSession {}
 extension TranscriptionSessionRuntime: @unchecked Sendable {}
 
 public enum UntypeRuntimeFactory {
+    /// The delivery failure for a turn whose text the user edited in the
+    /// field and that could not be replaced there (plan-071).
+    static func editedTextNotReplaced(_ reason: String) -> String {
+        "The text was edited in the field during the dictation and could not be replaced with the processed text (\(reason)). The field was left as it is."
+    }
+
     /// An alternative LLM's clients with the same prompts as the primary
     /// LLM; nil when that alternative LLM is not configured. `second`: the
     /// second alternative slot (Push-to-Act) instead of the first.
@@ -231,6 +237,8 @@ public enum UntypeRuntimeFactory {
                         return FocusedInputDeliveryResult.success(method: "live-typed")
                     case .paste(let rest):
                         return try await livePasteDelivery.deliver(rest)
+                    case .untouched(let reason):
+                        return FocusedInputDeliveryResult.failure(code: "edited_text_not_replaced", message: Self.editedTextNotReplaced(reason))
                     }
                 }
                 do {
@@ -246,6 +254,12 @@ public enum UntypeRuntimeFactory {
                         result = try await focusedInputDelivery.deliver(text)
                     case .dictationOnly(let part):
                         result = try await deliverReconciled(part)
+                    case .typed:
+                        result = FocusedInputDeliveryResult.success(method: "field-text-retyped")
+                    case .paste(let rest):
+                        result = try await livePasteDelivery.deliver(rest)
+                    case .untouched(let reason):
+                        result = FocusedInputDeliveryResult.failure(code: "edited_text_not_replaced", message: Self.editedTextNotReplaced(reason))
                     }
                     await focusedInputCompletion(result.ok)
                     return result

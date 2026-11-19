@@ -359,10 +359,20 @@ public final class VoiceAgentProtocolController {
                 selectionReference = selectionContextTemplate.replacingOccurrences(of: "{selection}", with: selection)
             }
         }
-        // Dictation in the middle of a sentence: Refine processes the whole
-        // sentence (the part before the caret, the dictation, the part after
-        // it) and the output replaces that sentence in the field.
-        if selection == nil, operators.contains(.refine), !operators.contains(.ask), !rawText.isEmpty,
+        // The user edited the text in the field while dictating (moved the
+        // caret, typed over a word): what stands in the field is processed,
+        // not what was spoken in the order it was spoken, and the output
+        // replaces it there.
+        var spokenText = rawText
+        let processesText = operators.contains(.refine) || operators.contains(.translate) || operators.contains(.ask)
+        if selection == nil, processesText, !rawText.isEmpty,
+           let edited = await turnContext?.editedFieldText() {
+            processInput = edited
+            spokenText = edited
+            if verbose || visibleOperatorDiagnostics {
+                diagnostics.write("[untype] protocol: the text was edited in the field during the dictation; the field's text is processed (\(edited.count) characters, \(rawText.count) dictated)", false)
+            }
+        } else if selection == nil, operators.contains(.refine), !operators.contains(.ask), !rawText.isEmpty,
            let sentence = turnContext?.takeSentence(dictation: rawText) {
             processInput = sentence.compose(dictation: rawText)
             if verbose || visibleOperatorDiagnostics {
@@ -436,16 +446,16 @@ public final class VoiceAgentProtocolController {
                 warnMissingLLM("Ask operator is enabled, but no LLM is configured.")
             } else {
                 operatorDiagnostic(.ask, stage: "started")
-                let request = rawText.isEmpty
+                let request = spokenText.isEmpty
                     ? (selection != nil
                         ? "(no spoken request: respond to the selected text)"
                         : screenshot != nil
                             ? "(no spoken request: respond to what the screenshot shows)"
                             : "(no spoken request: respond to the text of the window)")
-                    : rawText
+                    : spokenText
                 var prompt = askUserPromptTemplate.replacingOccurrences(of: "{text}", with: request)
                 if operators.contains(.translate) {
-                    sourceLanguage = detectProtocolLanguage(rawText.isEmpty ? (selection ?? "") : rawText)
+                    sourceLanguage = detectProtocolLanguage(spokenText.isEmpty ? (selection ?? "") : spokenText)
                     targetLanguage = targetLanguageFor(source: sourceLanguage!, policy: translationPolicy)
                     prompt = askTranslatedUserPromptTemplate
                         .replacingOccurrences(of: "{target_language}", with: languageDisplayName(targetLanguage!))

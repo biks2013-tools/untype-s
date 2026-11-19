@@ -160,6 +160,14 @@ public enum SentenceDeliveryPlan: Equatable, Sendable {
     /// The sentence could not be selected: deliver this text (the dictation
     /// part only) the regular way.
     case dictationOnly(String)
+    /// The turn's text was edited in the field (plan-071) and has already
+    /// been replaced there with the processed text, by keystrokes.
+    case typed
+    /// As `typed`, but this text (it has a line break) is still to be pasted.
+    case paste(String)
+    /// The turn's text was edited in the field and could not be replaced:
+    /// the field is left as it is. Why (never text).
+    case untouched(String)
 }
 
 /// The focused control and the sentence around its caret, captured at
