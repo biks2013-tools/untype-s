@@ -18,8 +18,9 @@ untype - installation notes
 
 3. Permissions (System Settings > Privacy & Security)
    - Microphone: grant when macOS asks on the first recording.
-   - Accessibility: add untype. Needed for the push-to-talk hotkey and for
-     inserting text into the focused input field.
+   - Device Control and Data Access (macOS 27; called "Accessibility" on
+     macOS 26 and earlier): add untype. Needed for the push-to-talk hotkey
+     and for inserting text into the focused input field.
    - Input Monitoring: add untype if the hotkey does not fire while another
      app is in front.
    After changing a permission, quit and relaunch untype.

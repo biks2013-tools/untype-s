@@ -3420,7 +3420,7 @@ private struct UntypeRootView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 statusLine("Microphone", value: model.settings.microphoneStatus, tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus))
-                statusLine("Accessibility", value: model.settings.accessibilityStatus, tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus))
+                statusLine(UntypeSettingsDeepLink.accessibilityPaneName, value: model.settings.accessibilityStatus, tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus))
                 statusLine(model.settings.apiKeyName, value: model.settings.apiKeyStatus, tone: UntypeStatusToneMap.credential(model.settings.apiKeyStatus))
                 statusLine("Hotkey", value: model.settings.hotkeyEnabled ? model.settings.hotkey : "disabled", tone: model.settings.hotkeyEnabled ? .accent : .off)
             }
@@ -5859,9 +5859,9 @@ struct UntypeOnboardingView: View {
     @State private var showCredentials = false
     @State private var showPermissionGuide = false
 
-    private static let microphoneSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-    private static let accessibilitySettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-    private static let inputMonitoringSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+    private static let microphoneSettingsURL = UntypeSettingsDeepLink.url(for: .microphone)
+    private static let accessibilitySettingsURL = UntypeSettingsDeepLink.url(for: .accessibility)
+    private static let inputMonitoringSettingsURL = UntypeSettingsDeepLink.url(for: .inputMonitoring)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -5915,15 +5915,15 @@ struct UntypeOnboardingView: View {
                     body: "Required for AVAudioEngine to capture input.",
                     tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus),
                     actionLabel: needsMic ? "Grant" : nil,
-                    deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                    deepLink: UntypeSettingsDeepLink.url(for: .microphone)
                 )
                 onboardingStep(
                     number: 2,
-                    title: "Accessibility trust",
+                    title: UntypeSettingsDeepLink.accessibilityCardTitle,
                     body: "Lets untype listen for the push-to-talk hotkey and insert text into the focused field.",
                     tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
                     actionLabel: needsAccessibility ? "Grant" : nil,
-                    deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                    deepLink: UntypeSettingsDeepLink.url(for: .accessibility)
                 )
                 onboardingStep(
                     number: 3,
@@ -6032,17 +6032,17 @@ struct UntypeOnboardingView: View {
                 )
 
                 permissionGuideBlock(
-                    title: "Accessibility (push-to-talk hotkey and text insertion)",
+                    title: "\(UntypeSettingsDeepLink.accessibilityPaneName) (push-to-talk hotkey and text insertion)",
                     status: model.settings.accessibilityStatus,
                     tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
                     steps: [
-                        "System Settings › Privacy & Security › Accessibility.",
+                        "\(UntypeSettingsDeepLink.accessibilityPanePath).",
                         "Click the + button below the list, pick Applications › untype, click Open, then make sure the switch next to untype is on. macOS may ask for your password or Touch ID.",
                         "Quit untype and open it again.",
                         "If the switch is already on but untype still reports \"not trusted\" (typical after an update changed the app's signature): select untype in the list, click −, add it again with +, then quit and reopen untype."
                     ],
                     settingsURL: Self.accessibilitySettingsURL,
-                    settingsLabel: "Open Accessibility settings"
+                    settingsLabel: "Open \(UntypeSettingsDeepLink.accessibilityPaneName) settings"
                 )
 
                 permissionGuideBlock(
@@ -6077,7 +6077,7 @@ struct UntypeOnboardingView: View {
             HStack(spacing: 8) {
                 Image(systemName: "lock.shield")
                     .foregroundStyle(UntypeDesignTokens.accentAmber)
-                Text("How to enable Microphone, Accessibility and Input Monitoring")
+                Text("How to enable Microphone, \(UntypeSettingsDeepLink.accessibilityPaneName) and Input Monitoring")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if needsMic || needsAccessibility {
@@ -6166,15 +6166,15 @@ struct UntypeOnboardingView: View {
     }
 
     private var primaryActionTitle: String {
-        if needsAccessibility { return "Grant Accessibility" }
+        if needsAccessibility { return "Grant \(UntypeSettingsDeepLink.accessibilityPaneName)" }
         if needsMic { return "Grant Microphone" }
         if needsCredential { return "Set keys" }
         return "Get started"
     }
 
     private var primaryActionURL: URL? {
-        if needsAccessibility { return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") }
-        if needsMic { return URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") }
+        if needsAccessibility { return URL(string: UntypeSettingsDeepLink.url(for: .accessibility)) }
+        if needsMic { return URL(string: UntypeSettingsDeepLink.url(for: .microphone)) }
         return nil
     }
 
