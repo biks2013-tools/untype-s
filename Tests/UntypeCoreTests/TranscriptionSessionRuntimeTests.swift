@@ -109,6 +109,34 @@ private let runtimeMarkers = MarkerConfig(
     #expect(events[1]["raw_text"] as? String == "pending words")
 }
 
+@Test func sessionRuntimeCorrectsRecognisedTextWithTheDictionary() async throws {
+    let audio = MockAudioSource()
+    let transcriber = MockTranscriber()
+    let protocolOutput = MemoryOutput()
+    let controller = VoiceAgentProtocolController(
+        mode: .hybrid,
+        renderer: TranscriptRenderer(output: MemoryOutput(), mode: .append, isTTY: false),
+        writer: JsonlProtocolWriter(output: protocolOutput),
+        markers: runtimeMarkers,
+        initialOperators: OperatorState(refine: false, translate: false, clipboard: false, input: false),
+        translationPolicy: .opposite
+    )
+    let corrector = DictionaryCorrector(UserDictionary(entries: [DictionaryEntry(term: "BikS2013", heardAs: ["bix 2013"])]))
+    let runtime = TranscriptionSessionRuntime(
+        audioSource: audio,
+        transcriber: transcriber,
+        protocolController: controller,
+        options: TranscriptionSessionRuntimeOptions(textCorrector: { corrector.apply($0) })
+    )
+
+    try await runtime.start()
+    await transcriber.emitFinal("the account is Bix 2013.")
+    try await runtime.submitPending()
+
+    let events = try protocolEvents(protocolOutput.text)
+    #expect(events[1]["raw_text"] as? String == "the account is BikS2013.")
+}
+
 @Test func sessionRuntimeSubmitPendingWaitsForFinalTextFromProviderCommit() async throws {
     let audio = MockAudioSource()
     let transcriber = MockTranscriber()

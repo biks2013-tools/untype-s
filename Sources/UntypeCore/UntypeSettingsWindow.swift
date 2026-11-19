@@ -141,6 +141,7 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
 struct UntypeSettingsView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showCredentialsEditor = false
+    @State private var newDictionaryWord = ""
     @State private var showOnboarding = false
 
     private static let sidebarWidth: CGFloat = 215
@@ -632,6 +633,12 @@ struct UntypeSettingsView: View {
         }
     }
 
+    private func addDictionaryWord() {
+        if model.addDictionaryWord(newDictionaryWord) {
+            newDictionaryWord = ""
+        }
+    }
+
     @ViewBuilder
     private var speechPane: some View {
         Section {
@@ -667,6 +674,72 @@ struct UntypeSettingsView: View {
             caption(speechProviderCaption)
         }
         .disabled(sessionShapingDisabled)
+
+        Section {
+            HStack(spacing: 8) {
+                TextField("New word", text: $newDictionaryWord, prompt: Text("A name, an abbreviation, a term"))
+                    .labelsHidden()
+                    .onSubmit(addDictionaryWord)
+                Button("Add", action: addDictionaryWord)
+                    .disabled(newDictionaryWord.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            ForEach(model.dictionary.entries) { entry in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(verbatim: entry.term)
+                            .fontWeight(.semibold)
+                            .textSelection(.enabled)
+                        Spacer()
+                        Button(model.dictionaryTeaching == entry.term ? "Listening…" : "Teach") {
+                            model.teachDictionaryWord(entry.term)
+                        }
+                        .disabled(model.dictionaryTeaching != nil || model.voiceLearnPending)
+                        .help("Say the word: untype learns how speech recognition writes it")
+                        Button {
+                            model.removeDictionaryWord(entry.term)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(model.dictionaryTeaching != nil)
+                        .help("Remove the word")
+                    }
+                    if !entry.heardAs.isEmpty {
+                        HStack(spacing: 6) {
+                            Text("Heard as")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ForEach(entry.heardAs, id: \.self) { heard in
+                                HStack(spacing: 3) {
+                                    Text(verbatim: heard)
+                                        .font(.caption)
+                                    Button {
+                                        model.removeDictionaryHeardForm(heard, of: entry.term)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Stop writing “\(entry.term)” for “\(heard)”")
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.12), in: Capsule())
+                            }
+                        }
+                    }
+                }
+            }
+            if !model.dictionaryStatus.isEmpty {
+                Text(model.dictionaryStatus)
+                    .font(.callout.weight(model.dictionaryTeaching != nil ? .semibold : .regular))
+                    .foregroundStyle(model.dictionaryTeaching != nil ? UntypeDesignTokens.accentAmberStrong : Color.secondary)
+            }
+        } header: {
+            Text("Dictionary")
+        } footer: {
+            caption("Names, abbreviations and terms that are not heard right. Type the word exactly as it must be written and press Add: speech recognition is told to expect it (Soniox and ElevenLabs; ElevenLabs takes words of up to 20 characters). Then press Teach and say only that word, for \(UntypeUIModel.dictionaryTeachSeconds) seconds; nothing is typed. If it is still written differently, untype remembers that form (“Heard as”) and writes your word in its place in every dictation. Remove a heard form that is also an ordinary word you use. The dictionary is kept on this Mac (~/.tool-agents/untype/dictionary.json); the words are sent to the speech provider at the start of every dictation.")
+        }
 
         Section {
             Toggle("Only my voice", isOn: Binding(

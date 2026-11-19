@@ -443,6 +443,17 @@ final class UntypeUIModel: ObservableObject {
     @Published private(set) var voiceSample: VoiceSample? = UntypeUIModel.savedVoiceSample()
     /// What the learning is doing, or how it ended, for Settings.
     @Published private(set) var voiceLearnStatus = ""
+    /// The user's dictionary (plan-073): words speech recognition is told
+    /// to expect, and what is written for what it wrote instead.
+    @Published private(set) var dictionary: UserDictionary = (try? UserDictionaryStore.load()) ?? .empty
+    @Published private(set) var dictionaryStatus = UntypeUIModel.dictionaryFileProblem() ?? ""
+    /// The word untype is listening to right now (Teach).
+    @Published private(set) var dictionaryTeaching: String?
+    /// The dictionary file cannot be read: it is not written over.
+    private var dictionaryFileUnreadable = UntypeUIModel.dictionaryFileProblem() != nil
+    /// The dictionary the running session was built with.
+    private var sessionDictionary = UserDictionary.empty
+    private var teachTranscript = LiveTranscriptText()
     /// The voice-filter mode the running session was built with.
     private var sessionVoiceFilter: SonioxVoiceFilterMode?
     /// The sentence around the caret at press time (see `SentenceAnchor`).
@@ -1023,6 +1034,170 @@ final class UntypeUIModel: ObservableObject {
             alignVoiceFilter()
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: Dictionary
+
+    /// Seconds untype listens to one dictionary word (Teach).
+    static let dictionaryTeachSeconds = 4
+
+    private static func dictionaryFileProblem() -> String? {
+        do {
+            _ = try UserDictionaryStore.load()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Stores a changed dictionary and has the next dictation use it.
+    /// Words are never logged, only how many there are.
+    private func saveDictionary(_ changed: UserDictionary, status: String) {
+        guard !dictionaryFileUnreadable else {
+            dictionaryStatus = UntypeUIModel.dictionaryFileProblem() ?? "The dictionary file cannot be read."
+            return
+        }
+        do {
+            try UserDictionaryStore.save(changed)
+            dictionary = changed
+            dictionaryStatus = status
+            appendEvent("config.saved: dictionary (\(changed.entries.count) words, \(changed.entries.reduce(0) { $0 + $1.heardAs.count }) heard forms)")
+            alignDictionary()
+        } catch {
+            dictionaryStatus = "The dictionary could not be saved: \(error.localizedDescription)"
+            appendEvent("diagnostic.warning: [untype] dictionary: \(error.localizedDescription)")
+        }
+    }
+
+    func addDictionaryWord(_ raw: String) -> Bool {
+        var changed = dictionary
+        do {
+            try changed.add(raw)
+        } catch {
+            dictionaryStatus = error.localizedDescription
+            return false
+        }
+        saveDictionary(changed, status: "Added. Press Teach and say it, so untype also learns how it is heard.")
+        return dictionary == changed
+    }
+
+    func removeDictionaryWord(_ term: String) {
+        var changed = dictionary
+        changed.remove(term)
+        saveDictionary(changed, status: "")
+    }
+
+    func removeDictionaryHeardForm(_ heard: String, of term: String) {
+        var changed = dictionary
+        changed.removeHeard(heard, for: term)
+        saveDictionary(changed, status: "")
+    }
+
+    /// Restarts the warm push-to-talk session when it was built with an
+    /// older dictionary; never during a turn.
+    private func alignDictionary(attempt: Int = 0) {
+        guard sessionOwner == .hotkey, runtime != nil, sessionDictionary != dictionary else {
+            return
+        }
+        if !hotkeyPressed, !runtimeStopInFlight, captureState == "warm" {
+            recycleWarmSession()
+            return
+        }
+        guard attempt < 120 else {
+            return
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self?.alignDictionary(attempt: attempt + 1)
+        }
+    }
+
+    /// Listens now, for a few seconds, to the user saying one dictionary
+    /// word: a push-to-talk turn untype starts and discards itself. What
+    /// speech recognition writes for it, when it is not the word, is stored
+    /// as a way the word is heard.
+    func teachDictionaryWord(_ term: String) {
+        guard dictionaryTeaching == nil, !voiceLearnPending else {
+            return
+        }
+        guard settings.hotkeyEnabled, sessionOwner != .manual, !hotkeyPressed else {
+            dictionaryStatus = settings.hotkeyEnabled
+                ? "Finish the current dictation or session first, then press Teach."
+                : "Enable push-to-talk first (Settings → Push-to-Talk)."
+            return
+        }
+        dictionaryTeaching = term
+        dictionaryStatus = "Preparing…"
+        appendEvent("diagnostic.info: [untype] dictionary: listening to a word")
+        alignDictionary()
+        Task { [weak self] in
+            // The warm session must know the current dictionary first.
+            var ready = false
+            for _ in 0..<40 {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard let self, self.dictionaryTeaching == term else {
+                    return
+                }
+                if self.sessionDictionary == self.dictionary, self.captureState == "warm", self.runtime != nil, !self.hotkeyPressed {
+                    ready = true
+                    break
+                }
+            }
+            guard let self else {
+                return
+            }
+            guard ready else {
+                self.finishDictionaryTeaching(status: "Could not start listening. Try again.")
+                return
+            }
+            self.teachTranscript = LiveTranscriptText()
+            self.startHotkeySession(source: "word-teach")
+            for left in stride(from: Self.dictionaryTeachSeconds, to: 0, by: -1) {
+                self.dictionaryStatus = "Listening: say “\(term)” now… \(left)"
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            // The last words may still be on their way.
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            let heard = self.teachTranscript.text
+            if self.hotkeyPressed {
+                self.discardHotkeySession(source: "word-teach")
+            }
+            self.noteDictionaryHeard(heard, for: term)
+        }
+    }
+
+    private func finishDictionaryTeaching(status: String) {
+        dictionaryTeaching = nil
+        dictionaryStatus = status
+    }
+
+    private func noteDictionaryHeard(_ heard: String, for term: String) {
+        let cleaned = UserDictionary.cleanedHeard(heard)
+        let words = cleaned.split(separator: " ").count
+        guard !cleaned.isEmpty else {
+            appendEvent("diagnostic.info: [untype] dictionary: nothing was heard")
+            finishDictionaryTeaching(status: "Nothing was heard. Press Teach and say the word.")
+            return
+        }
+        guard words <= max(4, term.split(separator: " ").count + 3) else {
+            appendEvent("diagnostic.info: [untype] dictionary: more than a word was heard (\(words) words)")
+            finishDictionaryTeaching(status: "More than the word was heard. Press Teach and say only “\(term)”.")
+            return
+        }
+        var changed = dictionary
+        let result = changed.noteHeard(cleaned, for: term)
+        dictionaryTeaching = nil
+        switch result {
+        case .correct:
+            appendEvent("diagnostic.info: [untype] dictionary: the word was heard correctly")
+            dictionaryStatus = "“\(term)” was heard correctly."
+        case .added(let form):
+            saveDictionary(changed, status: "Heard as “\(form)”. From now on untype writes “\(term)” for it.")
+        case .known(let form):
+            dictionaryStatus = "Heard as “\(form)”, which untype already writes as “\(term)”."
+        case .takenBy(let other):
+            dictionaryStatus = "Heard as “\(cleaned)”, which already stands for “\(other)”."
         }
     }
 
@@ -1930,6 +2105,8 @@ final class UntypeUIModel: ObservableObject {
         }
         let voiceFilter = wantedVoiceFilter()
         sessionVoiceFilter = voiceFilter
+        let sessionWords = dictionary
+        sessionDictionary = sessionWords
         if settings.voiceFilter.isOn, voiceFilter == nil {
             appendEvent(settings.provider == STTProvider.soniox.rawValue
                 ? "diagnostic.warning: [untype] only my voice is on but your voice is not learned yet (Settings → Speech → Learn); all voices are transcribed"
@@ -2031,7 +2208,8 @@ final class UntypeUIModel: ObservableObject {
                         dispatchToUI { [modelBox] in
                             modelBox.model?.handleVoiceFilterEvent(event)
                         }
-                    }
+                    },
+                    dictionary: sessionWords
                 )
                 dispatchToUI { [modelBox] in
                     modelBox.model?.runtime = runtime
@@ -2323,11 +2501,17 @@ final class UntypeUIModel: ObservableObject {
             timeline.updatePartial(text)
             appendEvent("transcript.partial: \(text)")
             liveTyper?.partial(text)
+            if dictionaryTeaching != nil {
+                teachTranscript.updatePartial(text)
+            }
         case .final(let text):
             latestTranscript = text
             timeline.commitFinal(text)
             appendEvent("transcript.final: \(text)")
             liveTyper?.final(text)
+            if dictionaryTeaching != nil {
+                teachTranscript.commitFinal(text)
+            }
         case .turnBoundary:
             timeline.sealCurrentTurn()
             appendEvent("transcript.turn_boundary")
@@ -2431,6 +2615,18 @@ final class UntypeUIModel: ObservableObject {
         }
         meetingRecorder.onInProgress = { [weak self] side, text in
             self?.transcriptFeed.setInProgress(text, side: side)
+        }
+        // Pause / Resume in the transcription window (plan-074).
+        transcriptFeed.onPauseRequest = { [weak self] side, paused in
+            guard let self else {
+                return
+            }
+            let isPaused = self.meetingRecorder.setPaused(paused, side: side)
+            self.transcriptFeed.setPaused(isPaused, side: side)
+            if isPaused {
+                // The words in progress on that side will not be finished.
+                self.transcriptFeed.setInProgress("", side: side)
+            }
         }
         Task { [weak self] in
             guard let self else {

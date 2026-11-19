@@ -179,6 +179,9 @@ public struct TranscriptionSessionRuntimeOptions {
     public let audioActivityNow: @Sendable () -> Date
     public let emit: (_ event: TranscriptionSessionEvent) -> Void
     public let saveProtocolSettings: (_ snapshot: ProtocolSettingsSnapshot) throws -> Void
+    /// Rewrites every recognised text before anything else sees it (the
+    /// user's dictionary); nil: the text is used as recognised.
+    public let textCorrector: (@Sendable (String) -> String)?
 
     public init(
         verbose: Bool = false,
@@ -193,8 +196,10 @@ public struct TranscriptionSessionRuntimeOptions {
         audioActivityInterval: TimeInterval = 0.25,
         audioActivityNow: @escaping @Sendable () -> Date = Date.init,
         emit: @escaping (_ event: TranscriptionSessionEvent) -> Void = { _ in },
-        saveProtocolSettings: @escaping (_ snapshot: ProtocolSettingsSnapshot) throws -> Void = { _ in }
+        saveProtocolSettings: @escaping (_ snapshot: ProtocolSettingsSnapshot) throws -> Void = { _ in },
+        textCorrector: (@Sendable (String) -> String)? = nil
     ) {
+        self.textCorrector = textCorrector
         self.verbose = verbose
         self.readyMessage = readyMessage
         self.sttProviderLabel = sttProviderLabel
@@ -278,10 +283,11 @@ public final class TranscriptionSessionRuntime {
         transition(to: .starting, reason: nil)
 
         transcriber.setHandlers(TranscriberEventHandlers(
-            partial: { [weak self] text in
+            partial: { [weak self] recognised in
                 guard let self else {
                     return
                 }
+                let text = self.options.textCorrector?(recognised) ?? recognised
                 guard self.shouldAcceptProviderPartial else {
                     return
                 }
@@ -289,10 +295,11 @@ public final class TranscriptionSessionRuntime {
                 self.protocolController.partial(text)
                 self.commitIfPartialContainsActionableCommand(text)
             },
-            final: { [weak self] text in
+            final: { [weak self] recognised in
                 guard let self else {
                     return
                 }
+                let text = self.options.textCorrector?(recognised) ?? recognised
                 guard !self.suppressLateProviderFinals else {
                     return
                 }

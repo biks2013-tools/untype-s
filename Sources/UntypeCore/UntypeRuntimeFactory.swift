@@ -166,7 +166,8 @@ public enum UntypeRuntimeFactory {
         turnContext: UntypeTurnContext? = nil,
         askConversation: AskConversation = AskConversation(),
         voiceFilter: SonioxVoiceFilterMode? = nil,
-        voiceFilterEvents: (@Sendable (VoiceFilterEvent) -> Void)? = nil
+        voiceFilterEvents: (@Sendable (VoiceFilterEvent) -> Void)? = nil,
+        dictionary: UserDictionary = .empty
     ) throws -> UntypeRuntimeSession {
         let protocolConfig = try resolvedProtocolConfig(config.protocolConfig)
         let controllerDiagnostics = ProtocolControllerDiagnostics { line, warning in
@@ -276,13 +277,18 @@ public enum UntypeRuntimeFactory {
         let transcriber: RuntimeTranscriber
         switch config.sttProvider {
         case .soniox:
-            let soniox = try SonioxTranscriber(options: SonioxTranscriberOptions(config: config, voiceFilter: voiceFilter))
+            let soniox = try SonioxTranscriber(options: SonioxTranscriberOptions(config: config, voiceFilter: voiceFilter, terms: dictionary.terms))
             soniox.onVoiceFilterEvent = voiceFilterEvents
             transcriber = soniox
         case .elevenlabs:
-            transcriber = try ElevenLabsTranscriber(options: ElevenLabsTranscriberOptions(config: config))
+            transcriber = try ElevenLabsTranscriber(options: ElevenLabsTranscriberOptions(config: config, dictionaryTerms: dictionary.terms))
         case .google:
             transcriber = try GoogleTranscriber(options: GoogleTranscriberOptions(config: config))
+        }
+        let corrector = DictionaryCorrector(dictionary)
+        var textCorrector: (@Sendable (String) -> String)?
+        if !corrector.isEmpty {
+            textCorrector = { @Sendable (text: String) -> String in corrector.apply(text) }
         }
 
         return TranscriptionSessionRuntime(
@@ -301,7 +307,8 @@ public enum UntypeRuntimeFactory {
                 emit: eventSink,
                 saveProtocolSettings: { snapshot in
                     try savePersistedProtocolSettings(snapshot)
-                }
+                },
+                textCorrector: textCorrector
             )
         )
     }

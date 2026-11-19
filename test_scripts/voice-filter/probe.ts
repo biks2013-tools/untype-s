@@ -1,7 +1,7 @@
 // Measures how well simple filters would keep one person's dictation and
 // drop the people talking around them.
 //
-//   node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--user-level <dBFS>] [--primer <audio file of the user's voice>] [--primer-wait <ms>] [--speed 2] [--out <dir>]
+//   node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--user-level <dBFS>] [--primer <audio file of the user's voice>] [--primer-wait <ms>] [--terms <word,word>] [--text] [--speed 2] [--out <dir>]
 //
 // The audio (any format ffmpeg reads; a meeting's `.mic.m4a` works) is sent
 // to Soniox realtime with speaker diarization. For every recognised word the
@@ -92,7 +92,9 @@ async function transcribe(pcm: Int16Array, speed: number, primer?: Int16Array, p
   await new Promise<void>((open, fail) => { socket.onopen = () => open(); setTimeout(() => fail(new Error("Soniox did not answer.")), 15000); });
   socket.send(JSON.stringify({
     api_key: sonioxKey(), model: "stt-rt-v6", audio_format: "pcm_s16le", sample_rate: RATE, num_channels: 1,
-    language_hints: ["el", "en"], enable_endpoint_detection: true, enable_speaker_diarization: true
+    language_hints: ["el", "en"], enable_endpoint_detection: true, enable_speaker_diarization: true,
+    // --terms: dictionary words (names, abbreviations), comma separated.
+    ...(arg("terms") ? { context: { terms: arg("terms")!.split(",").map((t) => t.trim()).filter(Boolean) } } : {})
   }));
   let primerSentAt = 0;
   if (primer && primed) {
@@ -183,7 +185,7 @@ const median = (values: number[]) => { const s = [...values].sort((x, y) => x - 
 async function main(): Promise<void> {
   const file = process.argv[2];
   if (!file || file.startsWith("--")) {
-    throw new Error("Usage: node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--user-level <dBFS>] [--primer <audio file of the user's voice>] [--primer-wait <ms>] [--speed 2] [--out <dir>]");
+    throw new Error("Usage: node test_scripts/voice-filter/probe.ts <audio file> [--script <text file>] [--user-level <dBFS>] [--primer <audio file of the user's voice>] [--primer-wait <ms>] [--terms <word,word>] [--text] [--speed 2] [--out <dir>]");
   }
   const speed = Number(arg("speed") ?? 2);
   const out = resolve(arg("out") ?? join("test_scripts/voice-filter/out", basename(file).replace(/\.[^.]+$/, "")));
@@ -211,6 +213,10 @@ async function main(): Promise<void> {
   writeFileSync(join(out, "words.tsv"), ["start_s\tend_s\tspeaker\tdBFS\tfrom_script\tword",
     ...words.map((w) => `${(w.startMs / 1000).toFixed(2)}\t${(w.endMs / 1000).toFixed(2)}\t${w.speaker}\t${w.db.toFixed(1)}\t${w.mine === undefined ? "" : w.mine ? "yes" : "no"}\t${w.text}`)].join("\n") + "\n");
 
+  if (process.argv.includes("--text")) {
+    // --text: print what was recognised (test audio only).
+    console.log(`text: ${words.map((w) => w.text).join("").trim()}`);
+  }
   const speakers = [...new Set(words.map((w) => w.speaker))];
   console.log(`words: ${words.length}, speakers: ${speakers.length}`);
   const level: Record<string, number> = {};
