@@ -81,8 +81,7 @@ final class UntypeMenuBarController: NSObject, NSPopoverDelegate {
 
     func showWindow() {
         UserDefaults.standard.set(true, forKey: Self.windowOpenDefaultsKey)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        window.showOnActiveDesktop()
     }
 
     /// The window's close button / Cmd+W: hide it; the app lives in the menu bar.
@@ -151,5 +150,19 @@ final class UntypeMenuBarController: NSObject, NSPopoverDelegate {
 
     @objc private func openSettingsFromMenu() {
         openSettings()
+    }
+}
+
+extension NSWindow {
+    /// Shows the window on the desktop (Space) the user is on now. A window
+    /// left on another desktop is brought here, instead of macOS switching
+    /// to that desktop or leaving the window where it was.
+    @MainActor
+    func showOnActiveDesktop() {
+        // Before the app is activated: activating an app whose window is on
+        // another desktop switches to that desktop.
+        collectionBehavior.insert(.moveToActiveSpace)
+        NSApp.activate(ignoringOtherApps: true)
+        makeKeyAndOrderFront(nil)
     }
 }
