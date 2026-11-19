@@ -133,10 +133,10 @@ private func temporaryFolder() throws -> URL {
     )
     // Two seconds of microphone from the start; one second of call from 1 s.
     for index in 0..<20 {
-        recorder.push(data(tone(1_600)), side: .you, at: Double(index + 1) * 0.1)
+        recorder.push(data(tone(1_600)), side: .you, capturedAt: Double(index) * 0.1)
     }
     for index in 10..<20 {
-        recorder.push(data(tone(1_600)), side: .call, at: Double(index + 1) * 0.1)
+        recorder.push(data(tone(1_600)), side: .call, capturedAt: Double(index) * 0.1)
     }
     let urls = recorder.finish()
     #expect(urls.map(\.lastPathComponent) == ["recording-2026-11-05-09-07.mic.m4a", "recording-2026-11-05-09-07.system.m4a"])
@@ -158,9 +158,9 @@ private func temporaryFolder() throws -> URL {
         onError: { message in Issue.record("audio error: \(message)") }
     )
     for index in 0..<30 {
-        recorder.push(data(tone(1_600)), side: .you, at: Double(index + 1) * 0.1)
+        recorder.push(data(tone(1_600)), side: .you, capturedAt: Double(index) * 0.1)
         if index < 10 {
-            recorder.push(data(tone(1_600, amplitude: 4_000)), side: .call, at: Double(index + 1) * 0.1)
+            recorder.push(data(tone(1_600, amplitude: 4_000)), side: .call, capturedAt: Double(index) * 0.1)
         }
     }
     let urls = recorder.finish()
@@ -181,8 +181,8 @@ private func temporaryFolder() throws -> URL {
         onError: { message in Issue.record("audio error: \(message)") }
     )
     for index in 0..<10 {
-        recorder.push(data(tone(1_600)), side: .you, at: Double(index + 1) * 0.1)
-        recorder.push(data(tone(1_600)), side: .call, at: Double(index + 1) * 0.1)
+        recorder.push(data(tone(1_600)), side: .you, capturedAt: Double(index) * 0.1)
+        recorder.push(data(tone(1_600)), side: .call, capturedAt: Double(index) * 0.1)
     }
     let urls = recorder.finish()
     #expect(urls.map(\.lastPathComponent) == ["recording-2026-11-05-09-07.system.m4a"])
@@ -234,4 +234,72 @@ private func temporaryFolder() throws -> URL {
     #expect(try lines(names.systemTranscript).count == 1)
     #expect(try lines(names.segments).count == 2)
     live.close()
+}
+
+/// The level (dBFS) of a saved file between two times.
+private func level(of url: URL, from start: Double, to end: Double) throws -> Double {
+    let file = try AVAudioFile(forReading: url)
+    let format = file.processingFormat
+    let frames = AVAudioFrameCount(file.length)
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+    try file.read(into: buffer)
+    let samples = try #require(buffer.floatChannelData?[0])
+    let first = Int(start * format.sampleRate)
+    let last = min(Int(buffer.frameLength), Int(end * format.sampleRate))
+    guard last > first else {
+        return -120
+    }
+    var power = 0.0
+    for index in first..<last {
+        power += Double(samples[index]) * Double(samples[index])
+    }
+    return 10 * log10(power / Double(last - first) + 1e-12)
+}
+
+@Test func meetingAudioIsPlacedByCaptureTimeWhenOneSideIsDeliveredLate() throws {
+    let folder = try temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let recorder = try MeetingAudioRecorder(
+        folder: folder,
+        names: MeetingFileNames(stem: "recording-2026-11-19-16-11"),
+        settings: MeetingAudioSettings(sources: .both, layout: .separate),
+        sampleRate: 16_000,
+        startUptime: 1_000,
+        onError: { message in Issue.record("audio error: \(message)") }
+    )
+    // The microphone: four seconds from the start, delivered on time.
+    for index in 0..<40 {
+        recorder.push(data(tone(1_600)), side: .you, capturedAt: 1_000 + Double(index) * 0.1)
+    }
+    // The call: captured from 0.5 s to 3.5 s but delivered only after the
+    // microphone's audio, in one burst (as ScreenCaptureKit did on
+    // 2026-11-19, 2 s late).
+    for index in 5..<35 {
+        recorder.push(data(tone(1_600)), side: .call, capturedAt: 1_000 + Double(index) * 0.1)
+    }
+    let urls = recorder.finish()
+    let call = try #require(urls.first { $0.lastPathComponent.hasSuffix(".system.m4a") })
+    // Silent before 0.5 s, sound from 0.5 s on: where it was captured, not where it arrived.
+    #expect(try level(of: call, from: 0.05, to: 0.4) < -60)
+    #expect(try level(of: call, from: 0.65, to: 3.3) > -30)
+    // A separate file ends with its last audio.
+    #expect(abs(try duration(of: call) - 3.5) < 0.2)
+}
+
+@Test func theMicrophonesCaptureTimeIsTheBuffersHostTime() {
+    let hostTime = mach_absolute_time()
+    let valid = AVAudioTime(hostTime: hostTime)
+    #expect(AVFoundationAudioSource.captureTime(of: valid, frames: 4_800, sampleRate: 48_000, arrivedAt: 0) == AVAudioTime.seconds(forHostTime: hostTime))
+    // Same clock as ProcessInfo.systemUptime.
+    #expect(abs(AVAudioTime.seconds(forHostTime: mach_absolute_time()) - ProcessInfo.processInfo.systemUptime) < 0.01)
+    // Without a host time: it ended when it arrived.
+    let noHostTime = AVAudioTime(sampleTime: 0, atRate: 48_000)
+    #expect(AVFoundationAudioSource.captureTime(of: noHostTime, frames: 4_800, sampleRate: 48_000, arrivedAt: 50) == 49.9)
+}
+
+@Test func theSystemAudiosCaptureTimeIsThePresentationTime() {
+    let presentation = CMTime(seconds: 1_856_600.668, preferredTimescale: 48_000)
+    #expect(abs(MeetingSystemAudioCapture.captureTime(presentation: presentation, frames: 960, sampleRate: 48_000, arrivedAt: 0) - 1_856_600.668) < 0.0001)
+    // Without a presentation time: it ended when it arrived.
+    #expect(MeetingSystemAudioCapture.captureTime(presentation: .invalid, frames: 960, sampleRate: 48_000, arrivedAt: 10) == 9.98)
 }

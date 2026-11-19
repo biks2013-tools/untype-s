@@ -42,7 +42,9 @@ public struct MeetingRecordingOptions: Sendable {
     public let llm: LLMConfig
     /// Which audio is saved next to the transcript.
     public let audio: MeetingAudioSettings
-    /// The loudspeakers' sound is removed from the microphone.
+    /// The loudspeakers' sound is removed from the microphone, in software
+    /// (`MeetingEchoCanceller`, the system audio as the reference); the
+    /// microphone itself is opened as without it (plan-072).
     public let echoCancellation: Bool
     /// The microphone's transcript keeps only the speaker of this voice
     /// sample (nil: everything the microphone hears is transcribed).
@@ -129,11 +131,6 @@ public final class MeetingRecorder {
 
     /// Closed while the user dictates and the meeting must not hear it.
     public let microphoneGate = MeetingMicrophoneGate()
-    /// The microphone, shared with dictation while a recording runs with
-    /// echo cancellation.
-    public let sharedMicrophone = MeetingSharedMicrophone()
-    /// The microphone became shared (true), or is free again (false).
-    public var onSharedMicrophoneChanged: (Bool) -> Void = { _ in }
 
     public private(set) var isRecording = false
     public private(set) var startDate: Date?
@@ -162,6 +159,8 @@ public final class MeetingRecorder {
     private var micStream: MeetingSonioxStream?
     private var callStream: MeetingSonioxStream?
     private var audioRecorder: MeetingAudioRecorder?
+    /// Removes the call's sound from the microphone (echo cancellation on).
+    private var echoCanceller: MeetingEchoCanceller?
     private var names = MeetingFileNames(stem: MeetingFileNames.stemPrefix)
     private var stopping = false
 
@@ -224,20 +223,38 @@ public final class MeetingRecorder {
             self.audioRecorder = audioRecorder
             let savedAudio = audioRecorder
 
-            let systemAudio = MeetingSystemAudioCapture(sampleRate: Self.sampleRate, onPCM: { [callWaveform] pcm in
-                let now = ProcessInfo.processInfo.systemUptime
-                callWaveform.append(pcm: pcm, at: now)
+            // Echo cancellation: the microphone goes through the canceller,
+            // with the system audio as the reference, before its stream and
+            // its file. Without a canceller the microphone goes on as it is.
+            var echoCanceller: MeetingEchoCanceller?
+            if options.echoCancellation {
+                echoCanceller = MeetingEchoCanceller.make(sampleRate: Self.sampleRate) { pcm, capturedAt in
+                    micStream.push(pcm)
+                    savedAudio?.push(pcm, side: .you, capturedAt: capturedAt)
+                }
+                if echoCanceller == nil {
+                    onEvent("diagnostic.warning: [untype] meeting echo cancellation could not be started; the microphone is recorded as it is")
+                }
+            }
+            self.echoCanceller = echoCanceller
+            let echo = echoCanceller
+
+            let systemAudio = MeetingSystemAudioCapture(sampleRate: Self.sampleRate, onPCM: { [callWaveform] pcm, capturedAt in
+                callWaveform.append(pcm: pcm, at: ProcessInfo.processInfo.systemUptime)
                 callStream.push(pcm)
-                savedAudio?.push(pcm, side: .call, at: now)
+                savedAudio?.push(pcm, side: .call, capturedAt: capturedAt)
+                echo?.pushReference(pcm, capturedAt: capturedAt)
             }, onError: { [weak self] error in
                 dispatchMeeting { self?.fail("system audio: \(error.localizedDescription)") }
             })
             self.systemAudio = systemAudio
             try await systemAudio.start()
 
-            let microphone = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(sampleRate: Self.sampleRate, voiceProcessing: options.echoCancellation))
+            // Never Apple voice processing: it silences the microphone for
+            // the call application (2026-11-19, Teams; plan-072).
+            let microphone = AVFoundationAudioSource(options: AVFoundationAudioSourceOptions(sampleRate: Self.sampleRate))
             self.microphone = microphone
-            try await Self.startMicrophone(microphone, waveform: micWaveform, stream: micStream, audio: savedAudio, gate: microphoneGate, shared: sharedMicrophone) { [weak self] error in
+            try await Self.startMicrophone(microphone, waveform: micWaveform, stream: micStream, audio: savedAudio, echo: echo, gate: microphoneGate, sampleRate: Self.sampleRate) { [weak self] error in
                 dispatchMeeting { self?.fail("microphone: \(error.localizedDescription)") }
             }
             try await Self.connect(micStream, callStream)
@@ -252,10 +269,6 @@ public final class MeetingRecorder {
         }
 
         isRecording = true
-        if options.echoCancellation {
-            sharedMicrophone.setActive(true)
-            onSharedMicrophoneChanged(true)
-        }
         let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             dispatchMeeting { self?.checkSilence() }
         }
@@ -311,25 +324,55 @@ public final class MeetingRecorder {
         waveform: UntypeWaveformBuffer,
         stream: MeetingSonioxStream,
         audio: MeetingAudioRecorder?,
+        echo: MeetingEchoCanceller?,
         gate: MeetingMicrophoneGate,
-        shared: MeetingSharedMicrophone,
+        sampleRate: Int,
         onError: @escaping @Sendable (Error) -> Void
     ) async throws {
+        let deliver: @Sendable (Data, TimeInterval) -> Void = { captured, capturedAt in
+            // Silence of the same length while muted: the times of the
+            // transcript and of the audio file stay aligned.
+            let pcm = gate.filter(captured)
+            // The trace shows the microphone as it is, at once.
+            waveform.append(pcm: pcm, at: ProcessInfo.processInfo.systemUptime)
+            if let echo {
+                // Its stream and file get it from the canceller.
+                echo.pushMicrophone(pcm, capturedAt: capturedAt)
+            } else {
+                stream.push(pcm)
+                audio?.push(pcm, side: .you, capturedAt: capturedAt)
+            }
+        }
         try await microphone.start(handlers: AudioSourceEventHandlers(
             audio: { captured in
-                // Dictation (when the microphone is shared) hears everything.
-                shared.publish(captured)
-                // Silence of the same length while muted: the times of the
-                // transcript and of the audio file stay aligned.
-                let pcm = gate.filter(captured)
-                let now = ProcessInfo.processInfo.systemUptime
-                waveform.append(pcm: pcm, at: now)
-                stream.push(pcm)
-                audio?.push(pcm, side: .you, at: now)
+                // Only without a capture time: it ended when it arrived.
+                deliver(captured, ProcessInfo.processInfo.systemUptime - MeetingAudioRecorder.seconds(captured, sampleRate: sampleRate))
             },
+            timedAudio: { captured, capturedAt in deliver(captured, capturedAt) },
             error: { error in onError(error) },
             end: {}
         ))
+    }
+
+    /// The log line of the echo cancellation at the end of a recording.
+    nonisolated static func describe(_ statistics: MeetingEchoStatistics) -> String {
+        var parts = [String(format: "meeting echo cancellation: %.0f s of microphone", Double(statistics.frames) / 100)]
+        if let reduction = statistics.reduction {
+            parts.append(String(format: "%.0f dB quieter while the call had sound (%.0f s)", reduction, Double(statistics.framesWithCall) / 100))
+        } else {
+            parts.append("the call had no sound (nothing to remove)")
+        }
+        parts.append(String(format: "held %.0f ms on average, %.0f ms at most", statistics.averageHold * 1000, statistics.longestHold * 1000))
+        if statistics.framesWithoutReference > 0 {
+            parts.append(String(format: "%.1f s without the call's audio", Double(statistics.framesWithoutReference) / 100))
+        }
+        if statistics.filledSamples > 0 {
+            parts.append(String(format: "%.1f s of silence put in", Double(statistics.filledSamples) / Double(sampleRate)))
+        }
+        if statistics.lateChunks > 0 {
+            parts.append("\(statistics.lateChunks) microphone chunks too late")
+        }
+        return parts.joined(separator: "; ")
     }
 
     private func makeStream(side: MeetingSide, options: MeetingRecordingOptions) -> MeetingSonioxStream {
@@ -378,12 +421,17 @@ public final class MeetingRecorder {
     private func tearDown() async {
         try? await microphone?.stop()
         microphone = nil
-        if sharedMicrophone.isActive {
-            sharedMicrophone.setActive(false)
-            onSharedMicrophoneChanged(false)
-        }
         await systemAudio?.stop()
         systemAudio = nil
+        // The canceller gives back what it still holds before the stream
+        // and the files end.
+        if let echoCanceller {
+            self.echoCanceller = nil
+            let statistics = echoCanceller.finish()
+            if statistics.frames > 0 {
+                onEvent("diagnostic.info: [untype] \(Self.describe(statistics))")
+            }
+        }
         if let audioRecorder {
             self.audioRecorder = nil
             for url in audioRecorder.finish() {
@@ -772,17 +820,18 @@ final class MeetingSonioxStream: @unchecked Sendable {
 
 /// System audio of every app except untype, through ScreenCaptureKit
 /// (audio only; the tiny video frames are discarded), converted to PCM16
-/// mono at `sampleRate`.
+/// mono at `sampleRate`, each chunk with the time its first sample was
+/// captured (`ProcessInfo.systemUptime` clock).
 final class MeetingSystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let sampleRate: Int
-    private let onPCM: @Sendable (Data) -> Void
+    private let onPCM: @Sendable (_ pcm: Data, _ capturedAt: TimeInterval) -> Void
     private let onError: @Sendable (Error) -> Void
     private let queue = DispatchQueue(label: "untype.meeting.system-audio")
     private var stream: SCStream?
     private var converter: PCM16MonoConverter?
     private var converterFormat: AVAudioFormat?
 
-    init(sampleRate: Int, onPCM: @escaping @Sendable (Data) -> Void, onError: @escaping @Sendable (Error) -> Void) {
+    init(sampleRate: Int, onPCM: @escaping @Sendable (_ pcm: Data, _ capturedAt: TimeInterval) -> Void, onError: @escaping @Sendable (Error) -> Void) {
         self.sampleRate = sampleRate
         self.onPCM = onPCM
         self.onError = onError
@@ -831,6 +880,11 @@ final class MeetingSystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegat
         guard type == .audio, sampleBuffer.isValid, let buffer = Self.pcmBuffer(sampleBuffer) else {
             return
         }
+        let capturedAt = Self.captureTime(
+            presentation: CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
+            frames: Int(buffer.frameLength),
+            sampleRate: buffer.format.sampleRate
+        )
         do {
             if converter == nil || converterFormat != buffer.format {
                 converter = try PCM16MonoConverter(inputFormat: buffer.format, sampleRate: sampleRate)
@@ -841,7 +895,7 @@ final class MeetingSystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegat
             }
             let pcm = try converter.convert(buffer)
             if !pcm.isEmpty {
-                onPCM(pcm)
+                onPCM(pcm, capturedAt)
             }
         } catch {
             onError(error)
@@ -850,6 +904,23 @@ final class MeetingSystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegat
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         onError(error)
+    }
+
+    /// When the first sample of a buffer was captured: its presentation
+    /// time, which ScreenCaptureKit gives on the `systemUptime` clock and
+    /// keeps right when delivery is late (measured 2026-11-19: buffers held
+    /// back 2 s arrived with the times of their audio); without a usable
+    /// presentation time, the arrival time minus the buffer's length.
+    static func captureTime(
+        presentation: CMTime,
+        frames: Int,
+        sampleRate: Double,
+        arrivedAt now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> TimeInterval {
+        if presentation.isValid, presentation.isNumeric {
+            return presentation.seconds
+        }
+        return now - Double(frames) / max(1, sampleRate)
     }
 
     private static func pcmBuffer(_ sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
