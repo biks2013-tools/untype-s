@@ -1,0 +1,5 @@
+module UntypeAEC {
+    header "untype_aec.h"
+    link "c++"
+    export *
+}
