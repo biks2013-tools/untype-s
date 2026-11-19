@@ -22,7 +22,15 @@ let package = Package(
             dependencies: ["UntypeCore"]
         ),
         .target(
-            name: "UntypeCore"
+            name: "UntypeCore",
+            dependencies: ["UntypeAEC"],
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
+        // WebRTC's echo canceller behind a C interface; rebuilt with
+        // scripts/build-webrtc-apm.sh (sources of the interface in Vendor/UntypeAEC/shim).
+        .binaryTarget(
+            name: "UntypeAEC",
+            path: "Vendor/UntypeAEC/UntypeAEC.xcframework"
         ),
         .testTarget(
             name: "UntypeCoreTests",
