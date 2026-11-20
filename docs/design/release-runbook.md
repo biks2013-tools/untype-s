@@ -185,13 +185,15 @@ spctl --assess --type execute --verbose=4 /Applications/untype.app
 open -a /Applications/untype.app
 ```
 
+**macOS 27 renamed the pane.** The permission list is under System Settings → Privacy & Security → **Device Control and Data Access**; on macOS 26 and earlier the same list is called **Accessibility**. The sidebar's own "Accessibility" entry is the assistive-features pane and is not the one. The TCC service name is unchanged, so `tccutil reset Accessibility com.local.untype` stays correct on every version. Input Monitoring keeps its name and its own pane.
+
 **Permissions.** macOS ties the Accessibility and Input Monitoring grants to the app's signing identity. As long as every build is signed with the same Developer ID certificate, the grants survive upgrades and nothing more is needed. The grants are lost only when the identity changes — after renewing the certificate, after switching from the Apple Development certificate, or after an ad-hoc/unsigned build. In that case:
 
 ```sh
 tccutil reset Accessibility com.local.untype
 ```
 
-then relaunch, add `/Applications/untype.app` again under System Settings → Privacy & Security → **Accessibility**, and check **Input Monitoring** too (remove a stale `untype` entry and re-add the app if the hotkey does not fire). Never reset Input Monitoring when only Accessibility is broken; that disables push-to-talk.
+then relaunch, add `/Applications/untype.app` again under System Settings → Privacy & Security → **Device Control and Data Access** (macOS 27; **Accessibility** on macOS 26 and earlier), and check **Input Monitoring** too (remove a stale `untype` entry and re-add the app if the hotkey does not fire). Never reset Input Monitoring when only Accessibility is broken; that disables push-to-talk.
 
 Check: `INSTALLED-OK` printed, Gatekeeper says `accepted`, the app is running (`pgrep -x untype`).
 
@@ -224,7 +226,7 @@ Share **only** `.build/deploy/untype-0.1.0.dmg` (rename it with the build number
 Give recipients these instructions (they are also inside the image as `INSTALL.txt`):
 
 1. Open the `.dmg`, drag **untype** onto **Applications**. No Gatekeeper warning appears because the app is notarized. macOS 14 or newer.
-2. Launch untype from Applications and follow the welcome screen's **How to enable Microphone, Accessibility and Input Monitoring** guide: start listening once and allow the Microphone, add untype under **Accessibility**, and under **Input Monitoring** only if the hotkey does not fire while another app is in front; quit and relaunch after changing permissions.
+2. Launch untype from Applications and follow the welcome screen's **How to enable Microphone, Accessibility and Input Monitoring** guide: start listening once and allow the Microphone, add untype under **Device Control and Data Access** (macOS 27; **Accessibility** on macOS 26 and earlier), and under **Input Monitoring** only if the hotkey does not fire while another app is in front; quit and relaunch after changing permissions.
 3. On the welcome screen click **Set keys…** and enter at least one speech-to-text key (Soniox, ElevenLabs or Google), plus the Azure OpenAI or Google entries only for LLM refinement; the app stores them in `~/.tool-agents/untype/.env`, readable only by the user. The file can also be edited by hand: the first session start creates it as a fully commented template. Missing required values are reported, never defaulted.
 4. Upgrading later: replace the app in Applications; permissions and settings are kept.
 
@@ -334,5 +336,5 @@ The project keeps a ledger. Add, in `Issues - Pending Items.md` under *Completed
 | `status: Invalid` | Apple rejected the submission | `xcrun notarytool log <id> --keychain-profile untype-notary`, fix, bump build, rerun |
 | `spctl` says `rejected` for an app that notarized fine | Ticket not stapled, or bundle copied in a way that dropped it | `xcrun stapler staple untype.app`, then re-run `spctl` |
 | Push-to-talk hotkey does nothing after install | Input Monitoring grant tied to an older identity | Remove the stale entry under Input Monitoring, add `/Applications/untype.app`, relaunch |
-| Text is not inserted; log shows `accessibility_not_trusted` | Accessibility grant lost | `tccutil reset Accessibility com.local.untype`, relaunch, re-add under Accessibility |
+| Text is not inserted; log shows `accessibility_not_trusted` | Accessibility grant lost | `tccutil reset Accessibility com.local.untype`, relaunch, re-add under Device Control and Data Access (Accessibility before macOS 27) |
 | Build 5 or earlier behaviour wanted back | Roll back | Quit, `ditto .build/deploy/untype.app.build<N>-backup /Applications/untype.app`, relaunch (a re-grant is needed if that build used another identity) |

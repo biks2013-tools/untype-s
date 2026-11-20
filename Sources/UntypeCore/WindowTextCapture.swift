@@ -135,7 +135,7 @@ public enum WindowTextCapture {
 
     public static func capture(pid: pid_t, appName: String) throws -> WindowText {
         guard AXIsProcessTrusted() else {
-            throw WindowTextError("Accessibility permission is missing: allow untype in System Settings → Privacy & Security → Accessibility.")
+            throw WindowTextError("Accessibility permission is missing: allow untype in System Settings → Privacy & Security → \(UntypeSettingsDeepLink.accessibilityPaneName).")
         }
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, 0.5)

@@ -345,6 +345,7 @@ public final class PromptFileWatcher {
     private let onChange: ([String]) -> Void
     private var last: [String: String]
     private var timer: Timer?
+    private var isChecking = false
 
     public init(store: PromptFileStore, onChange: @escaping ([String]) -> Void) {
         self.store = store
@@ -356,7 +357,7 @@ public final class PromptFileWatcher {
         stop()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.check()
+                self?.checkOffMainThread()
             }
         }
     }
@@ -364,11 +365,36 @@ public final class PromptFileWatcher {
     public func stop() {
         timer?.invalidate()
         timer = nil
+        isChecking = false
     }
 
-    /// Compares against the previous fingerprint; exposed for tests.
+    /// Compares against the previous fingerprint; exposed for tests, and the
+    /// one synchronous path.
     public func check() {
-        let next = store.fingerprint()
+        report(store.fingerprint())
+    }
+
+    /// The timer's check, with the file system work off the main thread.
+    ///
+    /// `fingerprint()` stats every prompt file. Once a second on the main
+    /// thread that is enough to be felt while the Settings window is scrolled,
+    /// and only the comparison and the callback need the main actor.
+    private func checkOffMainThread() {
+        // A slow disk must not let checks pile up behind each other.
+        guard !isChecking else { return }
+        isChecking = true
+        let store = self.store
+        Task.detached(priority: .utility) {
+            let next = store.fingerprint()
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                isChecking = false
+                report(next)
+            }
+        }
+    }
+
+    private func report(_ next: [String: String]) {
         let changed = next.keys.filter { next[$0] != last[$0] }.sorted()
         last = next
         if !changed.isEmpty {
