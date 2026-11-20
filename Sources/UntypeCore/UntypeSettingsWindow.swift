@@ -407,6 +407,19 @@ struct UntypeSettingsView: View {
         }
 
         Section {
+            MeetingAssistantModelPicker(model: model.assistant)
+            LabeledContent("Assistant window") {
+                Button("Open") {
+                    model.showAssistantWindow?()
+                }
+            }
+        } header: {
+            Text("Assistant")
+        } footer: {
+            caption("The meeting assistant answers your questions about the meeting while it is recorded and after it: it reads the transcript and what you attached. It has its own model, apart from Refine and Translate, and uses that provider's API key from Settings → API keys. It only reads; what you ask and the parts of the meeting it reads go to that provider.")
+        }
+
+        Section {
             Picker("Save audio", selection: Binding(
                 get: { meetingAudioSources },
                 set: { value in

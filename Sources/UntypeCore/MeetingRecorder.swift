@@ -344,6 +344,42 @@ public final class MeetingRecorder {
         return await store.add(content, offsetMs: offsetMs, at: Date())
     }
 
+    /// Puts what was said so far into the transcript (plan-078): on each
+    /// side, the line being spoken ends at its last full stop and is
+    /// written at once; the words after it stay in progress. Returns how
+    /// many lines were written.
+    @discardableResult
+    public func cutAtLastSentenceEnd() -> Int {
+        guard isRecording else {
+            return 0
+        }
+        let cut = [micStream, callStream].compactMap { $0?.cutAtLastSentenceEnd() }
+        cut.forEach(add)
+        return cut.count
+    }
+
+    /// Takes a line out of the transcript of the meeting being recorded
+    /// (plan-078): it leaves the files written so far and the files saved
+    /// at the end. The audio is not changed. False when the line is not
+    /// (or no longer) in the recording.
+    public func remove(_ segment: MeetingSegment) -> Bool {
+        guard isRecording, let position = segments.firstIndex(of: segment) else {
+            return false
+        }
+        segments.remove(at: position)
+        liveFiles?.rewrite(segments)
+        return true
+    }
+
+    /// Takes an attachment out of the meeting being recorded: its file in
+    /// the meeting folder and its entry in the index.
+    public func removeAttachment(id: Int) async throws -> Bool {
+        guard isRecording, let store = attachmentStore else {
+            return false
+        }
+        return try await store.remove(id: id)
+    }
+
     // MARK: - Internals
 
     private nonisolated static func connect(_ first: MeetingSonioxStream, _ second: MeetingSonioxStream) async throws {
@@ -664,6 +700,15 @@ final class MeetingLiveFiles {
         }
     }
 
+    /// Writes the files again from `all` (a segment was removed).
+    func rewrite(_ all: [MeetingSegment]) {
+        for handle in [original, main, microphone, system, segments] {
+            try? handle.truncate(atOffset: 0)
+            try? handle.seek(toOffset: 0)
+        }
+        all.forEach(append)
+    }
+
     func close() {
         for handle in [original, main, microphone, system, segments] {
             try? handle.close()
@@ -826,6 +871,19 @@ final class MeetingSonioxStream: @unchecked Sendable {
 
     private func flushPending() -> MeetingSegment? {
         lock.withLock { aggregator.flush() }
+    }
+
+    /// Ends the line being spoken at its last full stop; the words after
+    /// it stay in progress. Nil when no sentence has ended yet.
+    func cutAtLastSentenceEnd() -> MeetingSegment? {
+        lock.lock()
+        let segment = aggregator.flushThroughLastSentenceEnd()
+        let speaking = segment == nil || onInProgress == nil ? nil : aggregator.inProgressText(with: [])
+        lock.unlock()
+        if let speaking {
+            onInProgress?(speaking)
+        }
+        return segment
     }
 
     private func handle(_ text: String) {

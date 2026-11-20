@@ -78,7 +78,7 @@ public final class MeetingTranscriptFeed: ObservableObject {
     @Published public private(set) var attachments: [TranscriptionAttachment] = []
     /// The meeting folder (it changes when the meeting is named).
     @Published public private(set) var meetingFolder: URL?
-    public var attachmentCount: Int { attachments.count }
+    public var attachmentCount: Int { attachments.count - removedAttachments.count }
     /// Attachments before this one were cleared from the window.
     @Published private var clearedAttachments = 0
     /// What the last attach action did, shown for a moment.
@@ -88,9 +88,43 @@ public final class MeetingTranscriptFeed: ObservableObject {
     /// Asks the owner of the recorder to attach these files or folders
     /// (dropped on the window, or chosen with "Attach a file").
     public var onAttachFilesRequest: (([URL]) -> Void)?
+    /// Asks the owner of the recorder to take a line or an attachment out
+    /// of the meeting; it answers with `removed`.
+    public var onDeleteRequest: ((TranscriptionRow) -> Void)?
+    /// Lines and attachments taken out of the meeting.
+    @Published private var removedLines: Set<Int> = []
+    @Published private var removedAttachments: Set<Int> = []
+    /// Asks the owner of the recorder to end the lines being spoken at
+    /// their last full stop.
+    public var onCutRequest: (() -> Void)?
     private var attachNoteNumber = 0
 
     public init() {}
+
+    /// A row's Delete: take it out of the meeting (only while it is
+    /// recorded: afterwards the files are final).
+    public func delete(_ row: TranscriptionRow) {
+        guard isRecording else {
+            return
+        }
+        onDeleteRequest?(row)
+    }
+
+    /// The answer: the row is out of the meeting.
+    public func removed(_ row: TranscriptionRow) {
+        switch row {
+        case .line(let line): removedLines.insert(line.id)
+        case .attachment(let attachment): removedAttachments.insert(attachment.id)
+        }
+    }
+
+    /// The window's button: what was said so far goes into the transcript.
+    public func cutAtLastSentenceEnd() {
+        guard isRecording else {
+            return
+        }
+        onCutRequest?()
+    }
 
     /// The window's button: attach the clipboard to this moment.
     public func attachClipboard() {
@@ -135,7 +169,7 @@ public final class MeetingTranscriptFeed: ObservableObject {
     /// attachment at the place of the conversation it was attached.
     public func rows(for channel: TranscriptionChannel) -> [TranscriptionRow] {
         var rows: [TranscriptionRow] = []
-        var pending = attachments.dropFirst(clearedAttachments)
+        var pending = attachments.dropFirst(clearedAttachments).filter { !removedAttachments.contains($0.id) }[...]
         for line in lines(for: channel) {
             while let next = pending.first, next.position <= line.id {
                 rows.append(.attachment(next))
@@ -192,6 +226,8 @@ public final class MeetingTranscriptFeed: ObservableObject {
         inProgress = [:]
         paused = []
         attachments = []
+        removedLines = []
+        removedAttachments = []
         clearedAttachments = 0
         meetingFolder = nil
         attachNote = nil
@@ -227,8 +263,7 @@ public final class MeetingTranscriptFeed: ObservableObject {
     /// The finished lines of `channel` that the window shows (those added
     /// since the last clear), in the order they arrived.
     public func lines(for channel: TranscriptionChannel) -> [TranscriptionLine] {
-        let shown = lines.dropFirst(clearedBefore)
-        return channel == .both ? Array(shown) : shown.filter { channel.includes($0.segment.side) }
+        lines.dropFirst(clearedBefore).filter { !removedLines.contains($0.id) && channel.includes($0.segment.side) }
     }
 
     /// What has been transcribed so far on `channel`, one finished sentence
@@ -251,10 +286,12 @@ public final class MeetingTranscriptFeed: ObservableObject {
 final class UntypeTranscriptionWindowController: NSObject {
     private static let frameAutosaveName = "untype.transcriptionWindow.v1"
     private let feed: MeetingTranscriptFeed
+    private let openAssistant: () -> Void
     private var window: NSWindow?
 
-    init(feed: MeetingTranscriptFeed) {
+    init(feed: MeetingTranscriptFeed, openAssistant: @escaping () -> Void) {
         self.feed = feed
+        self.openAssistant = openAssistant
     }
 
     func show() {
@@ -273,7 +310,7 @@ final class UntypeTranscriptionWindowController: NSObject {
         window.title = "Transcription"
         window.contentMinSize = NSSize(width: 500, height: 260)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: UntypeTranscriptionView(feed: feed))
+        window.contentView = NSHostingView(rootView: UntypeTranscriptionView(feed: feed, openAssistant: openAssistant))
         if !window.setFrameUsingName(Self.frameAutosaveName) {
             window.center()
         }
@@ -286,6 +323,8 @@ struct UntypeTranscriptionView: View {
     private static let bottomID = "transcription-bottom"
 
     @ObservedObject var feed: MeetingTranscriptFeed
+    /// Opens the meeting assistant (plan-078).
+    var openAssistant: () -> Void = {}
     /// `TranscriptionChannel` raw value.
     @AppStorage("untype.transcriptionWindow.channel") private var channelValue = TranscriptionChannel.both.rawValue
     /// In sync: the window follows the recording, the newest text in view.
@@ -296,6 +335,8 @@ struct UntypeTranscriptionView: View {
     @State private var copied = false
     /// Files are being dragged over the transcript.
     @State private var dropTargeted = false
+    /// The row the user asked to delete, until they confirm.
+    @State private var pendingDelete: TranscriptionRow?
 
     private var channel: TranscriptionChannel {
         TranscriptionChannel(rawValue: channelValue) ?? .both
@@ -314,6 +355,37 @@ struct UntypeTranscriptionView: View {
                 .padding(.vertical, 6)
         }
         .frame(minWidth: 500, minHeight: 260)
+        .confirmationDialog(
+            deleteTitle,
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let row = pendingDelete {
+                    feed.delete(row)
+                }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDelete = nil
+            }
+        } message: {
+            Text(deleteMessage)
+        }
+    }
+
+    private var deleteTitle: String {
+        if case .attachment = pendingDelete {
+            return "Delete this attachment from the meeting?"
+        }
+        return "Delete this line from the meeting?"
+    }
+
+    private var deleteMessage: String {
+        if case .attachment = pendingDelete {
+            return "Its copy in the meeting folder is deleted and it leaves the list of attachments. The original is not touched."
+        }
+        return "It leaves the transcript and its files. The audio recording is not changed."
     }
 
     private var controls: some View {
@@ -342,6 +414,15 @@ struct UntypeTranscriptionView: View {
                     : "Pause capturing the \(Self.name(of: side)): nothing of it is transcribed or saved until you resume. The other side goes on.")
             }
             Button {
+                feed.cutAtLastSentenceEnd()
+            } label: {
+                Label("End the line at the last full stop", systemImage: "arrow.turn.down.left")
+            }
+            .labelStyle(.iconOnly)
+            .controlSize(.small)
+            .disabled(!feed.isRecording)
+            .help("End the lines being spoken at their last full stop: the sentences finished so far go into the transcript now (the assistant can read them), the words after them stay in progress. Asking the assistant does this by itself.")
+            Button {
                 feed.attachClipboard()
             } label: {
                 Label("Attach", systemImage: "paperclip")
@@ -359,6 +440,13 @@ struct UntypeTranscriptionView: View {
             .disabled(!feed.isRecording)
             .help("Choose files to attach to this moment of the meeting. Files can also be dropped on the transcript.")
             Spacer(minLength: 8)
+            Button {
+                openAssistant()
+            } label: {
+                Label("Ask", systemImage: "sparkles")
+            }
+            .controlSize(.small)
+            .help("Ask the meeting assistant about this meeting: it reads the transcript and the attachments")
             Button {
                 copyTranscript()
             } label: {
@@ -398,17 +486,19 @@ struct UntypeTranscriptionView: View {
                             .padding(.top, 40)
                     }
                     ForEach(lines) { item in
-                        switch item {
-                        case .line(let line):
-                            row(
-                                time: MeetingTranscriptFormat.timestamp(line.segment.startMs),
-                                speaker: MeetingTranscriptFormat.speakerLabel(line.segment),
-                                side: line.segment.side,
-                                text: line.segment.text,
-                                pending: false
-                            )
-                        case .attachment(let shown):
-                            TranscriptionAttachmentRow(attachment: shown.attachment, url: feed.url(of: shown.attachment))
+                        TranscriptionDeletableRow(canDelete: feed.isRecording, delete: { pendingDelete = item }) {
+                            switch item {
+                            case .line(let line):
+                                row(
+                                    time: MeetingTranscriptFormat.timestamp(line.segment.startMs),
+                                    speaker: MeetingTranscriptFormat.speakerLabel(line.segment),
+                                    side: line.segment.side,
+                                    text: line.segment.text,
+                                    pending: false
+                                )
+                            case .attachment(let shown):
+                                TranscriptionAttachmentRow(attachment: shown.attachment, url: feed.url(of: shown.attachment))
+                            }
                         }
                     }
                     ForEach(sides, id: \.rawValue) { side in
@@ -707,6 +797,37 @@ private struct TranscriptionAttachmentRow: View {
         case .file, .folder:
             image = NSWorkspace.shared.icon(forFile: url.path)
         }
+    }
+}
+/// A row of the transcript with a Delete button that shows while the
+/// pointer is on it (and in its context menu), while the meeting is recorded.
+private struct TranscriptionDeletableRow<Content: View>: View {
+    let canDelete: Bool
+    let delete: () -> Void
+    @ViewBuilder let content: () -> Content
+    @State private var hovered = false
+
+    var body: some View {
+        content()
+            .overlay(alignment: .topTrailing) {
+                if hovered, canDelete {
+                    Button(action: delete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .padding(4)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Delete from the meeting")
+                }
+            }
+            .onHover { hovered = $0 }
+            .contextMenu {
+                if canDelete {
+                    Button("Delete from the meeting", role: .destructive, action: delete)
+                }
+            }
     }
 }
 #endif
