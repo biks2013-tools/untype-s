@@ -428,6 +428,14 @@ struct UntypeSettingsView: View {
         }
 
         Section {
+            UntypeUpdateSettingsRows(model: model.updater)
+        } header: {
+            Text("Updates")
+        } footer: {
+            caption("untype asks GitHub for its latest release a little after it starts and every six hours, and offers a newer build when there is one (never during a meeting recording or a dictation). Installing downloads the release, checks it against its published checksum and this app's own signature, replaces the app and restarts it. Nothing about you or this Mac is sent.")
+        }
+
+        Section {
             Toggle("Keep overlay visible", isOn: Binding(
                 get: { model.settings.overlayAlwaysVisible },
                 set: { model.updateLayout(overlayAlwaysVisible: $0) }

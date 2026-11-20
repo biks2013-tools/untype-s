@@ -63,6 +63,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var settingsWindow: UntypeSettingsWindowController?
     private var transcriptionWindow: UntypeTranscriptionWindowController?
     private var assistantWindow: UntypeAssistantWindowController?
+    private var updateWindow: UntypeUpdateWindowController?
     private var wasCompactWindow: Bool = false
 
     private static let miniSize = NSSize(width: 440, height: 260)
@@ -124,6 +125,20 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         model.showSettingsWindow = { [weak settingsWindow] tab in
             settingsWindow?.show(tab: tab)
         }
+        // Updates (plan-079): look for a newer release from time to time
+        // and offer it.
+        let updateWindow = UntypeUpdateWindowController(model: model.updater)
+        self.updateWindow = updateWindow
+        model.updater.onEvent = { [weak model] line in
+            model?.appendEvent(line)
+        }
+        model.updater.busyReason = { [weak model] in
+            model?.updateBusyReason
+        }
+        model.updater.showOffer = { [weak updateWindow] in
+            updateWindow?.show()
+        }
+        model.updater.start()
         // The meeting assistant (plan-078).
         let assistantWindow = UntypeAssistantWindowController(model: model.assistant)
         self.assistantWindow = assistantWindow
@@ -402,6 +417,18 @@ final class UntypeUIModel: ObservableObject {
     /// recorded, or the last one (plan-078).
     let assistant = MeetingAssistantModel()
     var showAssistantWindow: (() -> Void)?
+    /// Looks for newer releases of untype and installs them (plan-079).
+    let updater = UntypeUpdateModel()
+    /// Why an update cannot be offered or installed right now (nil: it can).
+    var updateBusyReason: String? {
+        if meetingRecorder.isRecording || meetingBusy {
+            return "A meeting is being recorded."
+        }
+        if hotkeyPressed {
+            return "A dictation is in progress."
+        }
+        return nil
+    }
     /// Whether the assistant window is the one the user types in now.
     var assistantWindowIsKey: (() -> Bool)?
     @Published private(set) var meetingRecording = false

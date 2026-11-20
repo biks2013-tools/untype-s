@@ -76,6 +76,7 @@ struct UntypeMenuBarPanel: View {
             }
             .padding(6)
             Divider()
+            UntypeUpdateMenuRow(model: model.updater)
             Text("untype \(UntypeAppVersion.current.label)")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -448,6 +449,25 @@ private struct UntypeMenuBarActionRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+}
+/// Shown in the dropdown while a newer build waits to be installed.
+private struct UntypeUpdateMenuRow: View {
+    @ObservedObject var model: UntypeUpdateModel
+
+    var body: some View {
+        if model.isUpdateAvailable, let release = model.release {
+            Button {
+                model.showOffer()
+            } label: {
+                Label("Build \(release.build) is available — update…", systemImage: "arrow.down.circle.fill")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(UntypeDesignTokens.accentAmber)
+            .padding(.vertical, 2)
+        }
     }
 }
 #endif
