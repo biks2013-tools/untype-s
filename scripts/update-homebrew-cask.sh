@@ -189,11 +189,12 @@ cask "untype" do
          speech-to-text key (Soniox, ElevenLabs or Google). Keys are stored in
          ~/.tool-agents/untype/.env, readable only by you.
       2. Click Start Listening once and allow the Microphone when macOS asks.
-      3. System Settings > Privacy & Security > Accessibility > enable untype
-         (needed for the push-to-talk hotkey and for inserting text into the
-         focused field). Add untype under Input Monitoring too if the hotkey
-         does not fire while another app is in front. Quit and relaunch after
-         changing permissions.
+      3. System Settings > Privacy & Security > enable untype under
+         "Device Control and Data Access" (macOS 27) or "Accessibility"
+         (macOS 26 and earlier) - needed for the push-to-talk hotkey and for
+         inserting text into the focused field. Add untype under Input
+         Monitoring too if the hotkey does not fire while another app is in
+         front. Quit and relaunch after changing permissions.
 
     Technical deck: https://biks2013-tools.github.io/untype-s/
     ~/.tool-agents/untype/.env is kept on uninstall and on zap.

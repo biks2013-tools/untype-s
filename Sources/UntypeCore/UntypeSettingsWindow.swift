@@ -10,6 +10,9 @@ final class UntypeSettingsWindowController: NSObject {
     private static let frameAutosaveName = "untype.settingsWindow.v2"
     private let model: UntypeUIModel
     private var window: NSWindow?
+    /// Owned here, not by the view, so it can be cleared when the window
+    /// closes: the view survives a close (`isReleasedWhenClosed` is false).
+    private let scrollMemory = UntypePaneScrollStore()
 
     init(model: UntypeUIModel) {
         self.model = model
@@ -38,12 +41,93 @@ final class UntypeSettingsWindowController: NSObject {
         window.titlebarAppearsTransparent = true
         window.contentMinSize = NSSize(width: 760, height: 520)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: UntypeSettingsView(model: model))
+        window.delegate = self
+        let hostingView = UntypeOpaqueHostingView(rootView: UntypeSettingsView(model: model, scrollMemory: scrollMemory))
+        // The window carries its own minimum size and the hosting view fills
+        // it, so SwiftUI never needs to publish an intrinsic size. With the
+        // default sizing options NSHostingView re-measured the whole view tree
+        // on every layout pass (invalidateSizeConstraintsIfNecessary ->
+        // _sizeThatFits); while a pane was being scrolled that was a quarter of
+        // all the main-thread work, and it grows with the amount of text in the
+        // pane.
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
         if !window.setFrameUsingName(Self.frameAutosaveName) {
             window.center()
         }
         window.setFrameAutosaveName(Self.frameAutosaveName)
         return window
+    }
+}
+
+/// Applies the chosen theme to the window itself.
+///
+/// `preferredColorScheme` sets a window's appearance but never clears it. Once
+/// Light or Dark has been picked, going back to System leaves the window pinned
+/// to the old appearance: only the views that follow the system on their own —
+/// the material sidebar — change, until something makes AppKit re-apply it,
+/// such as activating another app. Setting `window.appearance` directly, `nil`
+/// included, is what actually tracks the setting.
+struct UntypeWindowAppearance: NSViewRepresentable {
+    let appearance: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { apply(to: view) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        apply(to: view)
+        // The window's appearance can be re-applied after this update by
+        // whatever else is still holding one; setting it again once the
+        // update has settled is what makes "System" actually take.
+        DispatchQueue.main.async { apply(to: view) }
+    }
+
+    private func apply(to view: NSView) {
+        guard let window = view.window else { return }
+        let wanted = Self.appearance(for: appearance)
+        if window.appearance !== wanted {
+            window.appearance = wanted
+        }
+    }
+
+    /// `nil` means "follow the system", which is also what clears an earlier
+    /// Light or Dark choice.
+    static func appearance(for setting: String) -> NSAppearance? {
+        switch setting {
+        case "light": return NSAppearance(named: .aqua)
+        case "dark": return NSAppearance(named: .darkAqua)
+        default: return nil
+        }
+    }
+}
+
+/// Hosting view that declares itself opaque.
+///
+/// The window uses `.fullSizeContentView` so the sidebar reaches the traffic
+/// lights. For such a window AppKit recomputes, on every display cycle, which
+/// views under the titlebar are opaque and so block window dragging
+/// (`_resetDragMargins` -> `_regionForOpaqueViewsBlockingDraggableFrame`). That
+/// walk descends the whole SwiftUI tree, and while a pane was being scrolled it
+/// was over half of all the main-thread work. Declaring the view opaque lets
+/// the walk take its rect and stop instead of descending.
+///
+/// This has to be the hosting view itself, not a wrapper around it: SwiftUI
+/// carries `preferredColorScheme` to the window's appearance only while the
+/// hosting view *is* the content view, so wrapping it leaves the Settings
+/// window stuck in one theme.
+final class UntypeOpaqueHostingView<Content: View>: NSHostingView<Content> {
+    override var isOpaque: Bool { true }
+
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("UntypeOpaqueHostingView is not loaded from a nib")
     }
 }
 
@@ -61,6 +145,10 @@ enum UntypeSettingsPane: String, CaseIterable, Identifiable {
     case permissions
 
     var id: String { rawValue }
+
+    /// The panes rendered by the shared `Form`. Prompts has its own view.
+    static var formPanes: [UntypeSettingsPane] { allCases.filter { $0 != .prompts } }
+
 
     var title: String {
         switch self {
@@ -143,6 +231,17 @@ struct UntypeSettingsView: View {
     @State private var showCredentialsEditor = false
     @State private var newDictionaryWord = ""
     @State private var showOnboarding = false
+    /// Remembers where each pane was scrolled to. A plain reference type held
+    /// in @State: writing to it while the user scrolls must not re-render.
+    let scrollMemory: UntypePaneScrollStore
+    /// Whether Screen Recording is granted — needed to hear the call's sound
+    /// (and for the Screenshot operator).
+    ///
+    /// Cached rather than asked for on demand: `CGPreflightScreenCaptureAccess`
+    /// goes to TCC and measures ~10 ms a call. The Meetings and Permissions
+    /// panes each read it twice, so a computed property spent ~20 ms of every
+    /// body evaluation and made those panes scroll badly.
+    @State private var screenRecordingGranted = false
 
     private static let sidebarWidth: CGFloat = 215
     private static let headerHeight: CGFloat = 52
@@ -161,7 +260,16 @@ struct UntypeSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 760, minHeight: 520)
-        .preferredColorScheme(preferredColorScheme)
+        .background(UntypeWindowAppearance(appearance: model.settings.appearance))
+        .onAppear { refreshScreenRecordingGrant() }
+        .onChange(of: pane) { _, opened in
+            if opened == .meetings || opened == .permissions {
+                refreshScreenRecordingGrant()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshScreenRecordingGrant()
+        }
         .sheet(isPresented: $showCredentialsEditor) {
             UntypeCredentialsEditorView(model: model) {
                 showCredentialsEditor = false
@@ -171,14 +279,6 @@ struct UntypeSettingsView: View {
             UntypeOnboardingView(model: model) {
                 showOnboarding = false
             }
-        }
-    }
-
-    private var preferredColorScheme: ColorScheme? {
-        switch model.settings.appearance {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
         }
     }
 
@@ -249,16 +349,22 @@ struct UntypeSettingsView: View {
             ZStack {
                 // Kept alive while other panes show, so unsaved prompt edits
                 // survive a visit to another pane.
+                //
+                // One Form serves every other pane, because a Form per pane
+                // costs enough rendering to make scrolling visibly less smooth.
+                // That means one shared scroll view, so the per-pane scroll
+                // position is kept by UntypePaneScrollMemory instead.
                 UntypePromptSettingsView(model: model)
                     .opacity(pane == .prompts ? 1 : 0)
                     .allowsHitTesting(pane == .prompts)
                     .accessibilityHidden(pane != .prompts)
                 if pane != .prompts {
                     Form {
-                        paneContent
+                        paneContent(for: pane)
                     }
                     .formStyle(.grouped)
                     .background(Color(nsColor: .windowBackgroundColor))
+                    .background(UntypePaneScrollMemory(pane: pane, memory: scrollMemory))
                 }
             }
         }
@@ -275,7 +381,7 @@ struct UntypeSettingsView: View {
     }
 
     @ViewBuilder
-    private var paneContent: some View {
+    private func paneContent(for pane: UntypeSettingsPane) -> some View {
         switch pane {
         case .general: generalPane
         case .pushToTalk: pushToTalkPane
@@ -554,14 +660,20 @@ struct UntypeSettingsView: View {
                 "Screen & System Audio Recording",
                 value: screenRecordingGranted ? "Granted" : "Not granted",
                 tone: screenRecordingGranted ? .ok : .warn,
-                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                deepLink: UntypeSettingsDeepLink.url(for: .screenCapture)
             )
         }
     }
 
-    /// Needed to hear the call's sound (and for the Screenshot operator).
-    private var screenRecordingGranted: Bool {
-        CGPreflightScreenCaptureAccess()
+    /// Refreshes the cached Screen Recording grant.
+    ///
+    /// Off the main thread: the TCC query takes about 10 ms, enough to drop a
+    /// frame if it ran while a pane is on screen.
+    private func refreshScreenRecordingGrant() {
+        Task.detached {
+            let granted = CGPreflightScreenCaptureAccess()
+            await MainActor.run { screenRecordingGranted = granted }
+        }
     }
 
     // MARK: Push-to-Talk
@@ -952,25 +1064,25 @@ struct UntypeSettingsView: View {
                 "Microphone",
                 value: model.settings.microphoneStatus,
                 tone: UntypeStatusToneMap.microphone(model.settings.microphoneStatus),
-                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                deepLink: UntypeSettingsDeepLink.url(for: .microphone)
             )
             permissionRow(
-                "Accessibility",
+                UntypeSettingsDeepLink.accessibilityPaneName,
                 value: model.settings.accessibilityStatus,
                 tone: UntypeStatusToneMap.accessibility(model.settings.accessibilityStatus),
-                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                deepLink: UntypeSettingsDeepLink.url(for: .accessibility)
             )
             permissionRow(
                 "Input Monitoring",
                 value: model.settings.inputStatus,
                 tone: model.settings.focusedInput ? .accent : .off,
-                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+                deepLink: UntypeSettingsDeepLink.url(for: .inputMonitoring)
             )
             permissionRow(
                 "Screen & System Audio Recording",
                 value: screenRecordingGranted ? "Granted" : "Not granted (meetings, Screenshot)",
                 tone: screenRecordingGranted ? .ok : .off,
-                deepLink: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                deepLink: UntypeSettingsDeepLink.url(for: .screenCapture)
             )
             LabeledContent("Step-by-step guide") {
                 Button("Open Permission Setup…") {
@@ -1181,6 +1293,19 @@ struct UntypeSettingsView: View {
         default:
             return UntypeUISettingsPatch()
         }
+    }
+}
+extension UntypeSettingsWindowController: NSWindowDelegate {
+    /// Closing the Settings window puts it back to how it opens fresh: the
+    /// first pane, each pane at the top. This follows System Settings, which
+    /// returns to its first pane rather than resuming the last one visited.
+    ///
+    /// Entry points that open a specific pane are unaffected — they pass that
+    /// pane to `show(tab:)`, which sets it after this has run.
+    func windowWillClose(_ notification: Notification) {
+        scrollMemory.reset()
+        UntypePaneScrollMemory.Coordinator.scrollToTop(in: window?.contentView)
+        model.settingsTab = UntypeSettingsPane.general.rawValue
     }
 }
 #endif
