@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P1 - Automatic updates: the swap and restart are untested until the next release (2026-11-20)
+Plan-079 / FR-82. User request. untype looks for a newer release on GitHub (30 s after the start, every 6 h) and offers to install it; the install downloads the notarized zip, checks it against `SHA256SUMS` and against this app's own code-signing requirement, swaps the app with a script that outlives it, and restarts. Verified: 553/553 tests (the swap script on stand-in folders, the signature check on the installed app), and live against GitHub the look, the download and the checks of release b88. **Not verified: replacing the running app and restarting, and the permissions afterwards** — only a published build newer than the installed one shows it, so the first release after the build that carries the updater is the test; keep the previous build at hand (`.build/deploy/untype.app.previous`) when trying it. The cask template now has `auto_updates true`.
+
 ### P2 - PR #4 merged (macOS 27 permission links, Settings window fixes): in-app check pending (2026-11-20)
 Pull request #4 (nkostop), merged into `main` on request after reading its diff (UI code, texts and docs only; no network, process or file access added). One conflict, in `UntypeSettingsWindow.swift` (the new `NSWindowDelegate` extension against the `#if os(macOS)` fence of plan-075), resolved by keeping both; `PaneScrollMemory.swift` was put inside `#if os(macOS)` so that `UntypeCore` still builds for iOS (checked). 547/547 tests. Its own description of what was and was not verified is in the items it added below. To check in the installed app on this Mac (macOS 27): the permission buttons open "Device Control and Data Access", the Settings window keeps each pane's scroll position, System theme applies at once, the window opens on General after closing; and the Assistant section added to Settings → Meetings in build 86 still works inside the reworked window.
 
