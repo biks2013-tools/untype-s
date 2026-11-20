@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Foundation
 
@@ -181,3 +182,4 @@ public enum UntypeWaveform {
         return previous + (target - previous) * (1 - exp(-rate * dt))
     }
 }
+#endif

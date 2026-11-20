@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Foundation
@@ -117,3 +118,4 @@ final class TerminalPromptAnchor: @unchecked Sendable {
         return TerminalPromptParser.box(in: screen)
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -235,6 +236,15 @@ struct UntypeMenuBarPanel: View {
                 .controlSize(.small)
                 .tint(.red)
                 .disabled(model.meetingBusy)
+                if model.meetingRecording {
+                    Button {
+                        model.attachClipboardToMeeting()
+                    } label: {
+                        Label("Attach", systemImage: "paperclip")
+                    }
+                    .controlSize(.small)
+                    .help("Attach what the clipboard holds (text, a screenshot, copied files) to this moment of the meeting")
+                }
                 Spacer(minLength: 6)
                 Button("Open folder") {
                     model.openMeetingsFolder()
@@ -437,3 +447,4 @@ private struct UntypeMenuBarActionRow: View {
         .onHover { hovering = $0 }
     }
 }
+#endif

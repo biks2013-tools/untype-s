@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -487,10 +488,18 @@ struct UntypeSettingsView: View {
                     }
                 }
             }
+            Toggle("Also save the transcript to Apple Notes", isOn: Binding(
+                get: { model.settings.meeting.savesToAppleNotes },
+                set: { value in
+                    var meeting = model.settings.meeting
+                    meeting.appleNotes = value
+                    model.setMeetingPreferences(meeting)
+                }
+            ))
         } header: {
             Text("Files")
         } footer: {
-            caption("Each meeting gets its own folder, recording-<date>-<time>, with the meeting's name in front once it has one. Its files are named as the ntakker recorder names them and are written while the meeting runs.")
+            caption("Each meeting gets its own folder, recording-<date>-<time>, with the meeting's name in front once it has one. Its files are named as the ntakker recorder names them and are written while the meeting runs. “Also save the transcript to Apple Notes” writes the finished transcript as a note in the folder “untype” of Notes when the recording ends, with the meeting's name as its title; the files are saved as always. The first time, macOS asks whether untype may control Notes. A meeting renamed later keeps the note's first title.")
         }
 
         Section {
@@ -1161,3 +1170,4 @@ struct UntypeSettingsView: View {
         }
     }
 }
+#endif

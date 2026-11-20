@@ -4,7 +4,7 @@ public struct ProtocolSettingsStoreOptions: Sendable, Equatable {
     public let toolName: String
     public let home: URL
 
-    public init(toolName: String = "untype", home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    public init(toolName: String = "untype", home: URL = FileManager.default.untypeHomeDirectory) {
         self.toolName = toolName
         self.home = home
     }

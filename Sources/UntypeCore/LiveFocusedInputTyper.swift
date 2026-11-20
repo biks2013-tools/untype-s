@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Foundation
 
@@ -395,3 +396,4 @@ final class LiveFocusedInputTyper {
         typed = target
     }
 }
+#endif

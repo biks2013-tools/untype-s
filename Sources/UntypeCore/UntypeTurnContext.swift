@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// How the Selection operator uses the selected text.
@@ -213,3 +214,4 @@ public final class AskConversation: @unchecked Sendable {
             .joined(separator: "\n\n")
     }
 }
+#endif

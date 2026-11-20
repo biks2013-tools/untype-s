@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 public enum FocusedInputDeliveryMethod: String, CaseIterable, Sendable {
@@ -388,3 +389,4 @@ private func readPipeString(_ pipe: Pipe) -> String? {
     }
     return String(data: data, encoding: .utf8)
 }
+#endif

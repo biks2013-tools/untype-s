@@ -292,6 +292,8 @@ cat > "$INFO_PLIST" <<EOF
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>untype writes the transcript of a meeting as a note in Notes when you switch on "Also save the transcript to Apple Notes".</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>untype records microphone audio only while you start listening, hold the push-to-talk hotkey or record a meeting, then sends it to the configured transcription provider.</string>
 EOF

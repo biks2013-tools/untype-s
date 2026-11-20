@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 public protocol UntypeRuntimeSession: AnyObject, Sendable {
@@ -529,3 +530,4 @@ private func uiFilterMarkerTokens(_ text: String) -> String {
         .replacingOccurrences(of: "<fin>", with: "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
+#endif

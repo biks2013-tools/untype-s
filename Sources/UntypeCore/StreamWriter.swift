@@ -64,10 +64,10 @@ public final class MemoryOutput: TextOutput {
 private extension String {
     var expandingTildeInPath: String {
         if self == "~" {
-            return FileManager.default.homeDirectoryForCurrentUser.path
+            return FileManager.default.untypeHomeDirectory.path
         }
         if hasPrefix("~/") {
-            return FileManager.default.homeDirectoryForCurrentUser
+            return FileManager.default.untypeHomeDirectory
                 .appendingPathComponent(String(dropFirst(2)))
                 .path
         }

@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -30,6 +31,29 @@ public struct TranscriptionLine: Identifiable, Equatable, Sendable {
     public let segment: MeetingSegment
 }
 
+/// Something attached during the meeting, where the window shows it: after
+/// the lines that were there when it was attached (plan-077).
+public struct TranscriptionAttachment: Identifiable, Equatable, Sendable {
+    public let attachment: MeetingAttachment
+    /// How many lines the transcript had when it was attached.
+    public let position: Int
+
+    public var id: Int { attachment.id }
+}
+
+/// One row of the transcription window, in the order shown.
+public enum TranscriptionRow: Identifiable, Equatable, Sendable {
+    case line(TranscriptionLine)
+    case attachment(TranscriptionAttachment)
+
+    public var id: String {
+        switch self {
+        case .line(let line): return "line-\(line.id)"
+        case .attachment(let attachment): return "attachment-\(attachment.id)"
+        }
+    }
+}
+
 /// The live transcript of the meeting being recorded (kept after it ends,
 /// until the next one starts), for the transcription window. Finished
 /// segments are only ever added at the end; the words still being spoken
@@ -50,8 +74,92 @@ public final class MeetingTranscriptFeed: ObservableObject {
     /// Asks the recorder to pause or resume a side (set by the owner of
     /// the recorder); it answers with `setPaused`.
     public var onPauseRequest: ((_ side: MeetingSide, _ paused: Bool) -> Void)?
+    /// What was attached to this meeting, in order (plan-077).
+    @Published public private(set) var attachments: [TranscriptionAttachment] = []
+    /// The meeting folder (it changes when the meeting is named).
+    @Published public private(set) var meetingFolder: URL?
+    public var attachmentCount: Int { attachments.count }
+    /// Attachments before this one were cleared from the window.
+    @Published private var clearedAttachments = 0
+    /// What the last attach action did, shown for a moment.
+    @Published public private(set) var attachNote: String?
+    /// Asks the owner of the recorder to attach what the clipboard holds.
+    public var onAttachRequest: (() -> Void)?
+    /// Asks the owner of the recorder to attach these files or folders
+    /// (dropped on the window, or chosen with "Attach a file").
+    public var onAttachFilesRequest: (([URL]) -> Void)?
+    private var attachNoteNumber = 0
 
     public init() {}
+
+    /// The window's button: attach the clipboard to this moment.
+    public func attachClipboard() {
+        guard isRecording else {
+            return
+        }
+        onAttachRequest?()
+    }
+
+    /// Files dropped on the window or chosen in the file dialog: attach
+    /// them to this moment. False when nothing was asked (not recording,
+    /// or no file among them).
+    @discardableResult
+    public func attachFiles(_ urls: [URL]) -> Bool {
+        let files = urls.filter(\.isFileURL)
+        guard isRecording, !files.isEmpty else {
+            return false
+        }
+        onAttachFilesRequest?(files)
+        return true
+    }
+
+    /// Where the meeting's files are.
+    public func setMeetingFolder(_ folder: URL?) {
+        meetingFolder = folder
+        meetingName = folder?.lastPathComponent ?? meetingName
+    }
+
+    /// The meeting was named: its folder moved.
+    public func folderRenamed(from old: URL, to new: URL) {
+        if meetingFolder?.standardizedFileURL == old.standardizedFileURL {
+            setMeetingFolder(new)
+        }
+    }
+
+    /// The file of an attachment (nil before the folder is known).
+    public func url(of attachment: MeetingAttachment) -> URL? {
+        meetingFolder?.appendingPathComponent(attachment.file)
+    }
+
+    /// The rows of `channel` the window shows: its lines, and every
+    /// attachment at the place of the conversation it was attached.
+    public func rows(for channel: TranscriptionChannel) -> [TranscriptionRow] {
+        var rows: [TranscriptionRow] = []
+        var pending = attachments.dropFirst(clearedAttachments)
+        for line in lines(for: channel) {
+            while let next = pending.first, next.position <= line.id {
+                rows.append(.attachment(next))
+                pending = pending.dropFirst()
+            }
+            rows.append(.line(line))
+        }
+        rows.append(contentsOf: pending.map(TranscriptionRow.attachment))
+        return rows
+    }
+
+    /// The answer: what was attached, and what to tell the user.
+    public func noteAttach(added: [MeetingAttachment], note: String) {
+        attachments.append(contentsOf: added.map { TranscriptionAttachment(attachment: $0, position: lines.count) })
+        attachNote = note
+        attachNoteNumber += 1
+        let number = attachNoteNumber
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if self?.attachNoteNumber == number {
+                self?.attachNote = nil
+            }
+        }
+    }
 
     /// The window's button: pause the side, or resume it.
     public func togglePause(_ side: MeetingSide) {
@@ -74,6 +182,7 @@ public final class MeetingTranscriptFeed: ObservableObject {
     /// recording and its files are not touched; new text keeps coming.
     public func clear() {
         clearedBefore = lines.count
+        clearedAttachments = attachments.count
     }
 
     /// A new recording: the previous transcript goes.
@@ -82,6 +191,10 @@ public final class MeetingTranscriptFeed: ObservableObject {
         clearedBefore = 0
         inProgress = [:]
         paused = []
+        attachments = []
+        clearedAttachments = 0
+        meetingFolder = nil
+        attachNote = nil
         self.meetingName = meetingName
         isRecording = true
     }
@@ -181,6 +294,8 @@ struct UntypeTranscriptionView: View {
     @AppStorage("untype.transcriptionWindow.follow") private var follow = true
     /// Just copied: the button says so for a moment.
     @State private var copied = false
+    /// Files are being dragged over the transcript.
+    @State private var dropTargeted = false
 
     private var channel: TranscriptionChannel {
         TranscriptionChannel(rawValue: channelValue) ?? .both
@@ -226,6 +341,23 @@ struct UntypeTranscriptionView: View {
                     ? "Resume capturing the \(Self.name(of: side))"
                     : "Pause capturing the \(Self.name(of: side)): nothing of it is transcribed or saved until you resume. The other side goes on.")
             }
+            Button {
+                feed.attachClipboard()
+            } label: {
+                Label("Attach", systemImage: "paperclip")
+            }
+            .controlSize(.small)
+            .disabled(!feed.isRecording)
+            .help("Attach what the clipboard holds (text, a screenshot or other picture, copied files) to this moment of the meeting. It is saved in the meeting folder.")
+            Button {
+                chooseFiles()
+            } label: {
+                Label("Attach a file", systemImage: "doc.badge.plus")
+            }
+            .labelStyle(.iconOnly)
+            .controlSize(.small)
+            .disabled(!feed.isRecording)
+            .help("Choose files to attach to this moment of the meeting. Files can also be dropped on the transcript.")
             Spacer(minLength: 8)
             Button {
                 copyTranscript()
@@ -243,7 +375,7 @@ struct UntypeTranscriptionView: View {
             }
             .labelStyle(.iconOnly)
             .controlSize(.small)
-            .disabled(feed.lines.count <= feed.clearedBefore)
+            .disabled(feed.rows(for: .both).isEmpty)
             .help("Empty this window. The recording goes on and nothing is removed from the meeting's files.")
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.switch)
@@ -254,7 +386,7 @@ struct UntypeTranscriptionView: View {
     }
 
     private var transcript: some View {
-        let lines = feed.lines(for: channel)
+        let lines = feed.rows(for: channel)
         let sides = feed.inProgressSides(for: channel)
         return ScrollViewReader { proxy in
             ScrollView {
@@ -265,14 +397,19 @@ struct UntypeTranscriptionView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 40)
                     }
-                    ForEach(lines) { line in
-                        row(
-                            time: MeetingTranscriptFormat.timestamp(line.segment.startMs),
-                            speaker: MeetingTranscriptFormat.speakerLabel(line.segment),
-                            side: line.segment.side,
-                            text: line.segment.text,
-                            pending: false
-                        )
+                    ForEach(lines) { item in
+                        switch item {
+                        case .line(let line):
+                            row(
+                                time: MeetingTranscriptFormat.timestamp(line.segment.startMs),
+                                speaker: MeetingTranscriptFormat.speakerLabel(line.segment),
+                                side: line.segment.side,
+                                text: line.segment.text,
+                                pending: false
+                            )
+                        case .attachment(let shown):
+                            TranscriptionAttachmentRow(attachment: shown.attachment, url: feed.url(of: shown.attachment))
+                        }
                     }
                     ForEach(sides, id: \.rawValue) { side in
                         row(
@@ -291,7 +428,31 @@ struct UntypeTranscriptionView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(Color(nsColor: .textBackgroundColor))
+            .overlay {
+                if dropTargeted, feed.isRecording {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                        .background(Color.accentColor.opacity(0.08))
+                        .overlay(
+                            Label("Drop to attach to this moment of the meeting", systemImage: "paperclip")
+                                .font(.system(size: 13, weight: .semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(.regularMaterial, in: Capsule())
+                        )
+                        .padding(6)
+                        .allowsHitTesting(false)
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                feed.attachFiles(urls)
+            } isTargeted: { targeted in
+                dropTargeted = targeted
+            }
             .onChange(of: feed.lines.count) { _, _ in
+                scrollToBottomIfFollowing(proxy)
+            }
+            .onChange(of: feed.attachments.count) { _, _ in
                 scrollToBottomIfFollowing(proxy)
             }
             .onChange(of: feed.inProgress) { _, _ in
@@ -308,6 +469,26 @@ struct UntypeTranscriptionView: View {
             }
             .onAppear {
                 scrollToBottomIfFollowing(proxy)
+            }
+        }
+    }
+
+    /// "Attach a file": the file dialog, then the chosen files and folders
+    /// are attached to the moment the dialog is confirmed.
+    private func chooseFiles() {
+        let panel = NSOpenPanel()
+        panel.title = "Attach to the meeting"
+        panel.prompt = "Attach"
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.begin { response in
+            guard response == .OK else {
+                return
+            }
+            let urls = panel.urls
+            Task { @MainActor in
+                feed.attachFiles(urls)
             }
         }
     }
@@ -399,13 +580,133 @@ struct UntypeTranscriptionView: View {
     }
 
     private var statusText: String {
+        if let note = feed.attachNote {
+            return note
+        }
+        let attached = feed.attachmentCount == 0 ? "" : " · \(feed.attachmentCount) attached"
         if feed.isRecording {
             let paused = [MeetingSide.you, .call].filter { feed.paused.contains($0) }.map { Self.name(of: $0) }
             if !paused.isEmpty {
-                return "Recording · \(paused.joined(separator: " and ")) paused · \(feed.meetingName)"
+                return "Recording · \(paused.joined(separator: " and ")) paused\(attached) · \(feed.meetingName)"
             }
-            return "Recording · \(feed.meetingName)"
+            return "Recording\(attached) · \(feed.meetingName)"
         }
-        return feed.meetingName.isEmpty ? "Not recording" : "Ended · \(feed.meetingName)"
+        return feed.meetingName.isEmpty ? "Not recording" : "Ended\(attached) · \(feed.meetingName)"
     }
 }
+/// An attachment in the transcript: a paperclip, when it was attached, and
+/// a thumbnail (the picture, the start of the text, the file's icon). A
+/// click opens it.
+private struct TranscriptionAttachmentRow: View {
+    let attachment: MeetingAttachment
+    let url: URL?
+    @State private var image: NSImage?
+    @State private var text: String?
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            open()
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(title)
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(attachment.time)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(.secondary)
+                thumbnail
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(hovered ? 0.16 : 0.08))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("Open the attachment")
+        .contextMenu {
+            Button("Open") { open() }
+            Button("Show in Finder") {
+                if let url {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+        }
+        .task(id: url) {
+            load()
+        }
+    }
+
+    @ViewBuilder private var thumbnail: some View {
+        switch attachment.kind {
+        case .image:
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 260, maxHeight: 150, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Color.secondary.opacity(0.3)))
+            }
+        case .text:
+            if let text {
+                Text(text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .lineLimit(4)
+                    .multilineTextAlignment(.leading)
+            }
+        case .file, .folder:
+            HStack(spacing: 8) {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .frame(width: 32, height: 32)
+                }
+                Text(attachment.originalName ?? "")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    private var title: String {
+        switch attachment.kind {
+        case .image: return "Picture · \(attachment.width ?? 0)×\(attachment.height ?? 0)"
+        case .text: return "Text · \(attachment.characters ?? 0) characters"
+        case .file: return "File"
+        case .folder: return "Folder"
+        }
+    }
+
+    private func open() {
+        if let url {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func load() {
+        guard let url else {
+            return
+        }
+        switch attachment.kind {
+        case .image:
+            image = NSImage(contentsOf: url)
+        case .text:
+            text = (try? String(contentsOf: url, encoding: .utf8)).map { String($0.prefix(400)) }
+        case .file, .folder:
+            image = NSWorkspace.shared.icon(forFile: url.path)
+        }
+    }
+}
+#endif

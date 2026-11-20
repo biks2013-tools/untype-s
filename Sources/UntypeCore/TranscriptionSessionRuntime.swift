@@ -165,6 +165,7 @@ private enum AudioActivityCategory: Sendable, Equatable {
     case muted
 }
 
+#if os(macOS)
 public struct TranscriptionSessionRuntimeOptions {
     public let verbose: Bool
     public let readyMessage: String
@@ -851,3 +852,4 @@ public final class TranscriptionSessionRuntime {
         return min(1, Double(peak) / 32768.0)
     }
 }
+#endif

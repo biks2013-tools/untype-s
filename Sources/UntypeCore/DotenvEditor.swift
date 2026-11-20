@@ -22,7 +22,7 @@ public enum DotenvEditor {
         "DEEPSEEK_API_KEY"
     ]
 
-    public static func userEnvURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func userEnvURL(home: URL = FileManager.default.untypeHomeDirectory) -> URL {
         home
             .appendingPathComponent(".tool-agents")
             .appendingPathComponent("untype")
@@ -174,7 +174,7 @@ public enum DotenvEditor {
     }
 
     private static func displayPath(_ url: URL) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = FileManager.default.untypeHomeDirectory.path
         if url.path.hasPrefix(home) {
             return "~" + url.path.dropFirst(home.count)
         }

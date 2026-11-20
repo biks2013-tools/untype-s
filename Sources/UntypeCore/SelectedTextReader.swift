@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Foundation
@@ -312,3 +313,4 @@ final class SelectionAnchor: @unchecked Sendable {
         return string.substring(with: NSRange(location: location, length: length))
     }
 }
+#endif

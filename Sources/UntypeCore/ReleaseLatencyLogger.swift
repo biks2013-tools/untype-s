@@ -12,6 +12,8 @@ public struct ReleaseLatencyLoggingConfig: Equatable, Sendable {
     }
 }
 
+#if os(macOS)
+
 public protocol ReleaseLatencyLogWriting: AnyObject, Sendable {
     func append(_ record: ReleaseLatencyLogRecord) throws
 }
@@ -371,3 +373,4 @@ public func releaseLatencyTimestamp(_ date: Date = Date()) -> String {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.string(from: date)
 }
+#endif

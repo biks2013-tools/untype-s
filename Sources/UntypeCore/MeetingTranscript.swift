@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// Which side of a call a meeting segment comes from: the user's own
@@ -353,6 +354,8 @@ public struct MeetingFileNames: Sendable, Equatable {
     public var systemTranscript: String { stem + ".system.transcript.jsonl" }
     /// Both sides in time order with untype's own fields (offsets, English).
     public var segments: String { stem + ".segments.jsonl" }
+    /// What was attached during the meeting, and when (plan-077).
+    public var attachments: String { stem + ".attachments.json" }
 
     /// The audio files a recording with `audio` writes.
     public func audioFiles(_ audio: MeetingAudioSettings) -> [String] {
@@ -670,3 +673,4 @@ public enum MeetingNaming {
     No date, no quotes, no trailing period, no slashes or colons. Output only the title.
     """
 }
+#endif

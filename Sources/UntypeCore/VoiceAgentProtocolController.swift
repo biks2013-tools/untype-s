@@ -1,13 +1,5 @@
+#if os(macOS)
 import Foundation
-
-public protocol TextRefining: AnyObject {
-    func refine(_ text: String) async throws -> String
-    func dispose()
-}
-
-public extension TextRefining {
-    func dispose() {}
-}
 
 public struct ProtocolControllerDiagnostics {
     public let write: (_ line: String, _ warning: Bool) -> Void
@@ -769,3 +761,4 @@ private func commandArgumentTokens(after start: String.Index, in text: String) -
     }
     return tokens
 }
+#endif

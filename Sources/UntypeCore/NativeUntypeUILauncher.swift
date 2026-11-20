@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
@@ -2628,6 +2629,12 @@ final class UntypeUIModel: ObservableObject {
                 self.transcriptFeed.setInProgress("", side: side)
             }
         }
+        transcriptFeed.onAttachRequest = { [weak self] in
+            self?.attachClipboardToMeeting()
+        }
+        transcriptFeed.onAttachFilesRequest = { [weak self] files in
+            self?.attachToMeeting(MeetingClipboardContent(files: files), source: "files")
+        }
         Task { [weak self] in
             guard let self else {
                 return
@@ -2636,7 +2643,7 @@ final class UntypeUIModel: ObservableObject {
                 // Before the start: the first words can come while it connects.
                 transcriptFeed.begin(meetingName: "")
                 try await meetingRecorder.start(options: options)
-                transcriptFeed.setMeetingName(meetingRecorder.folder?.lastPathComponent ?? "")
+                transcriptFeed.setMeetingFolder(meetingRecorder.folder)
                 meetingBusy = false
                 meetingRecording = true
                 overlay?.setMeeting(start: meetingRecorder.startDate)
@@ -2646,6 +2653,56 @@ final class UntypeUIModel: ObservableObject {
                 overlay?.setMeeting(start: nil)
                 meetingStartFailed(error)
             }
+        }
+    }
+
+    /// Attaches what the clipboard holds (text, a picture, copied files) to
+    /// this moment of the meeting being recorded (plan-077). From the
+    /// transcription window, the overlay's tray and the dropdown.
+    func attachClipboardToMeeting() {
+        guard meetingRecorder.isRecording else {
+            overlay?.showNotice("No meeting is being recorded")
+            return
+        }
+        let content = MeetingClipboardContent.read()
+        guard !content.isEmpty else {
+            let note = "Nothing to attach: the clipboard has no text, picture or file"
+            transcriptFeed.noteAttach(added: [], note: note)
+            overlay?.showNotice(note)
+            return
+        }
+        attachToMeeting(content, source: "clipboard")
+    }
+
+    /// Saves `content` (the clipboard's, or files dropped on or chosen in
+    /// the transcription window) at this moment of the meeting.
+    private func attachToMeeting(_ content: MeetingClipboardContent, source: String) {
+        guard meetingRecorder.isRecording else {
+            overlay?.showNotice("No meeting is being recorded")
+            return
+        }
+        Task { [weak self] in
+            guard let self, let result = await self.meetingRecorder.attach(content) else {
+                return
+            }
+            let time = result.added.first?.time ?? ""
+            if !result.added.isEmpty {
+                let bytes = result.added.compactMap(\.bytes).reduce(0, +)
+                self.appendEvent("diagnostic.info: [untype] meeting attachment saved at \(time) (\(source)): \(result.summary); \(bytes) bytes")
+            }
+            for failure in result.failures {
+                self.appendEvent("diagnostic.warning: [untype] meeting attachment could not be saved: \(failure)")
+            }
+            let note: String
+            if result.added.isEmpty {
+                note = "Could not attach — see Events"
+            } else if result.failures.isEmpty {
+                note = "Attached at \(time): \(result.summary)"
+            } else {
+                note = "Attached at \(time): \(result.summary) · \(result.failures.count) failed — see Events"
+            }
+            self.transcriptFeed.noteAttach(added: result.added, note: note)
+            self.overlay?.showNotice(note)
         }
     }
 
@@ -2730,6 +2787,7 @@ final class UntypeUIModel: ObservableObject {
             do {
                 let renamed = try MeetingNaming.rename(folder: folder, title: title)
                 lastMeetingFolder = renamed
+                transcriptFeed.folderRenamed(from: folder, to: renamed)
                 namingFolder = nil
                 appendEvent("diagnostic.info: [untype] meeting named: \(renamed.lastPathComponent)")
                 showSavedNotice(renamed, headline: "Renamed")
@@ -2758,6 +2816,34 @@ final class UntypeUIModel: ObservableObject {
         }, renameAction: { [weak self] in
             self?.nameMeeting(folder)
         }, renameLabel: title.isEmpty ? "Name" : "Rename")
+    }
+
+    /// The finished transcript as a note in Apple Notes, when the user has
+    /// switched that on (plan-076). The files are saved either way.
+    private func saveToAppleNotes(_ folder: URL) {
+        guard settings.meeting.savesToAppleNotes else {
+            return
+        }
+        let file = MeetingNaming.mainTranscript(in: folder)
+        guard let transcript = try? String(contentsOf: file, encoding: .utf8),
+              !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            appendEvent("diagnostic.warning: [untype] meeting transcript not saved to Apple Notes: the transcript file is empty or cannot be read")
+            return
+        }
+        let name = folder.lastPathComponent
+        let title = (MeetingNaming.title(of: name) ?? "").replacingOccurrences(of: "-", with: " ")
+        let date = MeetingNaming.friendlyDate(of: name) ?? name
+        let html = AppleNotesHTML.body(title: title.isEmpty ? "Meeting · \(date)" : "\(title) · \(date)", transcript: transcript)
+        let characters = transcript.count
+        Task { [weak self] in
+            do {
+                try await AppleNotesWriter.createNote(html: html)
+                self?.appendEvent("diagnostic.info: [untype] meeting transcript saved to Apple Notes (folder “\(AppleNotesWriter.folderName)”, \(characters) characters)")
+            } catch {
+                self?.appendEvent("diagnostic.warning: [untype] meeting transcript not saved to Apple Notes: \(error.localizedDescription)")
+                self?.overlay?.showNotice("Not saved to Apple Notes — see Events")
+            }
+        }
     }
 
     func openMeetingsFolder() {
@@ -2803,6 +2889,7 @@ final class UntypeUIModel: ObservableObject {
         guard settings.meeting.calendarCLIURL != nil, let startedAt,
               MeetingNaming.title(of: folder.lastPathComponent) == nil else {
             showSavedNotice(folder, headline: headline)
+            saveToAppleNotes(folder)
             return
         }
         overlay?.showNotice("Naming it from your calendar…", seconds: 30)
@@ -2822,6 +2909,7 @@ final class UntypeUIModel: ObservableObject {
         guard let me = calendarMe,
               let meeting = chosen ?? MeetingCalendar.meeting(forRecordingFrom: startedAt, to: endedAt, in: calendarMeetings, me: me) else {
             showSavedNotice(folder, headline: headline)
+            saveToAppleNotes(folder)
             return
         }
         let title = await calendarTitle(meeting, me: me)
@@ -2838,11 +2926,14 @@ final class UntypeUIModel: ObservableObject {
             try encoder.encode(meeting).write(to: folder.appendingPathComponent("meeting.json"))
             let renamed = try MeetingNaming.rename(folder: folder, title: title)
             lastMeetingFolder = renamed
+            transcriptFeed.folderRenamed(from: folder, to: renamed)
             appendEvent("diagnostic.info: [untype] meeting named from the calendar: \(renamed.lastPathComponent)")
             showSavedNotice(renamed, headline: headline)
+            saveToAppleNotes(renamed)
         } catch {
             appendEvent("diagnostic.warning: [untype] meeting could not be named from the calendar: \(error.localizedDescription)")
             showSavedNotice(folder, headline: headline)
+            saveToAppleNotes(folder)
         }
     }
 
@@ -4218,6 +4309,7 @@ private final class UntypeOverlayController: ObservableObject {
     /// Keys of the tray's controls in `chipFrames`/`hoveredChip`.
     fileprivate static let settingsKey = "settings"
     fileprivate static let transcriptionKey = "transcription"
+    fileprivate static let attachKey = "attach"
     fileprivate static let meetingKey = "meeting"
     fileprivate static let noticeKey = "notice"
     fileprivate static let renameKey = "rename"
@@ -4568,7 +4660,7 @@ private final class UntypeOverlayController: ObservableObject {
         // With the tray closed only the chips and the (invisible) Record spot
         // react; the tray's other controls wait until it is open.
         let touched = chipFrames.filter { key, frame in
-            let hidden = !trayOpen && (key.hasPrefix(Self.translationKeyPrefix) || key == Self.settingsKey || key == Self.transcriptionKey || key.hasPrefix(Self.pinKeyPrefix))
+            let hidden = !trayOpen && (key.hasPrefix(Self.translationKeyPrefix) || key == Self.settingsKey || key == Self.transcriptionKey || key == Self.attachKey || key.hasPrefix(Self.pinKeyPrefix))
             return !hidden && frame.insetBy(dx: -3, dy: -3).contains(location)
         }.map(\.key)
         // A pin sits on its chip's corner and wins over it.
@@ -4839,6 +4931,10 @@ private final class UntypeOverlayController: ObservableObject {
     fileprivate func openTranscriptionWindow() {
         model?.showTranscriptionWindow?()
     }
+
+    fileprivate func attachClipboard() {
+        model?.attachClipboardToMeeting()
+    }
 }
 
 /// Clicks act at once although the overlay panel is never the key window.
@@ -4973,6 +5069,9 @@ private struct UntypeOverlayView: View {
         }
         if controller.hoveredChip == UntypeOverlayController.transcriptionKey {
             return ("Transcription window", "The meeting's transcript, live")
+        }
+        if controller.hoveredChip == UntypeOverlayController.attachKey {
+            return ("Attach clipboard", "Text, a screenshot or copied files, at this moment of the meeting")
         }
         // The cards' buttons are labelled (and show their key): a tooltip
         // would only cover the card.
@@ -5478,6 +5577,20 @@ private struct UntypeOverlayView: View {
             .contentShape(Rectangle())
             .background(hitFrame(UntypeOverlayController.meetingKey))
             .accessibilityLabel(isMeeting ? "Stop meeting recording" : "Record meeting")
+            if isMeeting {
+                Button {
+                    controller.attachClipboard()
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(controller.hoveredChip == UntypeOverlayController.attachKey ? 0.95 : 0.7))
+                        .frame(width: 18, height: 15)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .background(hitFrame(UntypeOverlayController.attachKey))
+                .accessibilityLabel("Attach the clipboard to the meeting")
+            }
             Button {
                 controller.openTranscriptionWindow()
             } label: {
@@ -7323,3 +7436,4 @@ private func uiDiagnosticLine(_ error: Error) -> String {
     }
     return "unknown: \(error.localizedDescription)"
 }
+#endif

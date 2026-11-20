@@ -54,7 +54,7 @@ public struct VoiceSample: Equatable, Sendable {
 /// by the user only. It never leaves the Mac except as the start of a
 /// filtered stream to the speech provider.
 public enum VoiceSampleStore {
-    public static func path(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func path(home: URL = FileManager.default.untypeHomeDirectory) -> URL {
         home.appendingPathComponent(".tool-agents").appendingPathComponent("untype").appendingPathComponent("voice-sample.wav")
     }
 

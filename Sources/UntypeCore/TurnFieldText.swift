@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Foundation
@@ -365,3 +366,4 @@ final class TurnFieldAnchor {
         return range
     }
 }
+#endif

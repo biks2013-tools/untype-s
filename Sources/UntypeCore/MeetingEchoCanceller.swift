@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import UntypeAEC
 
@@ -544,3 +545,4 @@ final class MeetingEchoCanceller: @unchecked Sendable {
         }
     }
 }
+#endif
