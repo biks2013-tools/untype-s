@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 public struct UntypeCommand {
@@ -175,3 +176,4 @@ public struct UntypeCommand {
 
     """
 }
+#endif

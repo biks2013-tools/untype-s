@@ -1,3 +1,4 @@
+#if os(macOS)
 @preconcurrency import AVFoundation
 import CoreMedia
 import Foundation
@@ -439,3 +440,4 @@ final class MeetingAudioRecorder: @unchecked Sendable {
         }
     }
 }
+#endif

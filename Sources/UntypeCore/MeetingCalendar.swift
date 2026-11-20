@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// One person invited to a calendar meeting.
@@ -369,7 +370,7 @@ public struct OutlookCalendarCLI: Sendable {
 
     /// The `nbg-m365` binary installed with the Claude Code plugin, newest
     /// version first; nil when it is not installed.
-    public static func discover(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
+    public static func discover(home: URL = FileManager.default.untypeHomeDirectory) -> URL? {
         let cache = home.appendingPathComponent(".claude/plugins/cache", isDirectory: true)
         let fm = FileManager.default
         var found: [URL] = []
@@ -447,3 +448,4 @@ public struct OutlookCalendarCLI: Sendable {
         }
     }
 }
+#endif

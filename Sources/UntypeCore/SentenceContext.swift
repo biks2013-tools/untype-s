@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Foundation
@@ -364,3 +365,4 @@ final class SentenceAnchor {
         return range
     }
 }
+#endif

@@ -26,7 +26,7 @@ public struct ConfigResolver: Sendable {
 
     public init(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        home: URL = FileManager.default.untypeHomeDirectory,
         shell: [String: String] = ProcessInfo.processInfo.environment,
         now: Date = Date(),
         requireProtocolOutputForHybrid: Bool = true,

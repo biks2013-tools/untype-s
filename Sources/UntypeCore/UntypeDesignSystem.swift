@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -362,3 +363,4 @@ public enum UntypeStatusToneMap {
         return .off
     }
 }
+#endif

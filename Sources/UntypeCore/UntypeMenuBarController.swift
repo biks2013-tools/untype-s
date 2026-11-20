@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Foundation
 import SwiftUI
@@ -166,3 +167,4 @@ extension NSWindow {
         makeKeyAndOrderFront(nil)
     }
 }
+#endif

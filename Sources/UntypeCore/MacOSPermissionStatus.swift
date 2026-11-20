@@ -1,3 +1,4 @@
+#if os(macOS)
 import ApplicationServices
 import AVFoundation
 
@@ -32,3 +33,4 @@ public struct UntypePermissionStatus: Equatable, Sendable {
         }
     }
 }
+#endif

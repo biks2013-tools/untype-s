@@ -5,7 +5,9 @@ import PackageDescription
 let package = Package(
     name: "untype-s",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
+        // The iPhone and iPad app (ios/, plan-075) uses UntypeCore.
+        .iOS(.v17)
     ],
     products: [
         .executable(name: "untype", targets: ["untype"]),
@@ -23,7 +25,7 @@ let package = Package(
         ),
         .target(
             name: "UntypeCore",
-            dependencies: ["UntypeAEC"],
+            dependencies: [.target(name: "UntypeAEC", condition: .when(platforms: [.macOS]))],
             linkerSettings: [.linkedLibrary("c++")]
         ),
         // WebRTC's echo canceller behind a C interface; rebuilt with

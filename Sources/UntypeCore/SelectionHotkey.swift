@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// Push-to-Act (the selection hotkey): the text selected in the active app is
@@ -230,3 +231,4 @@ public struct PushToActChoice: Equatable, Sendable {
         selectTranslation(all[(index + 1) % all.count])
     }
 }
+#endif

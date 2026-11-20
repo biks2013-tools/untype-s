@@ -1,3 +1,4 @@
+#if os(macOS)
 @preconcurrency import AVFoundation
 import CoreGraphics
 import CoreMedia
@@ -172,6 +173,7 @@ public final class MeetingRecorder {
     private var options: MeetingRecordingOptions?
     private var segments: [MeetingSegment] = []
     private var liveFiles: MeetingLiveFiles?
+    private var attachmentStore: MeetingAttachmentStore?
     private var startUptime: TimeInterval = 0
     private var silence = MeetingSilenceMonitor(limit: 0, start: 0)
     private var silenceTimer: Timer?
@@ -207,6 +209,7 @@ public final class MeetingRecorder {
         self.folder = folder
         self.names = names
         self.liveFiles = liveFiles
+        attachmentStore = MeetingAttachmentStore(folder: folder, names: names, start: now)
         segments = []
         startDate = now
         startUptime = ProcessInfo.processInfo.systemUptime
@@ -291,6 +294,7 @@ public final class MeetingRecorder {
             await tearDown()
             liveFiles.close()
             self.liveFiles = nil
+            attachmentStore = nil
             try? FileManager.default.removeItem(at: folder)
             self.folder = nil
             startDate = nil
@@ -313,6 +317,7 @@ public final class MeetingRecorder {
         }
         stopping = true
         isRecording = false
+        attachmentStore = nil
         silenceTimer?.invalidate()
         silenceTimer = nil
         onEvent("diagnostic.info: [untype] meeting recording stopping (\(Self.describe(reason)))")
@@ -326,6 +331,17 @@ public final class MeetingRecorder {
         stopping = false
         startDate = nil
         onFinished(reason, folder)
+    }
+
+    /// Attaches what the clipboard held to this moment of the recording
+    /// (plan-077): saved in the meeting folder, listed in
+    /// `<stem>.attachments.json`. Nil when no meeting is being recorded.
+    public func attach(_ content: MeetingClipboardContent) async -> MeetingAttachmentResult? {
+        guard isRecording, let store = attachmentStore else {
+            return nil
+        }
+        let offsetMs = Int((ProcessInfo.processInfo.systemUptime - startUptime) * 1000)
+        return await store.add(content, offsetMs: offsetMs, at: Date())
     }
 
     // MARK: - Internals
@@ -1168,3 +1184,4 @@ public final class MeetingNamer {
         return title.isEmpty ? MeetingNaming.sanitize(spoken) : title
     }
 }
+#endif

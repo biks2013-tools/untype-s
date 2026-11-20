@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import SwiftUI
@@ -328,3 +329,4 @@ struct CaretIndicatorView: View {
         .accessibilityHidden(true)
     }
 }
+#endif

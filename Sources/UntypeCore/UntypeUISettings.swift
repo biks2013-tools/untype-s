@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 public struct UntypeUISettings: Codable, Equatable, Sendable {
@@ -413,7 +414,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
 
     public func refreshingCredentialStatus(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        home: URL = FileManager.default.untypeHomeDirectory,
         shell: [String: String] = ProcessInfo.processInfo.environment,
         permissionStatus: @Sendable () -> UntypePermissionStatus = UntypePermissionStatus.current
     ) -> UntypeUISettings {
@@ -667,7 +668,7 @@ public struct UntypeUISettingsLoadResult: Sendable, Equatable {
 }
 
 public enum UntypeUISettingsStore {
-    public static func path(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func path(home: URL = FileManager.default.untypeHomeDirectory) -> URL {
         home
             .appendingPathComponent(".tool-agents")
             .appendingPathComponent("untype")
@@ -676,7 +677,7 @@ public enum UntypeUISettingsStore {
 
     public static func loadForUI(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        home: URL = FileManager.default.untypeHomeDirectory,
         shell: [String: String] = ProcessInfo.processInfo.environment,
         permissionStatus: @Sendable () -> UntypePermissionStatus = UntypePermissionStatus.current
     ) -> UntypeUISettingsLoadResult {
@@ -738,7 +739,7 @@ public enum UntypeUISettingsStore {
         }
     }
 
-    public static func loadIfExists(home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> UntypeUISettings? {
+    public static func loadIfExists(home: URL = FileManager.default.untypeHomeDirectory) throws -> UntypeUISettings? {
         let url = path(home: home)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
@@ -746,7 +747,7 @@ public enum UntypeUISettingsStore {
         return try load(home: home)
     }
 
-    public static func load(home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> UntypeUISettings {
+    public static func load(home: URL = FileManager.default.untypeHomeDirectory) throws -> UntypeUISettings {
         let url = path(home: home)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return UntypeUISettings.default
@@ -774,7 +775,7 @@ public enum UntypeUISettingsStore {
         }
     }
 
-    public static func save(_ settings: UntypeUISettings, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
+    public static func save(_ settings: UntypeUISettings, home: URL = FileManager.default.untypeHomeDirectory) throws {
         let normalized = try settings.normalized()
         let url = path(home: home)
         let directory = url.deletingLastPathComponent()
@@ -1469,6 +1470,9 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// The microphone's transcript of a meeting keeps only the user's
     /// words, recognised by the saved voice sample (nil: the default, off).
     public var onlyMyVoice: Bool?
+    /// The finished transcript of a meeting is also written as a note in
+    /// Apple Notes, in the folder "untype" (nil: the default, off).
+    public var appleNotes: Bool?
 
     public init(
         language: String = MeetingTranscriptLanguage.english.rawValue,
@@ -1479,9 +1483,11 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         audioLayout: String? = nil,
         muteWhileDictating: Bool? = nil,
         echoCancellation: Bool? = nil,
-        onlyMyVoice: Bool? = nil
+        onlyMyVoice: Bool? = nil,
+        appleNotes: Bool? = nil
     ) {
         self.onlyMyVoice = onlyMyVoice
+        self.appleNotes = appleNotes
         self.language = language
         self.silenceMinutes = silenceMinutes
         self.folder = folder
@@ -1496,6 +1502,11 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     /// the microphone.
     public var removesSpeakerSound: Bool {
         echoCancellation ?? false
+    }
+
+    /// Whether the finished transcript also goes to Apple Notes.
+    public var savesToAppleNotes: Bool {
+        appleNotes ?? false
     }
 
     /// Whether the microphone's transcript keeps only the user's words.
@@ -1541,7 +1552,7 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     }
 
     public static var defaultFolder: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        FileManager.default.untypeHomeDirectory
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("untype Meetings", isDirectory: true)
     }
@@ -1553,3 +1564,4 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         return URL(fileURLWithPath: (folder as NSString).expandingTildeInPath, isDirectory: true)
     }
 }
+#endif

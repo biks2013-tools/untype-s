@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -485,3 +486,4 @@ private final class PasteboardSnapshot {
         return pasteboard.writeObjects(restoredItems)
     }
 }
+#endif

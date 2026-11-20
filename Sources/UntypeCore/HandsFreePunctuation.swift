@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Foundation
@@ -337,3 +338,4 @@ enum LiveCaretContextReader {
         return result as? String
     }
 }
+#endif

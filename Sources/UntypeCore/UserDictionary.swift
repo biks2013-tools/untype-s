@@ -128,7 +128,7 @@ public struct UserDictionary: Codable, Equatable, Sendable {
 
 /// `~/.tool-agents/untype/dictionary.json`, readable by the user only.
 public enum UserDictionaryStore {
-    public static func path(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func path(home: URL = FileManager.default.untypeHomeDirectory) -> URL {
         home.appendingPathComponent(".tool-agents").appendingPathComponent("untype").appendingPathComponent("dictionary.json")
     }
 

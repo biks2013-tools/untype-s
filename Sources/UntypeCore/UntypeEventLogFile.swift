@@ -23,7 +23,7 @@ public final class UntypeEventLogFile: @unchecked Sendable {
         self.url = url
     }
 
-    public static func userFile(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func userFile(home: URL = FileManager.default.untypeHomeDirectory) -> URL {
         home
             .appendingPathComponent(".tool-agents")
             .appendingPathComponent("untype")

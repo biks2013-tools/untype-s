@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import CoreGraphics
 import Foundation
@@ -115,3 +116,4 @@ public enum WindowScreenshotCapture {
         return nil
     }
 }
+#endif

@@ -40,7 +40,7 @@ public struct PromptFileStore: Sendable {
         self.directory = directory
     }
 
-    public static func userDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func userDirectory(home: URL = FileManager.default.untypeHomeDirectory) -> URL {
         home
             .appendingPathComponent(".tool-agents")
             .appendingPathComponent("untype")
