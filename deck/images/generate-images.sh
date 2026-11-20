@@ -30,4 +30,6 @@ gen guardrails-bridge    1536x1024 "A modern pedestrian bridge with solid weathe
 gen closing-athens       1536x1024 "Athens at dusk seen from a glass office window, the Acropolis lit far away in warm gold, deep charcoal sky, warm city lights, a laptop reflection faint in the glass."
 gen cover-portrait       1024x1536 "Vertical portrait of a modern desk microphone on a stand in front of a charcoal-dark wall, a MacBook slightly out of focus behind it, warm copper window light from the left."
 gen ui-overview          1536x1024 "A designer's desk with a large monitor showing a calm minimal dark application window with a small floating pill-shaped overlay, warm copper accents, out of focus, no readable text."
+gen meeting-call         1536x1024 "A laptop on a walnut meeting-room table during a video call, the screen softly out of focus with blurred faces in a grid, a pair of copper-toned headphones and a notebook beside it, charcoal wall behind, warm afternoon light."
+gen meeting-notes        1536x1024 "An open cream notebook with blurred handwritten meeting notes and a few printed documents fanned out on a dark charcoal desk, a copper desk lamp casting warm light, a laptop edge in the corner, macro, calm."
 echo "done"

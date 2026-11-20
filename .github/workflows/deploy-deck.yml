@@ -1,4 +1,4 @@
-# Builds the untype technical deck (deck/untype-deck.html) from its sources and publishes it as the
+# Builds the untype user guide deck (deck/untype-deck.html) from its sources and publishes it as the
 # repository's GitHub Pages site whenever anything under deck/ changes on the `deck` branch.
 #
 # The site is https://biks2013-tools.github.io/untype-s/ — index.html is the self-contained deck.

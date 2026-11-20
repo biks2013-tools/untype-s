@@ -1,1214 +1,906 @@
-<!-- ============================ 01 COVER ============================ -->
+<!-- ============================ COVER ============================ -->
 <section class="slide cover dark">
   <div class="photo" style="background-image:url('{{COVER_DICTATION}}')"></div>
   <div class="fade"></div>
   <div class="copy">
-    <h1>untype<br /><span>hold a key, speak, release.</span></h1>
-    <div class="sub">A Swift-native push-to-talk dictation tool for the macOS menu bar. It streams speech to a realtime STT provider, types it live into whatever you have focused, and lets an LLM clean it, translate it or answer it.</div>
+    <h1>untype<br /><span>say it, and it is written.</span></h1>
+    <div class="sub">A menu-bar app for the Mac. It types what you say into any app, cleans it up, translates it or answers it, and it records and transcribes your meetings.</div>
     <div class="meta">
-      <div>Technical walkthrough · what it is, how it works, how to install and configure it</div>
-      <div>Version 0.1.0 · build 28 · October 2026</div>
+      <div>User guide · what it does, how to install it and how to set it up</div>
+      <div>Version 0.1.0 · build 87 · November 2026</div>
     </div>
   </div>
   <div class="logo"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /></div>
 </section>
 
-<!-- ============================ 02 AGENDA ============================ -->
+<!-- ============================ AGENDA ============================ -->
 <section class="slide">
   <div class="eyebrow">Agenda</div>
-  <div class="title">Five parts, from purpose to <em>daily operation</em>.</div>
+  <div class="title">Six parts, from the first sentence to <em>everyday use</em>.</div>
   <div class="rule"></div>
   <div class="grid g2" style="gap:28px 60px">
-    <div class="step"><div class="n">01</div><div><h3>What untype is</h3><p>The problem, the product, who it serves, and the principles it is built on.</p></div></div>
-    <div class="step"><div class="n">04</div><div><h3>Configuration and moving parts</h3><p>The resolution chain, every setting that matters, the fifteen prompt files, state and log files, and the CLI.</p></div></div>
-    <div class="step"><div class="n">02</div><div><h3>How it works</h3><p>Hotkey to audio to transcript to LLM to focused input, the seven operators, and the menu-bar interface.</p></div></div>
-    <div class="step"><div class="n">05</div><div><h3>Operating and troubleshooting</h3><p>The daily loop, recipes for Ask, Follow-up and Selection, the logs, common symptoms, and the guardrails.</p></div></div>
-    <div class="step"><div class="n">03</div><div><h3>Installation</h3><p>Install from Homebrew or the notarized disk image, or build, sign and notarize it yourself, then grant the three macOS permissions correctly.</p></div></div>
+    <div class="step"><div class="n">01</div><div><h3>What untype is</h3><p>What it does for you, where it works, and what is new since build 28.</p></div></div>
+    <div class="step"><div class="n">04</div><div><h3>Install and set up</h3><p>Homebrew or the disk image, the first launch, the macOS permissions and the provider keys.</p></div></div>
+    <div class="step"><div class="n">02</div><div><h3>Dictation</h3><p>The hotkey, the overlay, the operators, Ask, Push-to-Act, the dictionary and Only my voice.</p></div></div>
+    <div class="step"><div class="n">05</div><div><h3>Settings</h3><p>The nine panes of the Settings window, pane by pane, and where your settings are kept.</p></div></div>
+    <div class="step"><div class="n">03</div><div><h3>Meetings</h3><p>Recording both sides of a call, the live transcript, attachments, the meeting assistant and the calendar.</p></div></div>
+    <div class="step"><div class="n">06</div><div><h3>Everyday use</h3><p>The daily loop, recipes to try, and what to do when something does not work.</p></div></div>
   </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>untype · technical deck</span></div><span class="pg"></span></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>untype · user guide</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 03 DIVIDER 01 ============================ -->
+<!-- ============================ DIVIDER 01 ============================ -->
 <section class="slide divider dark">
   <div class="photo" style="background-image:url('{{VOICE_WAVEFORM}}')"></div>
   <div class="num">01</div>
   <div class="label">What untype is</div>
-  <div class="cap">A single-user macOS tool for dictating into any application, with a voice protocol designed for talking to coding agents.</div>
+  <div class="cap">A tool for one person on one Mac: speak instead of typing, in any app, in Greek and in English.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 04 THE PROBLEM ============================ -->
+<!-- ============================ THE PROBLEM ============================ -->
 <section class="slide with-image">
-  <div class="eyebrow">01 · The problem</div>
-  <div class="title">Typing is the slowest part of working with an agent.</div>
+  <div class="eyebrow">01 · Why</div>
+  <div class="title">Typing is the slowest part of the day.</div>
   <div class="rule"></div>
   <div class="body">
-    <p>Prompts, commands and messages are spoken in seconds but typed in minutes. Dictation built into the OS lands raw, unpunctuated text and never reaches the field you are actually working in.</p>
+    <p>A message, a prompt or a note is spoken in seconds and typed in minutes. The dictation built into the Mac leaves raw text behind, and a meeting leaves nothing behind at all.</p>
     <ul>
-      <li>Raw transcripts carry filler words, false starts and grammar noise.</li>
-      <li>Greek and English are mixed in daily work, and the target often needs the other language.</li>
-      <li>Text should land at the caret of the frontmost app, not in a separate window.</li>
-      <li>A coding agent needs a way to hear "send", "cancel" and "status" without a mouse.</li>
+      <li>Spoken text has filler words, restarts and half sentences that have to be cleaned by hand.</li>
+      <li>Daily work mixes Greek and English, and the reader often needs the other language.</li>
+      <li>The text has to land where the cursor is, in the app you are working in, not in a separate window.</li>
+      <li>What was said in a call is gone unless somebody kept notes.</li>
     </ul>
   </div>
   <div class="image-right" style="background-image:url('{{PROBLEM_TYPING}}')"></div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 05 WHAT IT DOES ============================ -->
+<!-- ============================ WHAT IT DOES ============================ -->
 <section class="slide">
-  <div class="eyebrow">01 · The product</div>
-  <div class="title">Hold a hotkey, speak, release. Clean text appears at the cursor.</div>
-  <div class="rule"></div>
-  <div class="grid g4">
-    <div class="col"><div class="n">01</div><h3>Push-to-talk</h3><p>A global hotkey (default <code>Control+`</code>) opens the audio gate while held; release finalizes the turn and delivers the output. Push-to-listen mode toggles instead: press to start, press again to stop.</p></div>
-    <div class="col"><div class="n">02</div><h3>Realtime STT</h3><p>Microphone audio streams over WebSocket to Soniox or ElevenLabs. Partials render live; finals drive the protocol.</p></div>
-    <div class="col"><div class="n">03</div><h3>Refine, translate or ask</h3><p>An LLM cleans disfluencies, translates between Greek and English, or, with Ask on, answers what you said. Selected text and the previous answer can go along.</p></div>
-    <div class="col"><div class="n">04</div><h3>Live typing at the caret</h3><p>While you speak, the words are typed straight into the focused control. On release they are replaced in place by the processed text, and optionally copied to the clipboard.</p></div>
-  </div>
-  <div class="callout">Two things are treated as non-negotiable: push-to-talk must always work, and processed text must always reach the focused input. Every change is verified against both.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 06 WHO / USE CASES ============================ -->
-<section class="slide">
-  <div class="eyebrow">01 · Who it serves</div>
-  <div class="title">One person, one Mac, every app.</div>
-  <div class="rule"></div>
-  <div class="grid g2" style="gap:48px 60px">
-    <div class="card tint">
-      <div class="tag">Typical targets</div>
-      <ul>
-        <li>Coding agents and chat UIs in the browser or terminal.</li>
-        <li>Editors, Notes, Outlook and other rich-text bodies.</li>
-        <li>Any macOS control that accepts text through Accessibility or paste.</li>
-      </ul>
-    </div>
-    <div class="card tint">
-      <div class="tag">Bilingual by design</div>
-      <ul>
-        <li>Default language hints <code>el,en</code>; Greek script detection selects the source language.</li>
-        <li>Translation policies <code>opposite</code>, <code>to-en</code>, <code>to-el</code>.</li>
-        <li>The default guard phrase is Greek: <code>τέλος εντολής</code>.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="tag">Two front ends</div>
-      <ul>
-        <li>The app bundle: a menu-bar icon with a dropdown, a Transcript window, a Settings window, the overlay and the hotkey.</li>
-        <li><code>untype [options]</code>: terminal streaming with the same runtime.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="tag">Voice-agent protocol</div>
-      <ul>
-        <li>Spoken markers such as <code>command send</code>, <code>command cancel</code> or <code>command ask on</code> control sections and operators.</li>
-        <li>Machine-readable JSONL events let an agent consume the dictation stream.</li>
-      </ul>
-    </div>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 07 KEY NUMBERS ============================ -->
-<section class="slide" style="background:var(--white)">
-  <div class="eyebrow">01 · At a glance</div>
-  <div class="title">The project in numbers.</div>
-  <div class="rule"></div>
-  <div class="stat">
-    <div class="big"><span>281</span></div>
-    <div class="cap">automated Swift Testing tests, all passing at the last recorded run, with zero third-party dependencies.</div>
-  </div>
-  <div class="stat-list">
-    <div class="row"><span>Platform</span><span>macOS 14+</span></div>
-    <div class="row"><span>Toolchain</span><span>Swift 6 · SwiftPM</span></div>
-    <div class="row"><span>Source files / lines</span><span>48 · ~17 300</span></div>
-    <div class="row"><span>STT providers</span><span>2</span></div>
-    <div class="row"><span>LLM providers implemented</span><span>4 of 10 names</span></div>
-    <div class="row"><span>Operators · prompt files</span><span>7 · 15</span></div>
-    <div class="row"><span>Latest build · released</span><span>28 · 28</span></div>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 08 PRINCIPLES ============================ -->
-<section class="slide">
-  <div class="eyebrow">01 · Principles</div>
-  <div class="title">Three rules shape every decision in the codebase.</div>
+  <div class="eyebrow">01 · What it does</div>
+  <div class="title">Three things untype does for you.</div>
   <div class="rule"></div>
   <div class="grid g3">
-    <div class="col"><div class="n">01</div><h3>No fallbacks for configuration</h3><p>A missing required value raises a typed <code>missing_configuration</code> error and exits with code 2. The tool never invents a key, an endpoint or a model.</p></div>
-    <div class="col"><div class="n">02</div><h3>Privacy-safe diagnostics</h3><p>Logs and events never contain transcript text, processed output, clipboard contents, prompts or secrets. Only names, states, codes and timings.</p></div>
-    <div class="col"><div class="n">03</div><h3>Guarded core features</h3><p>Push-to-talk and focused-input delivery are protected by explicit guardrails, per-release manual smoke checks, and a latency log that proves delivery worked.</p></div>
+    <div class="col"><div class="n">01</div><h3>It types what you say</h3><p>Hold a hotkey and speak, or tap it and speak hands-free. The words appear at the cursor while you talk, in whatever app is in front.</p></div>
+    <div class="col"><div class="n">02</div><h3>It works on the text</h3><p>A language model cleans up what you said, translates it between Greek and English, or answers it. The same works on text you have selected, without speaking.</p></div>
+    <div class="col"><div class="n">03</div><h3>It records your meetings</h3><p>Both sides of a call become a transcript you can read as it is made, with the audio, your attachments and an assistant that answers questions about the meeting.</p></div>
   </div>
-  <div class="callout warn"><strong>Consequence for operators:</strong> most first-run problems are configuration or permission errors that the tool reports precisely, rather than silent degradations.</div>
+  <div class="callout">untype lives in the menu bar and has no Dock icon. Everything is controlled from three places: the hotkey, the small overlay at the bottom of the screen, and the dropdown under the menu-bar icon.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 09 DIVIDER 02 ============================ -->
+<!-- ============================ WHERE IT WORKS ============================ -->
+<section class="slide">
+  <div class="eyebrow">01 · Where it works</div>
+  <div class="title">One Mac, every app, two languages.</div>
+  <div class="rule"></div>
+  <div class="grid g2" style="gap:36px 60px">
+    <div class="card tint">
+      <div class="tag">Where it types</div>
+      <ul>
+        <li>Mail, Notes, Outlook, Teams, documents and browser text fields.</li>
+        <li>Chat apps and coding agents in the browser or in a terminal.</li>
+        <li>Any text field of macOS 14 or later.</li>
+      </ul>
+    </div>
+    <div class="card tint">
+      <div class="tag">Greek and English</div>
+      <ul>
+        <li>You can speak either language, also in the same sentence.</li>
+        <li>Translate turns the text into the other language, or always into English, or always into Greek.</li>
+        <li>Meeting transcripts tell the two languages apart per line.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="tag">What it needs</div>
+      <ul>
+        <li>A key of a speech-recognition provider: Soniox, ElevenLabs or Google.</li>
+        <li>For Refine, Translate and Ask, a key of a language-model provider.</li>
+        <li>A few macOS permissions, granted once.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="tag">Where your words go</div>
+      <ul>
+        <li>The sound goes to the speech provider you chose; the text goes to a language model only when an operator asks for it.</li>
+        <li>Keys, prompts, your dictionary and the meeting files stay on your Mac.</li>
+        <li>untype's own logs never hold what you said.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ WHAT IS NEW ============================ -->
+<section class="slide" style="background:var(--white)">
+  <div class="eyebrow">01 · What is new</div>
+  <div class="title">Since build 28: from a dictation key to a <em>working tool</em>.</div>
+  <div class="rule"></div>
+  <table class="t compact" style="top:320px">
+    <thead><tr><th style="width:430px">New</th><th>What it gives you</th></tr></thead>
+    <tbody>
+      <tr><td><strong>One hotkey, hold or tap</strong></td><td>Hold to dictate as before; tap to keep dictating hands-free and finish with Enter, the hotkey or Esc.</td></tr>
+      <tr><td><strong>Meeting recording</strong></td><td>Both sides of a call transcribed live, with audio, attachments, your Outlook calendar and Apple Notes.</td></tr>
+      <tr><td><strong>Meeting assistant</strong></td><td>Ask about the meeting while it runs or afterwards; it reads the transcript and the documents you attached.</td></tr>
+      <tr><td><strong>Push-to-Act</strong></td><td>A second hotkey that refines, translates or answers the text you selected, with no recording.</td></tr>
+      <tr><td><strong>An overlay you can use</strong></td><td>Click the operator chips, pin the ones you want, drag the overlay anywhere, start a meeting from its tray.</td></tr>
+      <tr><td><strong>Smarter delivery</strong></td><td>The text goes to the app you started in, the whole sentence is refined, and corrections made while speaking are kept.</td></tr>
+      <tr><td><strong>Dictionary and Only my voice</strong></td><td>Names and terms written the way you want; other people talking near you are left out.</td></tr>
+      <tr><td><strong>More models</strong></td><td>An alternative language model one key away, Gemini and DeepSeek as providers, Google for speech recognition.</td></tr>
+      <tr><td><strong>A real Settings window</strong></td><td>Nine panes organised by what you do, like macOS System Settings.</td></tr>
+    </tbody>
+  </table>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 01</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ DIVIDER 02 ============================ -->
 <section class="slide divider dark">
-  <div class="photo" style="background-image:url('{{STREAMING_AUDIO}}')"></div>
+  <div class="photo" style="background-image:url('{{HOTKEY_PRESS}}')"></div>
   <div class="num">02</div>
-  <div class="label">How it works</div>
-  <div class="cap">From the key press to the caret: audio capture, streaming transcription, the voice protocol, LLM processing and delivery.</div>
+  <div class="label">Dictation</div>
+  <div class="cap">One hotkey, an overlay with a few switches, and a language model when you want more than your own words.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 10 PIPELINE ============================ -->
+<!-- ============================ HOLD OR TAP ============================ -->
 <section class="slide">
-  <div class="eyebrow">02 · Pipeline</div>
-  <div class="title">Six stages, one in-process runtime.</div>
+  <div class="eyebrow">02 · The hotkey</div>
+  <div class="title">One hotkey, two ways to dictate.</div>
   <div class="rule"></div>
-  <div class="flow">
-    <div class="node hot"><div class="i">1 · Trigger</div><h4>Hotkey press and release</h4><p>Quartz event tap with Carbon and NSEvent fallbacks; the audio gate opens on press.</p><div class="t">UntypeHotkeyMonitor · HotkeySessionControl</div></div>
-    <div class="node"><div class="i">2 · Capture</div><h4>Microphone to PCM16</h4><p>AVAudioEngine tap, mono 16-bit at the configured rate, silence while the gate is closed.</p><div class="t">AVFoundationAudioSource · PCM16MonoConverter</div></div>
-    <div class="node"><div class="i">3 · Transcribe</div><h4>Realtime STT stream</h4><p>WebSocket to Soniox or ElevenLabs; partials and finals flow back to the runtime.</p><div class="t">SonioxTranscriber · ElevenLabsTranscriber</div></div>
-    <div class="node"><div class="i">4 · Protocol</div><h4>Markers and sections</h4><p>Finals are parsed for spoken commands; text is buffered into sections with operator flags.</p><div class="t">VoiceAgentProtocolController · VoiceCommandStateMachine</div></div>
-    <div class="node"><div class="i">5 · LLM</div><h4>Refine, translate, ask</h4><p>One composite call, or one Ask call with selection and conversation; fail-open on error.</p><div class="t">AzureOpenAIRefiner · GoogleRefiner · AnthropicMessagesRefiner</div></div>
-    <div class="node hot"><div class="i">6 · Deliver</div><h4>Live typing, then in place</h4><p>Typed live while held, edited in place on release; AX, paste or key events otherwise.</p><div class="t">LiveFocusedInputTyper · FocusedInputDelivery</div></div>
-  </div>
-  <div class="note">Each stage is timed into one record of <code>release-latency.jsonl</code>. The whole chain is assembled by <code>UntypeRuntimeFactory</code> into a single <code>TranscriptionSessionRuntime</code>, shared by the CLI and the native UI.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 11 PTT LIFECYCLE ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">02 · Push-to-talk</div>
-  <div class="title">The lifecycle of one press.</div>
-  <div class="rule"></div>
-  <div class="steps" style="right:840px; gap:18px">
-    <div class="step"><div class="n">1</div><div><h3>Warm session</h3><p>Enabling the hotkey starts a hotkey-owned runtime with the gate closed. Idle sessions are recycled every 5 minutes; a session that dies on its own, for example when the provider closes an idle socket, is re-warmed with backoff.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Press</h3><p>The target app and any selected text are captured, the overlay appears, the gate opens and the words start being typed live. A press during the previous delivery is queued, not lost. In push-to-listen mode the first press starts and the next one stops.</p></div></div>
-    <div class="step"><div class="n">3</div><div><h3>Release</h3><p>The gate closes, the provider is asked to commit, and the runtime waits up to 1.5 s for final text. Quick Close submits the latest partial immediately instead.</p></div></div>
-    <div class="step"><div class="n">4</div><div><h3>Submit and restart</h3><p>The LLM runs while the overlay shows a processing wave, the live text is replaced in place, "this turn" operators switch off, and a fresh warm session starts.</p></div></div>
-  </div>
-  <div class="image-right" style="background-image:url('{{HOTKEY_PRESS}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 12 HOTKEY LAYERS ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Hotkey detection</div>
-  <div class="title">Three detection layers share one press/release state.</div>
-  <div class="rule"></div>
-  <div class="grid g3">
-    <div class="card ink"><div class="tag">Primary</div><h3>Quartz CGEvent tap</h3><p>System-wide key down and key up, with suppression of the hotkey so it never reaches the frontmost app. Needs Accessibility and Input Monitoring.</p><p class="muted" style="color:rgba(246,243,236,0.6)">Status: <code>global event tap ready</code></p></div>
-    <div class="card"><div class="tag">Fallback 1</div><h3>Carbon RegisterEventHotKey</h3><p>A global hotkey registration that fires reliably even when the event tap cannot be installed.</p><p class="muted">Status: <code>carbon global hotkey ready; event tap unavailable</code></p></div>
-    <div class="card"><div class="tag">Fallback 2</div><h3>AppKit NSEvent monitors</h3><p>Local and global monitors as the last resort; release may be blocked, so the UI asks the user to press again.</p><p class="muted">Status: <code>fallback monitor active</code></p></div>
-  </div>
-  <div class="callout">The hotkey monitor is reconfigured only when the hotkey string or its enabled flag changes, so a settings write mid-press can no longer reset a live session. A UI "Push to Talk" button drives the same path when keyboard hooks are unavailable.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 13 AUDIO ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Audio capture</div>
-  <div class="title">Microphone first, provider second.</div>
-  <div class="rule"></div>
-  <div class="grid g2" style="gap:40px 60px">
-    <div class="card tint">
-      <div class="tag">Capture</div>
-      <ul>
-        <li><code>AVFoundationAudioSource</code> preflights microphone permission and installs an <code>AVAudioEngine</code> input tap with 1 024-frame buffers.</li>
-        <li><code>PCM16MonoConverter</code> downmixes to mono 16-bit PCM at the configured sample rate (default 16 000 Hz).</li>
-        <li>Errors are typed: <code>microphone_permission</code> exits with code 3, <code>microphone_capture</code> for engine failures.</li>
-      </ul>
-    </div>
-    <div class="card tint">
-      <div class="tag">Gating and forwarding</div>
-      <ul>
-        <li>The runtime starts the microphone before connecting the provider socket, so the UI shows audio activity early.</li>
-        <li>While the gate is closed, silence is substituted for every chunk; the provider connection stays warm.</li>
-        <li>An <code>AudioActivitySnapshot</code> (waiting, silent, active, muted) is emitted every 0.25 s for the waveform and status pill.</li>
-      </ul>
-    </div>
-  </div>
-  <div class="callout">Diagnostics trace the order explicitly: starting microphone capture, microphone capture started, connecting realtime stream, realtime stream connected.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 14 STT PROVIDERS ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Speech-to-text providers</div>
-  <div class="title">Two realtime providers behind one <em>RuntimeTranscriber</em> protocol.</div>
-  <div class="rule"></div>
-  <div class="grid g2" style="gap:40px 60px">
-    <div class="card">
-      <div class="tag">Soniox · default</div>
-      <ul>
-        <li>Model <code>stt-rt-v5</code> (v4 is an alias) at <code>wss://stt-rt.soniox.com/transcribe-websocket</code>.</li>
-        <li>Startup frame carries the key, <code>pcm_s16le</code>, sample rate, endpoint detection, language hints or auto identification, and optional context text from prompt file 004.</li>
-        <li>Release sends <code>{"type":"finalize"}</code> followed by a 250 ms drain. Utterance boundaries arrive as <code>&lt;end&gt;</code> and <code>&lt;fin&gt;</code> tokens.</li>
-        <li>Error frames map 401/403 to <code>soniox_auth</code>, 503 to <code>soniox_network</code>, the rest to <code>soniox_protocol</code>.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <div class="tag">ElevenLabs</div>
-      <ul>
-        <li>Model <code>scribe_v2_realtime</code> at <code>wss://api.elevenlabs.io/v1/speech-to-text/realtime</code>.</li>
-        <li>Query carries <code>model_id</code>, <code>audio_format=pcm_&lt;rate&gt;</code>, commit strategy, optional language code and keyterms from prompt file 006.</li>
-        <li>Audio is sent as base64 <code>input_audio_chunk</code> messages; <code>previous_text</code> from file 005 goes with the first chunk only.</li>
-        <li>Allowed sample rates: 8 000, 16 000, 22 050, 24 000, 44 100, 48 000 Hz.</li>
-      </ul>
-    </div>
-  </div>
-  <div class="note">Both adapters sit behind a mockable <code>RealtimeWebSocketClient</code> and are frame-level tested; live behaviour is covered by manual smoke procedures under <code>test_scripts/</code>.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 15 PROTOCOL ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Voice-agent protocol</div>
-  <div class="title">Markers turn speech into sections; sections carry operators.</div>
-  <div class="rule"></div>
-  <div class="kv" style="top:320px">
-    <div class="row"><span class="key">Marker</span><span class="val">A spoken phrase recognised in a final transcript. Four kinds: <code>state_command</code>, <code>section_end</code>, <code>section_cancel</code>, <code>literal_next</code>. Matching is case and diacritic insensitive with Greek locale rules and requires word boundaries.</span></div>
-    <div class="row"><span class="key">Default phrases</span><span class="val">Command phrase <code>command</code>, section end <code>command send</code>, section cancel <code>command cancel</code>, literal next <code>literal phrase</code>. The guard phrase <code>τέλος εντολής</code> is an alias of section end.</span></div>
-    <div class="row"><span class="key">Voice commands on/off</span><span class="val">Settings › Protocol › <em>Voice commands</em> (default on). Off: no marker is recognised, so everything spoken is dictated text, "command send" included. Turns end on release, operators change with the hotkey letters or the menu.</span></div>
-    <div class="row"><span class="key">Section</span><span class="val">The dictated text buffered between markers, identified as <code>sec_000001</code> and so on. "Command send" submits it with the active operators; "command cancel" discards it; shutdown submits pending text.</span></div>
-    <div class="row"><span class="key">Interaction modes</span><span class="val"><code>dictation</code> (default), <code>agent-protocol</code> (JSONL events on stdout, no human status lines) and <code>hybrid</code> (both; the CLI requires <code>--protocol-output</code>).</span></div>
-    <div class="row"><span class="key">Events</span><span class="val">Protocol <code>untype.voice-agent.v1</code>: session started and ended, state and status, section submitted, processed and cancelled, streaming progress, clipboard copied, input sent, warnings. Every event has a monotonic <code>seq</code>.</span></div>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 16 OPERATORS ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Operators and voice commands</div>
-  <div class="title">Seven switches decide what happens to a turn.</div>
-  <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:200px">Operator</th><th style="width:90px">Key</th><th style="width:820px">Effect</th><th>Default lifetime</th></tr></thead>
+  <table class="t" style="top:320px; font-size:22px">
+    <thead><tr><th style="width:560px">You do</th><th>What happens</th></tr></thead>
     <tbody>
-      <tr><td class="k">refine</td><td class="k">R</td><td>The LLM cleans the transcript, preserving meaning and language.</td><td>Until changed</td></tr>
-      <tr><td class="k">translate</td><td class="k">T</td><td>Translate to the target (opposite, English or Greek) set next to the switch.</td><td>Until changed</td></tr>
-      <tr><td class="k">ask</td><td class="k">A</td><td>What you say is a request to the model; its answer replaces the dictation.</td><td>This turn</td></tr>
-      <tr><td class="k">followup</td><td class="k">F</td><td>Ask also sends the conversation so far, so the model can revise its last answer.</td><td>This turn</td></tr>
-      <tr><td class="k">selection</td><td class="k">S</td><td>The text selected in the app in front goes along, as material or as context.</td><td>This turn</td></tr>
-      <tr><td class="k">clipboard</td><td class="k">C</td><td>Copy the result to the clipboard.</td><td>Until changed</td></tr>
-      <tr><td class="k">input</td><td class="k">I</td><td>Type the result into the focused control of the frontmost app.</td><td>Until changed</td></tr>
+      <tr><td><strong>Hold</strong> the hotkey, speak, release</td><td>The text is typed into the field the cursor is in. This is push-to-talk.</td></tr>
+      <tr><td><strong>Tap</strong> the hotkey (shorter than 0.4 s)</td><td>Recording goes on with your hands free. The overlay shows how to finish.</td></tr>
+      <tr><td>… then <strong>Enter</strong></td><td>The text is typed and Return is pressed in that field: a chat sends it, a terminal submits it, a document gets a new line.</td></tr>
+      <tr><td>… then <strong>the hotkey</strong> again</td><td>The text is typed, nothing is sent.</td></tr>
+      <tr><td>… then <strong>Esc</strong></td><td>Nothing is delivered and the words typed so far are removed.</td></tr>
     </tbody>
   </table>
-  <div class="callout">Toggle an operator in the menu-bar dropdown, in Settings, with the hotkey plus its letter while recording, or by voice, <code>command ask on</code>, while voice commands are on. Settings decides per operator whether a change lasts <em>this turn</em> or <em>until changed</em>; flags such as <code>--ask-default</code> set the starting state. An operator that needs an unconfigured LLM delivers the text unprocessed, with a warning.</div>
+  <div class="callout">The hotkey is <code>Control+`</code> unless you change it in Settings › Push-to-Talk, and it is off until you switch it on. There is no mode to choose: how long you press decides.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 16b ASK FOLLOW-UP SELECTION ============================ -->
+<!-- ============================ LIVE TYPING ============================ -->
+<section class="slide with-image">
+  <div class="eyebrow">02 · Where the text goes</div>
+  <div class="title">The words appear while you speak.</div>
+  <div class="rule"></div>
+  <div class="steps" style="right:840px; gap:18px">
+    <div class="step"><div class="n">1</div><div><h3>Typed live</h3><p>What you say is typed at the cursor as it is recognised, so you see at once whether you were heard right.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Replaced when you finish</h3><p>If Refine, Translate or Ask is on, the live words are replaced in place by the result. A small moving line under the cursor shows that the model is working.</p></div></div>
+    <div class="step"><div class="n">3</div><div><h3>Delivered where you started</h3><p>The text goes to the app that was in front when you pressed the hotkey. You may switch to another app meanwhile: untype puts the text where it belongs and brings you back.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Or to the clipboard</h3><p>With the Clipboard operator on, the result is also copied, ready to paste anywhere.</p></div></div>
+  </div>
+  <div class="image-right" style="background-image:url('{{TEXT_DELIVERY}}')"></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ EDIT WHILE DICTATING ============================ -->
 <section class="slide">
-  <div class="eyebrow">02 · Ask, Follow-up and Selection</div>
+  <div class="eyebrow">02 · Dictating into existing text</div>
+  <div class="title">Dictation that respects what is already there.</div>
+  <div class="rule"></div>
+  <div class="grid g3" style="gap:32px">
+    <div class="card"><div class="tag">In the middle of a sentence</div><h3>The whole sentence is refined</h3><ul>
+      <li>Put the cursor inside a sentence and dictate with Refine on.</li>
+      <li>untype refines the words before the cursor, what you said and the words after it, and replaces the sentence with the result.</li>
+      <li>Where the app does not allow it, only your words are inserted.</li>
+    </ul></div>
+    <div class="card ink"><div class="tag">Correct as you go</div><h3>Your edits are kept</h3><ul>
+      <li>While dictating you can move the cursor, type over a word or erase one.</li>
+      <li>When the turn ends, the model gets the text as it stands in the field, so corrections survive and words stay where you put them.</li>
+    </ul></div>
+    <div class="card"><div class="tag">Hands-free punctuation</div><h3>You end the sentences</h3><ul>
+      <li>Settings › Push-to-Talk › <em>I end the sentences</em>: no full stop at every pause, a capital only after a full stop.</li>
+      <li><em>Full stop after a long pause</em> closes the sentence after about four seconds of silence.</li>
+    </ul></div>
+  </div>
+  <div class="callout">These work in fields that let untype read their text: native macOS fields and most browser fields. Terminals and some apps do not; there the dictated words are simply typed.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ OVERLAY ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · The overlay</div>
+  <div class="title" style="right:960px">Your controls, at the bottom of the screen.</div>
+  <div class="rule"></div>
+  <div class="body" style="right:960px; font-size:20px">
+    <ul>
+      <li>While you dictate, the overlay draws your voice as a wave. Under it, one <strong>chip</strong> per operator: amber means on.</li>
+      <li><strong>Click a chip</strong> to switch an operator, or press its letter while holding the hotkey. The overlay never takes the focus from your app.</li>
+      <li><strong>Keep it on screen</strong> (Settings › General, or the dropdown) and the chips are always one click away.</li>
+      <li><strong>Hover it</strong> for the tray: what the next dictation will do in plain words, the translation direction, the meeting record button, Attach, the transcription window and Settings.</li>
+      <li><strong>Pin</strong> the chips you use with the pin on a chip's corner; at rest only pinned chips and the ones that are on are shown.</li>
+      <li><strong>Drag the tray</strong> to move the overlay; double-click it to send it back to the bottom centre.</li>
+    </ul>
+  </div>
+  <div class="shot-panel"></div>
+  <div class="overlay-mock" style="top:230px; right:240px">
+    <svg viewBox="0 0 340 90" fill="none"><path d="M0 45 C10 45 14 30 20 30 S30 62 36 62 S46 18 52 18 S62 74 68 74 S78 8 84 8 S94 84 100 84 S110 22 116 22 S126 66 132 66 S142 36 148 36 S158 54 164 54 S174 12 180 12 S190 80 196 80 S206 26 212 26 S222 60 228 60 S238 40 244 40 S254 50 260 50 S270 34 276 34 S286 56 292 56 S302 42 308 42 S318 47 324 47 S334 45 340 45" stroke="#E3A64A" stroke-width="3" stroke-linecap="round"/></svg>
+    <div class="chipset"><div class="chip on">R</div><div class="chip">T</div><div class="chip">A</div><div class="chip">L</div><div class="chip">C</div><div class="chip on">I</div></div>
+  </div>
+  <div class="shot-cap" style="top:446px; right:240px; width:420px; text-align:center">Dictating · Refine and Input on</div>
+  <div class="overlay-mock" style="top:520px; right:240px; height:120px">
+    <div class="chipset"><div class="chip on">R</div><div class="chip on">L</div><div class="chip on">I</div></div>
+  </div>
+  <div class="shot-cap" style="top:660px; right:240px; width:420px; text-align:center">At rest · pinned chips only</div>
+  <div class="overlay-mock" style="top:734px; right:240px; height:150px; gap:14px">
+    <div class="traybar"><span>EN</span><span>EL</span><span>⇄</span><span class="rec">●</span><span>Attach</span><span>Settings</span></div>
+    <div class="chipset"><div class="chip on">R</div><div class="chip">T</div><div class="chip">A</div><div class="chip on">L</div><div class="chip">C</div><div class="chip on">I</div></div>
+  </div>
+  <div class="shot-cap" style="top:904px; right:240px; width:420px; text-align:center">Under the mouse · the tray</div>
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · overlay drawn for illustration</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ OPERATORS ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · Operators</div>
+  <div class="title">Six switches decide what happens to your words.</div>
+  <div class="rule"></div>
+  <table class="t" style="top:320px">
+    <thead><tr><th style="width:300px">Operator</th><th style="width:100px">Key</th><th style="width:960px">What it does</th><th>Lasts</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Refine</strong></td><td class="k">R</td><td>Cleans up what you said: grammar, filler words, restarts. Same meaning, same language.</td><td>Until changed</td></tr>
+      <tr><td><strong>Translate</strong></td><td class="k">T</td><td>Turns the text into the other language, or always into English or Greek.</td><td>Until changed</td></tr>
+      <tr><td><strong>Ask</strong></td><td class="k">A</td><td>What you say is a request to the model; its answer is typed in place of your words.</td><td>This turn</td></tr>
+      <tr><td><strong>Alternative LLM</strong></td><td class="k">L</td><td>Refine, Translate and Ask use your second language model instead of the main one.</td><td>Until changed</td></tr>
+      <tr><td><strong>Clipboard</strong></td><td class="k">C</td><td>Copies the result to the clipboard.</td><td>Until changed</td></tr>
+      <tr><td><strong>Focused input</strong></td><td class="k">I</td><td>Types the result where the cursor is.</td><td>Until changed</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">Switch an operator by clicking its chip on the overlay, with the hotkey plus its letter while dictating, in the menu-bar dropdown or in Settings › Operators. <em>This turn</em> means it switches off again after one dictation; <em>Until changed</em> keeps it as you set it. You choose which one per operator.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ ASK / TRANSLATE / ALTERNATIVE ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · Refine, Translate, Ask</div>
   <div class="title">Talk to the model, not just through it.</div>
   <div class="rule"></div>
   <div class="grid g3" style="gap:32px">
+    <div class="card"><div class="tag">R · T</div><h3>Clean text, in the language you need</h3><ul>
+      <li>Refine never answers what you said and never changes the language.</li>
+      <li>Translate follows the direction you set: the other language, to English or to Greek.</li>
+      <li>With both on, you get the cleaned and translated text in one step.</li>
+    </ul></div>
     <div class="card ink"><div class="tag">A · Ask</div><h3>Dictate a request, get the answer</h3><ul>
-      <li>"Write a short reply thanking them and proposing Tuesday." The answer is typed where the request was.</li>
-      <li>One call with prompts 010 and 011; with Translate on, prompt 012 writes the answer in the target language.</li>
-      <li>Refine is skipped. Own limits: 8 000 output tokens and a 120 s timeout.</li>
+      <li>"Write a short reply thanking them and proposing Tuesday." The reply is typed where the cursor is.</li>
+      <li>With Translate on, the answer is written in the target language.</li>
+      <li>Ask switches itself off after one turn, so the next dictation is plain text again.</li>
     </ul></div>
-    <div class="card"><div class="tag">F · Follow-up</div><h3>Revise the previous answer</h3><ul>
-      <li>With Follow-up on, Ask sends the earlier requests and answers too: "shorter", "more formal", "add a closing line".</li>
-      <li>Keeps the last 20 exchanges in memory only, never on disk.</li>
-      <li>Off means a new conversation; the dropdown also has <em>New conversation</em>.</li>
-    </ul></div>
-    <div class="card"><div class="tag">S · Selection</div><h3>Work on the selected text</h3><ul>
-      <li>Read through Accessibility at press time, or by a ⌘C that restores your clipboard.</li>
-      <li><strong>Material</strong> (default): the selection is processed and replaced; a silent tap is enough.</li>
-      <li><strong>Context</strong>: reference only; the result goes after the selection.</li>
+    <div class="card"><div class="tag">L · Alternative LLM</div><h3>A second model, one key away</h3><ul>
+      <li>Set a second provider and model in Settings › Language Models › Alternative.</li>
+      <li>With L on, the turn uses it: a fast model for everyday text, a stronger one when it matters.</li>
+      <li>If no alternative is set, the text is delivered as spoken and untype tells you.</li>
     </ul></div>
   </div>
-  <div class="callout">Combine them. Select a paragraph, turn on Selection and Translate, tap the hotkey: the paragraph is replaced by its translation. Select an email, turn on Ask and Selection, say "draft a polite no": the draft appears in place.</div>
+  <div class="callout">If the model cannot be reached or is not set up, you never lose your words: the dictated text is delivered as it was heard, with a warning.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 17 REFINEMENT ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">02 · LLM refinement</div>
-  <div class="title">Clean the transcript, never answer it.</div>
+<!-- ============================ EXPERIMENTAL OPERATORS ============================ -->
+<section class="slide">
+  <div class="eyebrow">02 · Experimental operators</div>
+  <div class="title">Give the model more to work with.</div>
   <div class="rule"></div>
-  <div class="body">
-    <p>The refinement system prompt describes the input as a verbatim transcript with disfluencies and asks for a grammatically clean rewrite that keeps the speaker's meaning and language.</p>
-    <ul>
-      <li>The text is content to clean, never a message to the model: questions are not answered, instructions are not followed, and nothing is added.</li>
-      <li>The output stays in the input language. A request for translation inside the transcript is part of the text, not a command.</li>
-      <li>Providers implemented: Azure OpenAI, Google Gemini, and Claude, either direct (<code>anthropic</code>) or on Microsoft Foundry (<code>azure-anthropic</code>). Six other names are accepted but raise a configuration error if refinement is on.</li>
-      <li>Temperature 0.2 for OpenAI and Gemini; Claude uses effort <code>low</code> instead. Fixed 15 s timeout and one keep-alive URLSession, saving 100 to 400 ms per release.</li>
-    </ul>
+  <div class="grid g4">
+    <div class="card"><div class="tag">F · Follow-up</div><h3>Continue the conversation</h3><p>Ask also sends your earlier requests and answers: "shorter", "more formal", "add a closing line". <em>New conversation</em> in the dropdown starts over.</p></div>
+    <div class="card"><div class="tag">S · Selection</div><h3>Include the selected text</h3><p>The text you selected goes along, either as the material to rework and replace, or only as context for what you dictate.</p></div>
+    <div class="card"><div class="tag">W · Screenshot</div><h3>Show the window</h3><p>A picture of the window you are in goes with the request, so you can ask about what you see. It is also copied to the clipboard.</p></div>
+    <div class="card"><div class="tag">X · Window text</div><h3>Send the whole text</h3><p>The text of the window, including what is scrolled out of view, goes along: "summarise this email", with a long email open.</p></div>
+  </div>
+  <div class="callout warn"><strong>Off until you ask for them.</strong> Switch them on together in Settings › Operators › Experimental operators (also in the dropdown). Each one then appears as a chip and stays off until you switch it on. Screenshot needs the Screen &amp; System Audio Recording permission.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ PUSH-TO-ACT ============================ -->
+<section class="slide with-image">
+  <div class="eyebrow">02 · Push-to-Act</div>
+  <div class="title">Work on text you already have, without speaking.</div>
+  <div class="rule"></div>
+  <div class="steps" style="right:840px; gap:16px">
+    <div class="step"><div class="n">1</div><div><h3>Select text and press the second hotkey</h3><p><code>Control+Option+`</code> unless you change it in Settings › Push-to-Act. Nothing is recorded.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Choose in the pop-up</h3><p>The model (<code>L</code> switches between primary and alternatives), the operators (<code>R</code> <code>T</code> <code>A</code> <code>F</code> <code>W</code> <code>C</code>) and the translation direction (<code>1</code> the other language, <code>2</code> English, <code>3</code> Greek).</p></div></div>
+    <div class="step"><div class="n">3</div><div><h3>Enter runs, Esc cancels</h3><p>The result replaces the selection. Your choices are remembered for next time, separately from the dictation operators.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Nothing selected?</h3><p>The whole text of the field is used. In a terminal, the prompt you have typed to a coding agent is used.</p></div></div>
   </div>
   <div class="image-right" style="background-image:url('{{LLM_NETWORK}}')"></div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 18 TRANSLATION ============================ -->
+<!-- ============================ DICTIONARY / ONLY MY VOICE ============================ -->
 <section class="slide">
-  <div class="eyebrow">02 · Translation</div>
-  <div class="title">Greek or English in, the other language out.</div>
-  <div class="rule"></div>
-  <div class="grid g3">
-    <div class="card tint"><div class="tag">Language detection</div><p>Any character in the Greek and Greek Extended Unicode blocks marks the section as Greek; otherwise it is English. Only these two protocol languages exist.</p></div>
-    <div class="card tint"><div class="tag">Policies</div><ul><li><code>opposite</code> (default): Greek becomes English, English becomes Greek.</li><li><code>to-en</code>: always English.</li><li><code>to-el</code>: always Greek.</li></ul></div>
-    <div class="card tint"><div class="tag">Prompts</div><p>System prompt from file 002, user template from file 003 with <code>{target_language}</code> and <code>{text}</code>. Technical terms, file names, command names and code identifiers are preserved verbatim.</p></div>
-  </div>
-  <div class="callout">Translation only runs for sections whose <code>translate</code> operator is on. With the operator off, the refinement prompt explicitly forbids any language change, so refine-only sections can never come back translated.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 19 COMPOSITE ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Composite refine and translate</div>
-  <div class="title">Both operators on means <em>one</em> LLM round trip.</div>
-  <div class="rule"></div>
-  <div class="body" style="right:1000px">
-    <p>When a section has refine and translate enabled and a composite processor is configured, the controller sends a single request whose system prompt (file 007) demands strict JSON with two fields.</p>
-    <ul>
-      <li>The user message stacks the source transcript, the refinement instruction (file 008) and the translation instruction (file 009).</li>
-      <li>The response is parsed strictly; the JSON object is extracted even if the model wraps it.</li>
-      <li>There is no sequential fallback: a composite failure is a fail-open warning and the raw text is delivered.</li>
-      <li>Known gap: the same elapsed time is recorded in both <code>refine_ms</code> and <code>translate_ms</code>.</li>
-    </ul>
-  </div>
-  <pre class="code" style="top:340px; right:90px; width:820px; height:520px"><span class="c">// system prompt: respond with ONLY valid JSON</span>
-{
-  <span class="h">"refined_text"</span>:    <span class="g">"..."</span>,   <span class="c">// original language</span>
-  <span class="h">"translated_text"</span>: <span class="g">"..."</span>    <span class="c">// target language</span>
-}
-
-<span class="c">// user message envelope (LLMRefiners.swift)</span>
-Source transcript:
-{raw text}
-
-Refinement prompt:
-{file 008 with {text} filled}
-
-Translation prompt:
-{file 009 with {target_language} filled}
-
-Return only JSON with refined_text and translated_text.</pre>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 20 OVERLAY ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · The overlay</div>
-  <div class="title">A small oscilloscope, not a text box.</div>
-  <div class="rule"></div>
-  <div class="body" style="right:960px">
-    <ul>
-      <li>While the hotkey is held, a transparent 200×84 pt panel at the bottom centre of the screen draws the real microphone signal, with automatic gain so quiet speech still swings.</li>
-      <li>Under the wave, seven chips R T A F S C I show the operators: solid amber when on. Press the hotkey plus a letter to flip one mid-turn.</li>
-      <li>After release a breathing wave stays on screen while the model refines, translates or answers, and the panel hides once the text has been delivered.</li>
-      <li>The panel never takes focus, ignores the mouse, joins every Space and is recreated at every appearance.</li>
-      <li>The transcript is not in the overlay any more: it is typed into your field. <code>--llm-streaming</code> remains, but with nothing to display it only matters for logs.</li>
-    </ul>
-  </div>
-  <div class="shot-panel"></div>
-  <div class="overlay-mock" style="top:300px; right:240px">
-    <svg viewBox="0 0 340 90" fill="none"><path d="M0 45 C10 45 14 30 20 30 S30 62 36 62 S46 18 52 18 S62 74 68 74 S78 8 84 8 S94 84 100 84 S110 22 116 22 S126 66 132 66 S142 36 148 36 S158 54 164 54 S174 12 180 12 S190 80 196 80 S206 26 212 26 S222 60 228 60 S238 40 244 40 S254 50 260 50 S270 34 276 34 S286 56 292 56 S302 42 308 42 S318 47 324 47 S334 45 340 45" stroke="#E3A64A" stroke-width="3" stroke-linecap="round"/></svg>
-    <div class="chipset"><div class="chip on">R</div><div class="chip on">T</div><div class="chip">A</div><div class="chip">F</div><div class="chip">S</div><div class="chip on">C</div><div class="chip on">I</div></div>
-  </div>
-  <div class="shot-cap" style="top:530px; right:240px; width:420px; text-align:center">Recording · Refine, Translate, Clipboard, Input on</div>
-  <div class="overlay-mock" style="top:620px; right:240px">
-    <svg viewBox="0 0 340 90" fill="none"><path d="M0 45 C20 45 30 33 50 33 S80 57 100 57 S130 31 150 31 S180 59 200 59 S230 34 250 34 S280 55 300 55 S330 45 340 45" stroke="#E08A5E" stroke-width="3" stroke-linecap="round" opacity="0.85"/></svg>
-    <div class="chipset"><div class="chip">R</div><div class="chip">T</div><div class="chip on">A</div><div class="chip">F</div><div class="chip on">S</div><div class="chip">C</div><div class="chip on">I</div></div>
-  </div>
-  <div class="shot-cap" style="top:850px; right:240px; width:420px; text-align:center">Processing · Ask with the selection</div>
-  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · overlay drawn for illustration</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 21 DELIVERY ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">02 · Delivery</div>
-  <div class="title">Reaching the caret: live first, three fallbacks.</div>
-  <div class="rule"></div>
-  <div class="steps" style="right:840px; gap:14px">
-    <div class="step"><div class="n">0</div><div><h3>Live typing while you speak</h3><p>With Input on, the transcript is typed into the app that was in front at press time. On release only the differing tail is deleted and retyped; a result with a line break is pasted. These keystrokes carry a marker the hotkey monitors ignore.</p></div></div>
-    <div class="step"><div class="n">1</div><div><h3>AX caret insertion</h3><p>For turns without live text: set <code>kAXSelectedText</code> at the caret and verify the length changed, which protects rich-text bodies such as Outlook.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Clipboard-preserving paste</h3><p>Snapshot the pasteboard, paste with ⌘V, restore the clipboard after 0.8 s. Browsers get this first.</p></div></div>
-    <div class="step"><div class="n">3</div><div><h3>Unicode key events</h3><p>Type the text as key events when it is at most 500 UTF-16 units.</p></div></div>
-  </div>
-  <div class="callout" style="right:840px; bottom:100px">Do not move the caret or type while holding the hotkey: live text is edited relative to where it started. The app delivers in-process, so the grant belongs to <code>untype.app</code>; CLI runs use <code>untype-input-helper</code>.</div>
-  <div class="image-right" style="background-image:url('{{TEXT_DELIVERY}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 22 LATENCY RECORD ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · Observability</div>
-  <div class="title">Every release writes one privacy-safe latency record.</div>
-  <div class="rule"></div>
-  <pre class="code" style="top:330px; left:90px; width:900px; height:600px; font-size:17px">{
-  <span class="h">"schema_version"</span>: 1,
-  <span class="h">"turn_id"</span>: "…", <span class="h">"trigger"</span>: "ui-hotkey-release",
-  <span class="h">"stt_provider"</span>: "soniox", <span class="h">"quick_close"</span>: false,
-  <span class="h">"text_source"</span>: "provider_final_text",
-  <span class="h">"outcome"</span>: <span class="g">"delivered_to_focused_input"</span>,
-  <span class="h">"total_ms"</span>: 1834,
-  <span class="h">"durations_ms"</span>: {
-    "provider_commit_request_ms": 3, "provider_final_wait_ms": 412,
-    "runtime_scheduling_ms": 9,      "protocol_submission_ms": 2,
-    "refine_ms": 1180, "translate_ms": 0,
-    "clipboard_ms": 1,  "focused_input_ms": 210
-  },
-  <span class="h">"focused_input"</span>: { "attempted": true, <span class="g">"ok": true</span>,
-    "method": "ax-value", "accessibility_trusted": true,
-    "target_role": "AXTextArea" }
-}</pre>
-  <div class="body" style="left:1050px; right:90px; top:330px; font-size:20px">
-    <p class="lead" style="font-size:24px">What to read</p>
-    <ul>
-      <li><code>outcome</code> tells whether text reached the field, was processed without it, or failed.</li>
-      <li><code>text_source</code> explains where the text came from: provider final, Quick Close partial, timeout fallback, or none.</li>
-      <li>Per-stage durations point at the slow link: provider wait, LLM, or delivery.</li>
-      <li>Opt-in via <code>UNTYPE_RELEASE_LATENCY_LOG</code>; never contains transcript text.</li>
-    </ul>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 23 PACKAGE LAYOUT ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">02 · Code layout</div>
-  <div class="title">Two executables, one library, one test target.</div>
-  <div class="rule"></div>
-  <div class="tree" style="position:absolute; top:330px; left:90px; font-size:18px"><span class="d">Package.swift</span>                <span class="m">swift-tools-version 6.0, macOS 14, no dependencies</span>
-<span class="d">Sources/untype/</span>              <span class="m">@main: UI launch or CLI command</span>
-<span class="d">Sources/untype-input-helper/</span> <span class="m">stdin text → focused input, JSON result</span>
-<span class="d">Sources/UntypeCore/</span>          <span class="m">46 files, all logic</span>
-  ConfigResolver · EnvChain · Dotenv · DotenvEditor · EnvTemplate · PromptConfig
-  TranscriptionSessionRuntime · UntypeRuntimeFactory
-  AVFoundationAudioSource · PCM16MonoConverter
-  SonioxTranscriber · ElevenLabsTranscriber
-  VoiceAgentProtocolController · ProtocolStateMachine · ProtocolMarkerMatcher
-  LLMRefiners · PromptFileStore · ProtocolJsonlWriter · ReleaseLatencyLogger
-  FocusedInputDelivery · LiveFocusedInputTyper · SelectedTextReader
-  NativeUntypeUILauncher (4 093 lines) · UntypeMenuBarController
-  UntypeMenuBarPanel · UntypeSettingsWindow · UntypePromptSettingsView
-  WarmSessionRecovery · UntypeTurnContext · UntypeEventLogFile
-<span class="d">Tests/UntypeCoreTests/</span>       <span class="m">24 files, 281 tests</span>
-<span class="d">scripts/</span>                     <span class="m">package-macos-app.sh, update-homebrew-cask.sh</span>
-<span class="d">packaging/macos/</span>             <span class="m">icon, entitlements, INSTALL.txt</span>
-<span class="d">docs/design/ · docs/reference/ · docs/research/</span></div>
-  <div class="image-right" style="background-image:url('{{MODULE_LAYOUT}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 24 MENU-BAR DROPDOWN ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · The interface · menu bar</div>
-  <div class="title" style="right:960px">untype lives in the menu bar.</div>
+  <div class="eyebrow">02 · Being heard right</div>
+  <div class="title" style="right:960px">Your words, and only your voice.</div>
   <div class="rule"></div>
   <div class="body" style="right:960px; font-size:20px">
-    <p>There is no Dock icon. Click the waveform icon at the top right of the screen for the dropdown; right-click it for a short menu.</p>
+    <p><strong>Dictionary</strong> (Settings › Speech)</p>
     <ul>
-      <li><strong>Header:</strong> the STT and LLM providers and the state: idle, ready, recording, finalizing or listening.</li>
-      <li><strong>Hotkey:</strong> the on/off switch, then <em>Push-to-talk</em> (hold) or <em>Push-to-listen</em> (press, press again).</li>
-      <li><strong>Mode and Theme:</strong> Dictation, Agent or Hybrid; System, Light or Dark.</li>
-      <li><strong>Operators:</strong> the seven switches with their letters and the translation target. <code>1×</code> marks an operator that lasts one turn.</li>
-      <li><strong>Hotkeys:</strong> a reminder of the hotkey and of hotkey + letter.</li>
-      <li><strong>Windows:</strong> Transcript (⌘1), History (⌘2), New conversation, Settings (⌘,) and Quit (⌘Q).</li>
+      <li>Add the names, abbreviations and terms that are not heard right, written as they must be written.</li>
+      <li><strong>Teach</strong>: say only that word for a few seconds. If it is still heard differently, untype remembers that form and writes your word in its place from then on.</li>
+    </ul>
+    <p style="margin-top:26px"><strong>Only my voice</strong> (Settings › Speech › Other voices)</p>
+    <ul>
+      <li>Press <strong>Learn</strong> in a quiet moment and read a sentence aloud. untype keeps a few seconds of your voice on your Mac.</li>
+      <li>From then on, when other people talk around you, only your words are written. Works with Soniox.</li>
     </ul>
   </div>
   <div class="shot-panel"></div>
-  <img class="shot" src="{{UI_DROPDOWN}}" alt="untype menu-bar dropdown" style="top:80px; right:225px; height:900px" />
-  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 27</span></div><span class="pg"></span></div>
+  <img class="shot" src="{{UI_SETTINGS_SPEECH}}" alt="untype Settings, Speech pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 87</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 24b MAIN WINDOW ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · The interface · Transcript window</div>
-  <div class="title">The window shows what was heard and what was delivered.</div>
-  <div class="rule"></div>
-  <img class="shot" src="{{UI_MAIN_WINDOW}}" alt="untype main window" style="top:330px; right:90px; width:1130px" />
-  <div class="shot-cap" style="top:925px; right:90px">Transcript blurred for privacy</div>
-  <div class="body" style="right:1290px; font-size:19px; top:330px">
-    <ul>
-      <li>Open it with ⌘1 or ⌘2 from the dropdown. Closing it never quits untype.</li>
-      <li><strong>Sidebar:</strong> Transcript, History and Events, plus live status of microphone, Accessibility, the API key and the hotkey.</li>
-      <li><strong>Top bar:</strong> start or stop the session, the push-to-talk switch, refresh, permissions, theme, Settings and compact mode.</li>
-      <li><strong>Chips:</strong> the seven operators, clickable.</li>
-      <li><strong>Turns:</strong> raw and processed text with a copy button each; Copy, Save and Clear for the whole list.</li>
-    </ul>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 24c SETTINGS GENERAL ============================ -->
-<section class="slide">
-  <div class="eyebrow">02 · The interface · Settings</div>
-  <div class="title" style="right:960px">One Settings window, opened with ⌘,</div>
-  <div class="rule"></div>
-  <div class="body" style="right:960px; font-size:19px">
-    <p><strong>General</strong> holds every setting, in groups:</p>
-    <ul>
-      <li><strong>Session</strong> with <em>Edit keys…</em>, and <strong>Appearance</strong>.</li>
-      <li><strong>Provider:</strong> STT provider, model, languages, sample rate.</li>
-      <li><strong>Protocol:</strong> mode, translation target, and the <em>Voice commands</em> switch.</li>
-      <li><strong>Operators:</strong> each switch with a <em>Lasts</em> choice, <em>This turn</em> or <em>Until changed</em>, and whether selected text is material or context.</li>
-      <li><strong>Refinement (LLM):</strong> on/off, provider, model.</li>
-      <li><strong>Push to talk</strong>, <strong>Permissions</strong> and <strong>Credentials</strong>.</li>
-    </ul>
-    <p><strong>Prompts</strong> edits the prompt files, covered in section 04. Settings are editable while the session is only warm; during a turn they lock.</p>
-  </div>
-  <div class="shot-panel"></div>
-  <img class="shot" src="{{UI_SETTINGS_OPERATORS}}" alt="untype Settings, General tab" style="top:150px; right:60px; width:780px" />
-  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 02 · screenshot of build 28</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 25 DIVIDER 03 ============================ -->
+<!-- ============================ DIVIDER 03 ============================ -->
 <section class="slide divider dark">
-  <div class="photo" style="background-image:url('{{INSTALL_TERMINAL}}')"></div>
+  <div class="photo" style="background-image:url('{{MEETING_CALL}}')"></div>
   <div class="num">03</div>
-  <div class="label">Installation</div>
-  <div class="cap">Install it with Homebrew or from the notarized disk image, or build and package it yourself, then grant the permissions that make the hotkey and delivery work.</div>
+  <div class="label">Meetings</div>
+  <div class="cap">Both sides of a call, transcribed while it happens, saved with the audio and your attachments, and ready to be asked about.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 25b INSTALL (END USERS) ============================ -->
+<!-- ============================ RECORD A MEETING ============================ -->
 <section class="slide">
-  <div class="eyebrow">03 · Install as a user</div>
-  <div class="title">Two ways in, no toolchain required.</div>
+  <div class="eyebrow">03 · Recording</div>
+  <div class="title">Record both sides of a call.</div>
   <div class="rule"></div>
-  <div class="grid g2" style="gap:40px 60px">
-    <div class="card ink"><div class="tag">Homebrew</div><h3>Tap and install the cask</h3><p><code>brew tap biks2013-tools/untype</code> then <code>brew install --cask untype</code>; later <code>brew upgrade --cask untype</code>. The tap <code>biks2013-tools/homebrew-untype</code> points at the latest release asset. It is maintained from the repository's <code>homebrew-tap/</code> folder and published by <code>scripts/update-homebrew-cask.sh --push</code>.</p></div>
-    <div class="card"><div class="tag">GitHub release</div><h3>Download the notarized disk image</h3><p>Every build is a release tagged <code>v0.1.0-b&lt;N&gt;</code> (first one: <code>v0.1.0-b8</code>) with <code>untype-0.1.0.dmg</code>, the notarized zip and <code>SHA256SUMS</code>. Download it from <code>github.com/biks2013-tools/untype-s/releases/latest</code>, open the image, drag untype to Applications, follow <code>INSTALL.txt</code>.</p></div>
+  <div class="steps roomy">
+    <div class="step"><div class="n">1</div><div><h3>Start</h3><p>Hover the overlay and click the record button, or use the menu-bar dropdown › Meeting › <em>Record meeting</em>. It works with Teams, Zoom or anything else that plays sound.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>What is captured</h3><p>Your microphone, labelled <strong>You</strong>, and the sound of the other apps, with the speakers told apart as <strong>Speaker 1</strong>, <strong>Speaker 2</strong> and so on. Greek and English are recognised per sentence.</p></div></div>
+    <div class="step"><div class="n">3</div><div><h3>While it runs</h3><p>The overlay stays on screen with a red trace and the elapsed time. Dictation and Push-to-Act keep working, and what you dictate stays out of the meeting.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Stop</h3><p>Click stop, or let it end by itself after three minutes without speech.</p></div></div>
+    <div class="step"><div class="n">5</div><div><h3>Name it</h3><p>A card shows where it was saved, with <em>Open</em> and <em>Name</em>. Say in a few words what the meeting was about and untype gives it a short title.</p></div></div>
   </div>
-  <div class="callout">Both paths install the same signed and notarized bundle, so permissions survive upgrades. The repository moved from <code>github.com/BikS2013/untype-s</code> to <code>github.com/biks2013-tools/untype-s</code>: an old tap must be re-tapped. The latest release is build 28, with Ask, Follow-up, Selection and the voice-commands switch.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 26 PREREQUISITES ============================ -->
+<!-- ============================ TRANSCRIPTION WINDOW ============================ -->
 <section class="slide">
-  <div class="eyebrow">03 · Prerequisites</div>
-  <div class="title">What you need before the first build.</div>
-  <div class="rule"></div>
-  <div class="grid g3">
-    <div class="card tint"><div class="tag">Machine</div><ul><li>macOS 14 or newer (release builds verified on macOS 26).</li><li>Xcode 16+ or Swift 6 command-line tools; full Xcode for <code>notarytool</code> and <code>stapler</code>.</li><li>A microphone.</li></ul></div>
-    <div class="card tint"><div class="tag">Service accounts</div><ul><li>A Soniox or ElevenLabs API key for speech-to-text.</li><li>For refinement: an Azure OpenAI resource with a chat deployment, or a Google Gemini API key.</li><li>Optional expiry dates for key-renewal reminders.</li></ul></div>
-    <div class="card tint"><div class="tag">Release only</div><ul><li>Apple Developer Program membership.</li><li>A Developer ID Application certificate with its private key in the login keychain.</li><li>An App Store Connect API key stored as the <code>untype-notary</code> notarytool profile.</li></ul></div>
-  </div>
-  <div class="callout">Check available signing identities with <code>security find-identity -v -p codesigning</code> before packaging.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 27 BUILD ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · Build and test</div>
-  <div class="title">Plain SwiftPM, nothing else.</div>
-  <div class="rule"></div>
-  <pre class="code" style="top:330px; left:90px; width:900px; height:420px"><span class="c"># debug build → .build/debug/untype</span>
-swift build
-
-<span class="c"># release build → .build/release/untype + untype-input-helper</span>
-swift build -c release
-
-<span class="c"># 281 Swift Testing tests</span>
-swift test
-
-<span class="c"># terminal smoke run (no LLM), append mode, verbose diagnostics</span>
-.build/debug/untype --no-refine --stt-provider soniox \
-  --language en --output-mode append --verbose
-
-<span class="c"># native UI from the CLI binary</span>
-.build/debug/untype ui</pre>
-  <div class="body" style="left:1050px; right:90px; top:330px; font-size:20px">
-    <ul>
-      <li>No third-party packages: the manifest declares no dependencies, so builds are reproducible offline.</li>
-      <li>Release binary is about 4.9 MB; debug about 7.4 MB.</li>
-      <li>Stop a terminal session with Control-C: pending provider output is finalized, the pending section submitted, <code>state.json</code> persisted, and the socket closed.</li>
-      <li>Exit codes: 0 ok, 1 unknown, 2 configuration, 3 microphone, 4 provider auth, 5 provider network, 6 provider protocol.</li>
-    </ul>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 28 PACKAGING ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · Packaging</div>
-  <div class="title">One script builds, tests, signs, notarizes and staples.</div>
-  <div class="rule"></div>
-  <pre class="code" style="top:330px; left:90px; width:1000px; height:250px; font-size:18px">scripts/package-macos-app.sh \
-  --bundle-id com.local.untype --version 0.1.0 --build 28 \
-  --sign-identity "Developer ID Application: GEORGIOS MARINOS (9F9H8NCAUB)" \
-  --notary-profile untype-notary \
-  --dmg</pre>
-  <div class="body" style="left:1150px; right:90px; top:330px; font-size:19px">
-    <p class="lead" style="font-size:22px">Outputs in <code>.build/deploy/</code></p>
-    <ul>
-      <li><code>untype.app</code></li>
-      <li><code>untype-0.1.0.zip</code> and <code>-notarized.zip</code></li>
-      <li><code>untype-0.1.0.dmg</code> (3.7 MB, distribute this one) and <code>SHA256SUMS</code></li>
-    </ul>
-  </div>
-  <table class="t compact" style="top:620px">
-    <thead><tr><th style="width:300px">Flag</th><th>Meaning</th></tr></thead>
-    <tbody>
-      <tr><td class="k">--bundle-id / --version / --build</td><td>Required. The build number must increase on every run.</td></tr>
-      <tr><td class="k">--sign-identity</td><td>Certificate identity; signs helper, main binary and bundle with hardened runtime, timestamp and the microphone entitlement.</td></tr>
-      <tr><td class="k">--notary-profile</td><td>Keychain profile for <code>notarytool submit --wait</code>, then staple, then Gatekeeper assessment.</td></tr>
-      <tr><td class="k">--dmg / --dmg-only</td><td>Also produce a notarized disk image with an Applications symlink and INSTALL.txt.</td></tr>
-      <tr><td class="k">--skip-tests / --skip-build / --unsigned</td><td>Development shortcuts. <code>--unsigned</code> is for local packaging only, never for a deploy.</td></tr>
-    </tbody>
-  </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 29 SIGNING ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">03 · Signing and notarization</div>
-  <div class="title">Why the signature is a functional requirement, not a formality.</div>
-  <div class="rule"></div>
-  <div class="body">
-    <p>macOS ties Accessibility and Input Monitoring grants to the app's code-signing designated requirement. An ad-hoc signature changes on every build, so each redeploy silently revokes Accessibility and delivery fails with <code>accessibility_not_trusted</code>.</p>
-    <ul>
-      <li>Since build 7 every deploy is signed with the Developer ID Application identity and notarized.</li>
-      <li>Grants survive upgrades as long as the same certificate signs the app.</li>
-      <li>Grants are lost when the identity changes: certificate renewal, switching certificate type, or an ad-hoc build. The bundle id must also stay fixed.</li>
-      <li>The main binary is the bundle executable itself, with no launcher, so the process installing the event tap matches the identity granted in System Settings.</li>
-    </ul>
-  </div>
-  <div class="note" style="right:840px">Certificate dates to plan around: Developer ID expires 2027-02-01, Apple Development expires 2027-08-15. Each renewal costs one permission re-grant.</div>
-  <div class="image-right" style="background-image:url('{{SIGNING_SEAL}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 30 INSTALL ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · Installing the bundle</div>
-  <div class="title">Replace the app in place, verify, relaunch.</div>
-  <div class="rule"></div>
-  <pre class="code" style="top:330px; left:90px; width:1040px; height:470px; font-size:18px"><span class="c"># 1. quit the running app</span>
-osascript -e 'tell application "untype" to quit'
-
-<span class="c"># 2. keep the previous bundle</span>
-mv /Applications/untype.app .build/deploy/untype.app.previous
-
-<span class="c"># 3. copy the new bundle and verify it</span>
-ditto .build/deploy/untype.app /Applications/untype.app
-codesign --verify --deep --strict /Applications/untype.app
-spctl --assess --type execute /Applications/untype.app
-
-<span class="c"># 4. launch, and expose the CLI</span>
-open -a /Applications/untype.app
-ln -sf /Applications/untype.app/Contents/MacOS/untype ~/.local/bin/untype</pre>
-  <div class="body" style="left:1190px; right:90px; top:330px; font-size:19px">
-    <ul>
-      <li>Install location is <code>/Applications/untype.app</code>; the CLI is the same binary through a symlink.</li>
-      <li>Publish the DMG, the notarized zip and <code>SHA256SUMS</code> as a GitHub Release tagged <code>v0.1.0-b&lt;N&gt;</code>, then regenerate the Homebrew cask. Never share a bare app.</li>
-      <li>The whole release pipeline takes 5 to 10 minutes; each notarization 2 to 5.</li>
-      <li>After every redeploy, perform one push-to-talk release into a text field and confirm <code>focused_input.ok=true</code> in the latency log.</li>
-    </ul>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 31 PERMISSIONS ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">03 · macOS permissions</div>
-  <div class="title">Three grants, each with a distinct job.</div>
-  <div class="rule"></div>
-  <div class="steps" style="right:840px; gap:18px">
-    <div class="step"><div class="n">1</div><div><h3>Microphone</h3><p>Prompted on the first recording. Denial fails fast with <code>microphone_permission</code> and exit code 3.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Accessibility</h3><p>Required for the hotkey event tap, for typing into the focused field and for reading the selected text. The entry to check is <code>untype.app</code>, not the nested helper.</p></div></div>
-    <div class="step"><div class="n">3</div><div><h3>Input Monitoring</h3><p>Add untype here if the hotkey does not fire while another app is in front.</p></div></div>
-  </div>
-  <div class="callout" style="right:840px; bottom:100px">Quit and relaunch after changing any permission. Settings › General › Permissions shows the live status; <em>Open Permission Setup</em> (or <code>⌥⌘P</code>) opens the guide with deep links into System Settings.</div>
-  <div class="shot-panel" style="width:760px"></div>
-  <img class="shot" src="{{UI_SETTINGS_SYSTEM}}" alt="untype Settings, permissions and credentials" style="top:190px; right:50px; width:660px" />
-  <div class="shot-cap" style="top:810px; right:50px; width:660px; text-align:center">Settings › General · Permissions and Credentials</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 31b PERMISSIONS STEP BY STEP ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · macOS permissions, step by step</div>
-  <div class="title">Where to click in System Settings.</div>
+  <div class="eyebrow">03 · The transcription window</div>
+  <div class="title">Read the meeting as it is being said.</div>
   <div class="rule"></div>
   <div class="grid g3" style="gap:32px">
-    <div class="card"><div class="tag">1 · Microphone</div><ul>
-      <li>Click <em>Start Listening</em> (or hold the hotkey) once. macOS asks "untype would like to access the microphone": click <strong>Allow</strong>.</li>
-      <li>No prompt, or <em>Don't Allow</em> clicked earlier? <strong>System Settings › Privacy &amp; Security › Microphone</strong>, switch untype on.</li>
-      <li>untype appears in that list only after it has asked once, so do the first step first.</li>
+    <div class="card ink"><div class="tag">Live transcript</div><h3>Open it with ⌘3</h3><ul>
+      <li>From the dropdown, or the captions icon in the overlay's tray.</li>
+      <li><strong>Both</strong>, <strong>Microphone</strong> or <strong>System</strong> chooses the side.</li>
+      <li><strong>Follow</strong> keeps the newest text in view; switch it off to read back while text is still added.</li>
+      <li><strong>Copy</strong> takes what was said so far; <strong>Clear</strong> empties the window, never the files.</li>
     </ul></div>
-    <div class="card ink"><div class="tag">2 · Accessibility</div><ul>
-      <li><strong>System Settings › Privacy &amp; Security › Accessibility</strong>.</li>
-      <li>Click <strong>+</strong> below the list, pick <em>Applications › untype</em>, click <em>Open</em>, make sure the switch next to untype is on. macOS may ask for your password or Touch ID.</li>
-      <li>Quit untype and open it again.</li>
-      <li>Switch on but still "not trusted" (typical after an update changed the signature)? Select untype, click <strong>−</strong>, add it again with <strong>+</strong>, quit and reopen.</li>
+    <div class="card"><div class="tag">Pause a side</div><h3>Keep something off the record</h3><ul>
+      <li><strong>Pause</strong> on the Microphone tab stops your side; on the System tab, the call's side.</li>
+      <li>While paused, nothing of that side is transcribed or saved. The other side goes on.</li>
+      <li><strong>Resume</strong> picks it up again; the times stay aligned.</li>
     </ul></div>
-    <div class="card"><div class="tag">3 · Input Monitoring</div><ul>
-      <li>Only if the hotkey does not fire while another app is in front.</li>
-      <li><strong>System Settings › Privacy &amp; Security › Input Monitoring</strong>.</li>
-      <li>Click <strong>+</strong>, pick <em>Applications › untype</em>, click <em>Open</em>, switch it on. An older untype entry there? Remove it with <strong>−</strong> first.</li>
-      <li>Quit untype and open it again.</li>
+    <div class="card"><div class="tag">Attach</div><h3>Put material into the meeting</h3><ul>
+      <li><strong>Attach</strong> saves what is on the clipboard at that moment: a picture, text or copied files.</li>
+      <li>Drop files on the transcript, or use <em>Attach a file</em>.</li>
+      <li>Each attachment appears at its place in the conversation with a thumbnail, and opens on a click.</li>
     </ul></div>
   </div>
-  <div class="callout">The welcome screen shows this guide with an <em>Open … settings</em> button per pane and a <em>Re-check status</em> button; the status is read live from macOS. Each pane lists untype only after it has been added there once, and every change needs a quit and relaunch.</div>
+  <div class="callout">A screenshot of the slide being discussed, the document under review, a number from a spreadsheet: attach them while they are talked about, and they stay tied to that minute of the meeting.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 32 RECOVERY ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · Recovering lost grants</div>
-  <div class="title">When delivery stops after a redeploy or certificate change.</div>
+<!-- ============================ MEETING ASSISTANT ============================ -->
+<section class="slide with-image">
+  <div class="eyebrow">03 · The meeting assistant</div>
+  <div class="title">Ask the meeting a question.</div>
   <div class="rule"></div>
-  <div class="body" style="right:1000px">
-    <p class="lead">Symptom</p>
-    <p>The latency log shows <code>outcome: focused_input_failed</code> with <code>code: accessibility_not_trusted</code>, or the hotkey stops firing after an install.</p>
-    <p class="lead">Cause</p>
-    <p>The grant is tied to an older signing identity or bundle id.</p>
-  </div>
-  <pre class="code" style="top:330px; right:90px; width:840px; height:330px; font-size:18px"><span class="c"># reset ONLY the Accessibility grant for the app</span>
-tccutil reset Accessibility com.local.untype
-
-<span class="c"># relaunch, then re-add /Applications/untype.app under</span>
-<span class="c"># System Settings → Privacy &amp; Security → Accessibility</span>
-open -a /Applications/untype.app
-
-<span class="c"># hotkey dead after install? remove the stale entry under</span>
-<span class="c"># Input Monitoring, re-add the app, relaunch</span></pre>
-  <div class="callout warn"><strong>Never reset Input Monitoring when only Accessibility is broken.</strong> That removes the grant the event tap depends on and breaks push-to-talk, which then needs its own re-grant.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 32b API KEYS ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · Provider credentials</div>
-  <div class="title">Setting up the API keys.</div>
-  <div class="rule"></div>
-  <div class="grid g2" style="gap:40px 60px">
-    <div class="card ink"><div class="tag">In the app</div><h3>Welcome screen › <em>Set keys…</em>, or Settings › General › Session › <em>Edit keys…</em></h3><ul>
-      <li><strong>Speech-to-text, one required:</strong> Soniox API key (the default provider) or ElevenLabs API key (with the provider switched to ElevenLabs).</li>
-      <li><strong>LLM, only for Refine, Translate or Ask:</strong> the Azure OpenAI key, endpoint, deployment and API version; or <code>GOOGLE_API_KEY</code>; or Claude: <code>ANTHROPIC_API_KEY</code> direct, or <code>ANTHROPIC_FOUNDRY_API_KEY</code> with <code>ANTHROPIC_FOUNDRY_RESOURCE</code> on Microsoft Foundry.</li>
-      <li>Secrets are masked; a <em>Show</em> switch reveals them while editing. <em>Save</em> writes only the fields you changed; an emptied field unsets that key.</li>
-      <li>Keys are stored in <code>~/.tool-agents/untype/.env</code>, readable only by you, and never appear in logs or diagnostics.</li>
-    </ul></div>
-    <div class="card"><div class="tag">In the file</div><h3>Edit <code>~/.tool-agents/untype/.env</code> directly</h3><ul>
-      <li>The first session start creates it as a fully commented template: every variable as <code># NAME=</code> with its description, allowed values and default.</li>
-      <li>Remove the leading <code># </code> and fill the value, for example <code>SONIOX_API_KEY=…</code> or <code>AZURE_OPENAI_API_KEY=…</code>; comments and order are preserved, and later duplicates of a key are removed by the editor.</li>
-      <li>Optional expiry dates, <code>SONIOX_API_KEY_EXPIRES_AT</code> and <code>ELEVENLABS_API_KEY_EXPIRES_AT</code>, make the UI warn 14 days before a key expires.</li>
-      <li>Settings › General › Credentials shows each key's name, source tier and expiry, never the value. Pick the LLM provider and model in Settings › Refinement (LLM).</li>
-    </ul></div>
-  </div>
-  <div class="callout warn"><strong>Nothing is defaulted.</strong> A required key that is missing everywhere is a configuration error that names the variable and the four places it may be set; the onboarding checklist stays open until a speech-to-text key is present.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 33 FIRST RUN ============================ -->
-<section class="slide">
-  <div class="eyebrow">03 · First run</div>
-  <div class="title">From launch to the first delivered sentence.</div>
-  <div class="rule"></div>
-  <div class="steps" style="gap:16px">
-    <div class="step"><div class="n">1</div><div><h3>Launch from Applications or Spotlight</h3><p>The waveform icon appears in the menu bar. While microphone, Accessibility or a speech-to-text key is missing, the window opens with the onboarding checklist.</p></div></div>
-    <div class="step"><div class="n">2</div><div><h3>Set the provider keys</h3><p><em>Set keys…</em> writes them to <code>~/.tool-agents/untype/.env</code>. Editing by hand works too: the first session start provisions that file as a fully commented template, and the fifteen prompt files under <code>prompts/</code>.</p></div></div>
-    <div class="step"><div class="n">3</div><div><h3>Grant the permissions</h3><p>Microphone, Accessibility and, if the hotkey stays silent, Input Monitoring; quit and relaunch after each change.</p></div></div>
-    <div class="step"><div class="n">4</div><div><h3>Switch the hotkey on in the dropdown</h3><p>Pick Push-to-talk or Push-to-listen and the operators you want: Refine and Input are a good start. Click into a text field, hold <code>Control+`</code>, speak, release.</p></div></div>
-    <div class="step"><div class="n">5</div><div><h3>Verify</h3><p>The words appear while you speak and are replaced by the refined text on release. With the latency log on, the newest record reads <code>focused_input.ok=true</code>.</p></div></div>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 34 DIVIDER 04 ============================ -->
-<section class="slide divider dark">
-  <div class="photo" style="background-image:url('{{CONFIG_DRAWERS}}')"></div>
-  <div class="num">04</div>
-  <div class="label">Configuration and moving parts</div>
-  <div class="cap">Where every setting lives, how the four tiers resolve, and what the state, prompt and log files contain.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 35 RESOLUTION CHAIN ============================ -->
-<section class="slide">
-  <div class="eyebrow">04 · Resolution chain</div>
-  <div class="title">Four tiers, highest priority first, and no invented values.</div>
-  <div class="rule"></div>
-  <div class="flow" style="grid-template-columns:repeat(4,1fr); gap:40px">
-    <div class="node hot"><div class="i">Tier 1 · highest</div><h4>CLI flag</h4><p>Explicit arguments such as <code>--stt-provider</code>. UI settings are converted into the equivalent flags, so what the UI sets behaves like a flag.</p></div>
-    <div class="node"><div class="i">Tier 2</div><h4>Local <code>.env</code></h4><p>The <code>.env</code> file in the current working directory, useful for per-project overrides when running the CLI.</p></div>
-    <div class="node"><div class="i">Tier 3</div><h4>User <code>.env</code></h4><p><code>~/.tool-agents/untype/.env</code>: the normal home of API keys and provider settings for the app bundle. Provisioned as a commented template on first start; the UI credentials editor writes here.</p></div>
-    <div class="node"><div class="i">Tier 4 · lowest</div><h4>Shell environment</h4><p>Exported variables of the launching shell. The UI shows which tier supplied the API key.</p></div>
-  </div>
-  <div class="grid g2" style="top:650px; gap:30px 60px">
-    <div class="card tint"><div class="tag">Parser rules</div><p>Comments and blank lines skipped, <code>export</code> prefix stripped, quotes handled, inline comments removed, last duplicate wins, blank values fall through to the next tier. Booleans accept true/false, yes/no, on/off, 1/0.</p></div>
-    <div class="card ink"><div class="tag">No-fallback rule</div><p>A required value that is missing everywhere raises a typed error naming the variable and the four places it may be set. Nothing is defaulted silently, and startup stops with exit code 2.</p></div>
-  </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 36 FOLDER MAP ============================ -->
-<section class="slide">
-  <div class="eyebrow">04 · Where the moving parts live</div>
-  <div class="title">Everything user-specific sits in one folder.</div>
-  <div class="rule"></div>
-  <div class="tree" style="position:absolute; top:330px; left:90px; width:900px"><span class="d">~/.tool-agents/untype/</span>              <span class="m">mode 0700</span>
-├── <span class="d">.env</span>                         <span class="m">keys and settings, 0600 (template)</span>
-├── <span class="d">prompts/</span>                     <span class="m">15 files, hot-reloaded</span>
-│   ├── 001 … 003                <span class="m">refinement, translation</span>
-│   ├── 004 … 006                <span class="m">STT provider context</span>
-│   ├── 007 … 009                <span class="m">composite refine + translate</span>
-│   ├── 010 … 012                <span class="m">Ask</span>
-│   ├── 013 · 014                <span class="m">selected text</span>
-│   └── 015                      <span class="m">Follow-up conversation</span>
-├── <span class="d">state.json</span>                   <span class="m">operators + policy</span>
-├── <span class="d">ui-state.json</span>                <span class="m">window, hotkey, settings</span>
-├── <span class="d">events.log</span>                   <span class="m">session events, 0600, 1 MB</span>
-├── <span class="d">release-latency.jsonl</span>        <span class="m">opt-in, + .previous</span>
-└── <span class="d">AuthKey_&lt;KEYID&gt;.p8</span>           <span class="m">notarization key</span></div>
-  <div class="body" style="left:1050px; right:90px; top:330px; font-size:20px">
+  <div class="body">
+    <p>Open <strong>Meeting assistant</strong> with ⌘4, or click <strong>Ask</strong> in the transcription window, and ask about the meeting being recorded or the last one.</p>
     <ul>
-      <li>The tool never writes secrets anywhere else, and never logs transcript text, selections or answers into this folder.</li>
-      <li>Prompt files are provisioned with defaults if missing, validated on every start, and editable in Settings › Prompts.</li>
-      <li>The Developer ID certificate lives in the login keychain, not here.</li>
-      <li>Repository copies of the prompts under <code>prompts/</code> are for review only; the runtime reads this folder.</li>
-      <li>A legacy <code>~/.tool-agents/mic-tool-ts/</code> folder without this one triggers a migration hint at startup.</li>
+      <li>"What did we agree about the deadline?" "List the open points with their owners." "What did I miss in the last ten minutes?"</li>
+      <li>It reads the transcript as it grows and your attachments: pictures, text, PDF, Word, Excel and PowerPoint.</li>
+      <li>It only reads. It never changes the transcript or the files.</li>
+      <li>One conversation per meeting, kept when untype restarts and when the meeting is renamed.</li>
+      <li>It answers with its own model, chosen in Settings › Meetings › Assistant. Nothing else to install.</li>
     </ul>
   </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+  <div class="image-right" style="background-image:url('{{MEETING_NOTES}}')"></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 37 STT SETTINGS ============================ -->
+<!-- ============================ WHAT IS SAVED ============================ -->
 <section class="slide">
-  <div class="eyebrow">04 · Speech-to-text settings</div>
-  <div class="title">Provider, credentials and audio parameters.</div>
+  <div class="eyebrow">03 · What is saved</div>
+  <div class="title">One folder per meeting, written while it runs.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:420px">Environment variable</th><th style="width:360px">CLI flag</th><th>Purpose and default</th></tr></thead>
-    <tbody>
-      <tr><td class="k">UNTYPE_STT_PROVIDER</td><td class="k">--stt-provider</td><td><code>soniox</code> (default) or <code>elevenlabs</code>.</td></tr>
-      <tr><td class="k">SONIOX_API_KEY</td><td class="k">--api-key</td><td>Required when the provider is Soniox.</td></tr>
-      <tr><td class="k">SONIOX_API_KEY_EXPIRES_AT</td><td class="k">--api-key-expires-at</td><td>YYYY-MM-DD; warns when 14 days or fewer remain.</td></tr>
-      <tr><td class="k">ELEVENLABS_API_KEY</td><td class="k">--elevenlabs-api-key</td><td>Required when the provider is ElevenLabs.</td></tr>
-      <tr><td class="k">ELEVENLABS_API_KEY_EXPIRES_AT</td><td class="k">--elevenlabs-api-key-expires-at</td><td>Same reminder behaviour.</td></tr>
-      <tr><td class="k">UNTYPE_MODEL</td><td class="k">--model</td><td>Realtime model; <code>stt-rt-v5</code> or <code>scribe_v2_realtime</code> by provider.</td></tr>
-      <tr><td class="k">UNTYPE_ENDPOINT</td><td class="k">--endpoint</td><td>WebSocket URL; provider default when unset.</td></tr>
-      <tr><td class="k">UNTYPE_LANGUAGES</td><td class="k">--language (repeatable)</td><td>Hints such as <code>el,en</code>, or <code>auto</code> alone.</td></tr>
-      <tr><td class="k">UNTYPE_SAMPLE_RATE</td><td class="k">--sample-rate</td><td>16 000 Hz default; ElevenLabs accepts a fixed set.</td></tr>
-      <tr><td class="k">UNTYPE_ENABLE_ENDPOINT_DETECTION</td><td class="k">--[no-]endpoint-detection</td><td>Provider utterance detection, on by default.</td></tr>
-      <tr><td class="k">UNTYPE_QUICK_CLOSE</td><td class="k">--[no-]quick-close</td><td>Submit the latest partial on release instead of waiting; off by default.</td></tr>
-    </tbody>
-  </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+  <div class="tree" style="position:absolute; top:330px; left:90px; font-size:18px"><span class="d">~/Documents/untype Meetings/</span>
+  <span class="d">Budget review-recording-2026-11-20-14-30/</span>
+    recording-….transcript.txt            <span class="m">the transcript, in English or as spoken</span>
+    recording-….transcript.original.txt   <span class="m">as spoken, with the language of each line</span>
+    recording-….mic.m4a                   <span class="m">your side of the audio</span>
+    recording-….system.m4a                <span class="m">the call's side of the audio</span>
+    attachments/                          <span class="m">what you attached, with its minute</span></div>
+  <div class="grid g3" style="top:640px; gap:28px">
+    <div class="card tint"><div class="tag">Transcript</div><p><code>[00:12:07] Speaker 2: …</code> English by default, with lines in Greek translated at the end; or exactly as spoken.</p></div>
+    <div class="card tint"><div class="tag">Audio</div><p>Both sides, one side or none; in separate files or mixed in one. About 15 MB per hour and file, aligned with the transcript's times.</p></div>
+    <div class="card tint"><div class="tag">Apple Notes</div><p>Optionally the transcript is also written as a note in the folder "untype" of Apple Notes when the meeting ends.</p></div>
+  </div>
+  <div class="note" style="bottom:96px">Text and audio reach the files while the meeting runs, so they can be opened during the meeting and survive a crash. Recording other people can need their consent: ask first.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 38 LLM SETTINGS ============================ -->
+<!-- ============================ CALENDAR ============================ -->
 <section class="slide">
-  <div class="eyebrow">04 · LLM settings</div>
-  <div class="title">Refinement provider, model and tuning.</div>
+  <div class="eyebrow">03 · Outlook calendar</div>
+  <div class="title">untype knows which meeting you are in.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:420px">Environment variable</th><th style="width:340px">CLI flag</th><th>Purpose and default</th></tr></thead>
-    <tbody>
-      <tr><td class="k">UNTYPE_REFINE</td><td class="k">--refine / --no-refine</td><td>Master switch for LLM processing, which Refine, Translate and Ask need; on by default.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_PROVIDER</td><td class="k">--llm-provider</td><td><code>azure-openai</code> (default), <code>google</code>, <code>anthropic</code>, <code>azure-anthropic</code>; six other names are accepted but not implemented.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_MODEL</td><td class="k">--llm-model</td><td>Model name, default <code>gpt-5.4</code>; for Foundry the deployment name, such as <code>claude-opus-5-5</code>.</td></tr>
-      <tr><td class="k">AZURE_OPENAI_API_KEY · _ENDPOINT</td><td>env only</td><td>Required for <code>azure-openai</code>.</td></tr>
-      <tr><td class="k">AZURE_OPENAI_DEPLOYMENT · _API_VERSION</td><td>env only</td><td>Deployment (falls back to the model name) and API version, default <code>2024-10-21</code>.</td></tr>
-      <tr><td class="k">GOOGLE_API_KEY</td><td>env only</td><td>Required for <code>google</code>.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_MAX_OUTPUT_TOKENS</td><td class="k">--llm-max-output-tokens</td><td>Caps refine and translate output; omitted when unset (Claude: 4 096).</td></tr>
-      <tr><td class="k">UNTYPE_LLM_REASONING_EFFORT</td><td class="k">--llm-reasoning-effort</td><td><code>none|minimal|low|medium|high</code>; drops temperature. Claude maps none and minimal to <code>low</code>.</td></tr>
-      <tr><td class="k">UNTYPE_LLM_STREAMING</td><td class="k">--[no-]llm-streaming</td><td>Token streaming of the LLM response; off by default.</td></tr>
-    </tbody>
-  </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+  <div class="grid g2" style="gap:40px 60px">
+    <div class="card ink"><div class="tag">Reminder</div><h3>A card when a Teams meeting starts</h3><ul>
+      <li>"Starting now · Teams · 6 people", with the subject, <strong>Record</strong> and <strong>Dismiss</strong>.</li>
+      <li>It stays for the whole meeting until you choose, steps aside while you dictate, and never shows while you are already recording.</li>
+      <li>Only meetings you organise or accepted count; declined and unanswered invitations do not.</li>
+    </ul></div>
+    <div class="card"><div class="tag">Name</div><h3>The recording is named after the meeting</h3><ul>
+      <li>A recording that starts during a meeting, or up to ten minutes before it, gets a title made from its subject and participants.</li>
+      <li>The transcript begins with the meeting's subject, time, organiser and participants.</li>
+      <li><em>Rename</em> on the saved card still replaces the name.</li>
+    </ul></div>
+  </div>
+  <div class="callout">Switch it on in Settings › Meetings › Calendar › <em>Use my Outlook calendar</em>. It reads the calendar through the <code>nbg-m365</code> command-line tool, which keeps its own Microsoft 365 sign-in; without that tool the switch stays off and Settings says so.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 38b CLAUDE AND ASK SETTINGS ============================ -->
+<!-- ============================ CLEAN TRANSCRIPTS ============================ -->
 <section class="slide">
-  <div class="eyebrow">04 · Claude and Ask settings</div>
-  <div class="title">Claude direct or on Microsoft Foundry, and the Ask limits.</div>
+  <div class="eyebrow">03 · A clean transcript</div>
+  <div class="title" style="right:960px">Who said what, even without headphones.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:460px">Variable</th><th style="width:240px">Applies to</th><th>Meaning and how to obtain it</th></tr></thead>
-    <tbody>
-      <tr><td class="k">ANTHROPIC_API_KEY</td><td>anthropic</td><td>Claude API key from the Claude Console.</td></tr>
-      <tr><td class="k">ANTHROPIC_FOUNDRY_API_KEY</td><td>azure-anthropic</td><td>Foundry portal › Build › Models › your deployment › Details › Key. Set it even if it equals the Azure OpenAI key: nothing falls back.</td></tr>
-      <tr><td class="k">ANTHROPIC_FOUNDRY_RESOURCE</td><td>azure-anthropic</td><td>Resource name; the endpoint becomes <code>https://&lt;resource&gt;.services.ai.azure.com/anthropic</code>.</td></tr>
-      <tr><td class="k">ANTHROPIC_FOUNDRY_BASE_URL</td><td>azure-anthropic</td><td>A full base URL instead of the resource name. Setting both is an error.</td></tr>
-      <tr><td class="k">UNTYPE_ASK_DEFAULT</td><td>Ask</td><td><code>--ask-default on|off</code>, default off. Also <code>UNTYPE_FOLLOWUP_DEFAULT</code> and <code>UNTYPE_SELECTION_DEFAULT</code>.</td></tr>
-      <tr><td class="k">UNTYPE_ASK_MAX_OUTPUT_TOKENS</td><td>Ask</td><td><code>--ask-max-output-tokens</code>, default 8 000. Answers are full texts, so they do not share the refine cap.</td></tr>
-    </tbody>
-  </table>
-  <div class="callout">Claude requests use <code>x-api-key</code>, effort <code>low</code> by default and no temperature. A refusal or a <code>max_tokens</code> stop counts as a failure, so the raw text is delivered rather than a fragment. Ask has a fixed 120 s timeout; refine and translate keep 15 s.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 39 PROTOCOL SETTINGS ============================ -->
-<section class="slide">
-  <div class="eyebrow">04 · Protocol and operator settings</div>
-  <div class="title">Modes, marker phrases and initial operator states.</div>
-  <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:420px">Environment variable</th><th style="width:340px">CLI flag</th><th>Purpose and default</th></tr></thead>
-    <tbody>
-      <tr><td class="k">UNTYPE_INTERACTION_MODE</td><td class="k">--interaction-mode</td><td><code>dictation</code> (default), <code>agent-protocol</code>, <code>hybrid</code>.</td></tr>
-      <tr><td class="k">UNTYPE_PROTOCOL_OUTPUT</td><td class="k">--protocol-output</td><td>JSONL event file; required for hybrid mode on the CLI.</td></tr>
-      <tr><td class="k">UNTYPE_OUTPUT_MODE</td><td class="k">--output-mode</td><td><code>overwrite</code> (default, TTY), <code>append</code>, <code>final-only</code>.</td></tr>
-      <tr><td class="k">UNTYPE_COMMAND_PHRASE</td><td class="k">--command-phrase</td><td>Default <code>command</code>.</td></tr>
-      <tr><td class="k">UNTYPE_SECTION_END_PHRASE</td><td class="k">--section-end-phrase</td><td>Default <code>command send</code>.</td></tr>
-      <tr><td class="k">UNTYPE_SECTION_CANCEL_PHRASE</td><td class="k">--section-cancel-phrase</td><td>Default <code>command cancel</code>.</td></tr>
-      <tr><td class="k">UNTYPE_LITERAL_NEXT_PHRASE</td><td class="k">--literal-next-phrase</td><td>Default <code>literal phrase</code>; the next marker is dictated as text.</td></tr>
-      <tr><td class="k">UNTYPE_GUARD_PHRASE</td><td class="k">--guard-phrase</td><td>Default <code>τέλος εντολής</code>, an alias of section end.</td></tr>
-      <tr><td class="k">UNTYPE_VOICE_COMMANDS</td><td class="k">--[no-]voice-commands</td><td>On by default; off ignores every spoken marker above. In the app, the Settings switch decides.</td></tr>
-      <tr><td class="k">UNTYPE_&lt;OPERATOR&gt;_DEFAULT</td><td class="k">--&lt;operator&gt;-default on|off</td><td>Starting state of refine, translate, ask, followup, selection, clipboard, input; unset means <code>state.json</code> applies.</td></tr>
-      <tr><td class="k">UNTYPE_TRANSLATION_POLICY</td><td class="k">--translation-policy</td><td><code>opposite</code> (default), <code>to-en</code>, <code>to-el</code>.</td></tr>
-    </tbody>
-  </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 40 PROMPT FILES ============================ -->
-<section class="slide">
-  <div class="eyebrow">04 · Prompt files</div>
-  <div class="title">Fifteen files, twelve required, all editable.</div>
-  <div class="rule"></div>
-  <table class="t compact" style="top:310px">
-    <thead><tr><th style="width:500px">File</th><th style="width:110px">Required</th><th>Purpose</th></tr></thead>
-    <tbody>
-      <tr><td class="k">001-refinement-system.txt</td><td>Yes</td><td>Refinement; keeps the language, never answers the text.</td></tr>
-      <tr><td class="k">002 · 003 translation system / user template</td><td>Yes</td><td>Translation; 003 needs <code>{target_language}</code> and <code>{text}</code>.</td></tr>
-      <tr><td class="k">004 · 005 · 006 Soniox / ElevenLabs context</td><td>No</td><td>Recognition hints sent to the STT provider: context text, previous text, keyterms.</td></tr>
-      <tr><td class="k">007 · 008 · 009 composite</td><td>Yes</td><td>One-call refine + translate as JSON; 008 needs <code>{text}</code>, 009 <code>{target_language}</code>.</td></tr>
-      <tr><td class="k">010-ask-system.txt</td><td>Yes</td><td>Ask: fulfil the dictated request and return only the requested text.</td></tr>
-      <tr><td class="k">011-ask-user-template.txt</td><td>Yes</td><td>The Ask message; needs <code>{text}</code>.</td></tr>
-      <tr><td class="k">012-ask-translated-user-template.txt</td><td>Yes</td><td>Ask with Translate on; needs <code>{target_language}</code> and <code>{text}</code>.</td></tr>
-      <tr><td class="k">013-selection-context-template.txt</td><td>Yes</td><td>Selection as reference only; needs <code>{selection}</code>.</td></tr>
-      <tr><td class="k">014-ask-selection-template.txt</td><td>Yes</td><td>Selection put before an Ask request; needs <code>{selection}</code>.</td></tr>
-      <tr><td class="k">015-ask-conversation-template.txt</td><td>Yes</td><td>Follow-up history before an Ask request; needs <code>{history}</code>.</td></tr>
-    </tbody>
-  </table>
-  <div class="note" style="bottom:100px">Violations raise typed configuration errors before a session starts, and the Settings editor refuses to save them. Prompt contents are never logged.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 41 CUSTOMISING PROMPTS ============================ -->
-<section class="slide">
-  <div class="eyebrow">04 · Customising prompts</div>
-  <div class="title" style="right:960px">Edit, save, and the next turn already uses it.</div>
-  <div class="rule"></div>
-  <div class="body" style="right:960px; font-size:19px">
+  <div class="body" style="right:960px; font-size:20px">
+    <p>Through loudspeakers the microphone also hears the call, so other people's words can appear a second time as yours. Headphones avoid it. Three switches in Settings › Meetings help when you have none:</p>
     <ul>
-      <li>Settings › <strong>Prompts</strong> lists the files by group: Refinement, Translation, Refine + translate, Ask, Selected text, Transcription context.</li>
-      <li>Edit, then <strong>Save</strong> (⌘S). <em>Revert</em> drops unsaved edits; <em>Reset to Default</em> loads the built-in text for you to save.</li>
-      <li>A save is validated with the same rules as session start, so a missing placeholder cannot be written.</li>
-      <li>untype checks the files every second, including edits from another editor. The Events tab shows <code>prompts.reloaded</code> and an idle warm session restarts at once; a turn in progress is never interrupted.</li>
-      <li>Keep two invariants: refinement must not change the language, and only Ask may answer the dictated text.</li>
+      <li><strong>Remove speaker sound from the microphone</strong> takes what the Mac plays out of your side. The app you are calling with hears you as usual.</li>
+      <li><strong>Only my voice in the microphone's transcript</strong> keeps your side to your own words, using the voice sample learned in Settings › Speech.</li>
+      <li><strong>Mute the microphone while dictating</strong> (on by default) keeps what you dictate out of the meeting's transcript and audio.</li>
     </ul>
   </div>
   <div class="shot-panel"></div>
-  <img class="shot" src="{{UI_SETTINGS_PROMPTS}}" alt="untype Settings, Prompts tab" style="top:150px; right:60px; width:780px" />
-  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04 · screenshot of build 27</span></div><span class="pg"></span></div>
+  <img class="shot" src="{{UI_SETTINGS_MEETINGS}}" alt="untype Settings, Meetings pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 03 · screenshot of build 87</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 42 RUNTIME & DIAGNOSTICS ============================ -->
+<!-- ============================ DIVIDER 04 ============================ -->
+<section class="slide divider dark">
+  <div class="photo" style="background-image:url('{{INSTALL_TERMINAL}}')"></div>
+  <div class="num">04</div>
+  <div class="label">Install and set up</div>
+  <div class="cap">Ten minutes, once: install the app, give it its keys, and let macOS know what it may do.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ INSTALL ============================ -->
 <section class="slide">
-  <div class="eyebrow">04 · Runtime and diagnostics settings</div>
-  <div class="title">Latency logging, verbosity and timing constants.</div>
+  <div class="eyebrow">04 · Install</div>
+  <div class="title">Two ways in. Both give you the same app.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px; width:1000px">
-    <thead><tr><th style="width:460px">Setting</th><th>Meaning</th></tr></thead>
+  <div class="grid g2" style="gap:40px 60px">
+    <div class="card ink"><div class="tag">Homebrew</div><h3>Two commands in Terminal</h3><p><code>brew tap biks2013-tools/untype</code></p><p><code>brew install --cask untype</code></p><p>Later, <code>brew upgrade --cask untype</code> brings the newest build.</p></div>
+    <div class="card"><div class="tag">Disk image</div><h3>Download and drag</h3><p>Get <code>untype-0.1.0.dmg</code> from <code>github.com/biks2013-tools/untype-s/releases/latest</code>, open it and drag untype onto Applications. To upgrade, replace the app with the newer one.</p></div>
+  </div>
+  <div class="callout">The app is signed and notarized by Apple, so it opens without a warning, on macOS 14 or later. Your settings, keys and permissions are kept across upgrades. Which build is running is written at the bottom of the dropdown and of the Settings sidebar.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ FIRST RUN ============================ -->
+<section class="slide">
+  <div class="eyebrow">04 · First launch</div>
+  <div class="title">From the first launch to the first sentence.</div>
+  <div class="rule"></div>
+  <div class="steps roomy">
+    <div class="step"><div class="n">1</div><div><h3>Open untype from Applications or Spotlight</h3><p>A waveform icon appears in the menu bar. A welcome window lists what is still missing.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Set the keys</h3><p><em>Set keys…</em> on the welcome window: one speech-recognition key is enough to dictate; add a language-model key for Refine, Translate and Ask.</p></div></div>
+    <div class="step"><div class="n">3</div><div><h3>Grant the permissions</h3><p>Microphone and Accessibility first. The welcome window has a button that opens the right page of System Settings for each.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Switch the hotkey on</h3><p>Click the menu-bar icon and turn on <em>Hotkey</em>. It is off until you do.</p></div></div>
+    <div class="step"><div class="n">5</div><div><h3>Dictate</h3><p>Click into any text field, hold <code>Control+`</code>, say a sentence, release. The words appear as you speak.</p></div></div>
+  </div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ PERMISSIONS ============================ -->
+<section class="slide">
+  <div class="eyebrow">04 · macOS permissions</div>
+  <div class="title" style="right:960px">Four permissions, each with a job.</div>
+  <div class="rule"></div>
+  <div class="steps" style="right:960px; gap:14px">
+    <div class="step"><div class="n">1</div><div><h3>Microphone</h3><p>To hear you. macOS asks at the first recording.</p></div></div>
+    <div class="step"><div class="n">2</div><div><h3>Accessibility</h3><p>For the hotkey and for typing into the app in front. On macOS 27 the page is called <em>Device Control and Data Access</em>.</p></div></div>
+    <div class="step"><div class="n">3</div><div><h3>Input Monitoring</h3><p>Only if the hotkey does not react while another app is in front.</p></div></div>
+    <div class="step"><div class="n">4</div><div><h3>Screen &amp; System Audio Recording</h3><p>For meetings, to capture the sound of other apps (no picture is taken), and for the Screenshot operator.</p></div></div>
+  </div>
+  <div class="note" style="right:960px; bottom:96px">Saving transcripts to Apple Notes asks once more, for permission to control Notes. Settings › Permissions &amp; Keys shows the state of each permission, live.</div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_PERMISSIONS}}" alt="untype Settings, Permissions and Keys pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04 · screenshot of build 87</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ PERMISSIONS STEP BY STEP ============================ -->
+<section class="slide">
+  <div class="eyebrow">04 · Permissions, step by step</div>
+  <div class="title">Where to click in System Settings › Privacy &amp; Security.</div>
+  <div class="rule"></div>
+  <div class="grid g4" style="top:320px; gap:24px">
+    <div class="card" style="padding:26px"><div class="tag">1 · Microphone</div><ul style="font-size:17px">
+      <li>Hold the hotkey once. macOS asks whether untype may use the microphone: click <strong>Allow</strong>.</li>
+      <li>No question, or refused earlier? Open <strong>Microphone</strong> and switch untype on.</li>
+    </ul></div>
+    <div class="card ink" style="padding:26px"><div class="tag">2 · Accessibility</div><ul style="font-size:17px">
+      <li>Open <strong>Accessibility</strong> (macOS 27: <strong>Device Control and Data Access</strong>).</li>
+      <li>Click <strong>+</strong>, choose <em>Applications › untype</em>, and make sure its switch is on.</li>
+      <li>Quit untype and open it again.</li>
+    </ul></div>
+    <div class="card" style="padding:26px"><div class="tag">3 · Input Monitoring</div><ul style="font-size:17px">
+      <li>Needed only when the hotkey stays silent in front of other apps.</li>
+      <li>Open <strong>Input Monitoring</strong>, click <strong>+</strong>, add untype, switch it on.</li>
+      <li>Quit untype and open it again.</li>
+    </ul></div>
+    <div class="card" style="padding:26px"><div class="tag">4 · Screen &amp; System Audio</div><ul style="font-size:17px">
+      <li>untype asks at the first meeting recording.</li>
+      <li>Open <strong>Screen &amp; System Audio Recording</strong> and switch untype on.</li>
+      <li>Start the recording again.</li>
+    </ul></div>
+  </div>
+  <div class="callout">You do not have to find these pages yourself: Settings › Permissions &amp; Keys › <em>Open Permission Setup…</em> shows this guide with a button that opens each page, and re-checks the state for you.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ RECOVERY ============================ -->
+<section class="slide with-image">
+  <div class="eyebrow">04 · When a permission stops working</div>
+  <div class="title">Switched on, but macOS still says no.</div>
+  <div class="rule"></div>
+  <div class="body">
+    <p class="lead">What you see</p>
+    <p>The hotkey stops reacting, or the words are heard but not typed, although untype is switched on in System Settings. It can happen after installing a different copy of the app.</p>
+    <p class="lead">What to do</p>
+    <ul>
+      <li>In the page of that permission, select untype and click <strong>−</strong> to remove it.</li>
+      <li>Click <strong>+</strong> and add untype from Applications again.</li>
+      <li>Quit untype and open it again.</li>
+    </ul>
+    <p class="muted" style="margin-top:22px">Repair only the permission that is broken. Removing the others means granting them again.</p>
+  </div>
+  <div class="image-right" style="background-image:url('{{PERMISSIONS_KEYS}}')"></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ WHICH KEYS ============================ -->
+<section class="slide">
+  <div class="eyebrow">04 · Provider keys</div>
+  <div class="title">Which key for which feature.</div>
+  <div class="rule"></div>
+  <table class="t compact" style="top:320px">
+    <thead><tr><th style="width:400px">You want to</th><th style="width:520px">You need</th><th>The key</th></tr></thead>
     <tbody>
-      <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG</td><td>Enable the per-release JSONL log; off by default. Flag <code>--[no-]release-latency-log</code>.</td></tr>
-      <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG_PATH</td><td>Default <code>~/.tool-agents/untype/release-latency.jsonl</code>.</td></tr>
-      <tr><td class="k">UNTYPE_RELEASE_LATENCY_LOG_RESET_ON_START</td><td>Clear the log once per process start, keeping the previous run as <code>.previous</code>; env only.</td></tr>
-      <tr><td class="k">events.log (fixed path)</td><td>Session and diagnostic events of the app, kept across relaunches; no transcripts.</td></tr>
-      <tr><td class="k">UNTYPE_VERBOSE / -v</td><td>State transitions and operator diagnostics on stderr; never text.</td></tr>
+      <tr><td><strong>Dictate</strong></td><td>One speech-recognition provider</td><td>Soniox (the default), ElevenLabs or Google</td></tr>
+      <tr><td><strong>Record meetings</strong></td><td>Soniox, always</td><td>The Soniox key, also when you dictate with another provider</td></tr>
+      <tr><td><strong>Refine, Translate, Ask</strong></td><td>One language-model provider</td><td>Azure OpenAI, Google Gemini, Claude (direct or on Microsoft Foundry) or DeepSeek</td></tr>
+      <tr><td><strong>Use an alternative model</strong></td><td>The provider of that model</td><td>Its key, next to the main one</td></tr>
+      <tr><td><strong>Get English transcripts and meeting titles</strong></td><td>The main language model</td><td>Already set for Refine, Translate and Ask</td></tr>
+      <tr><td><strong>Ask the meeting assistant</strong></td><td>The provider you pick for it</td><td>That provider's key; the model is chosen in Settings › Meetings</td></tr>
     </tbody>
   </table>
-  <div class="stat-list" style="top:320px; width:640px">
-    <div class="row"><span>Final-text wait after release</span><span>1.5 s</span></div>
-    <div class="row"><span>Soniox finalize drain</span><span>250 ms</span></div>
-    <div class="row"><span>LLM timeout: refine · Ask</span><span>15 s · 120 s</span></div>
-    <div class="row"><span>Selection ⌘C fallback wait</span><span>≤ 300 ms</span></div>
-    <div class="row"><span>Warm-session idle recycle</span><span>5 min</span></div>
-    <div class="row"><span>Pasteboard restore after paste</span><span>0.8 s</span></div>
-    <div class="row"><span>Follow-up memory</span><span>20 exchanges</span></div>
-  </div>
-  <div class="note" style="right:800px">The timings on the right are compiled constants, not settings. They explain what you see: a processing wave that lasts 15 s is a hung LLM call, not a stuck hotkey; with Ask, long answers can take 30 s.</div>
+  <div class="callout">A Google key covers both Google speech recognition and Gemini, and is created at <code>aistudio.google.com/apikey</code>. A DeepSeek key comes from <code>platform.deepseek.com/api_keys</code>. For Azure OpenAI you also enter the endpoint, the deployment and the API version of your resource.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 43 STATE FILES ============================ -->
+<!-- ============================ SETTING THE KEYS ============================ -->
 <section class="slide">
-  <div class="eyebrow">04 · State files</div>
-  <div class="title">Two small JSON files, no secrets, no transcripts.</div>
+  <div class="eyebrow">04 · Provider keys</div>
+  <div class="title">Setting the keys.</div>
   <div class="rule"></div>
-  <pre class="code" style="top:330px; left:90px; width:800px; height:420px; font-size:17px"><span class="c">// state.json — written at runtime shutdown</span>
-{
-  <span class="h">"version"</span>: 1,
-  <span class="h">"saved_at"</span>: "2026-09-11T23:52:00Z",
-  <span class="h">"protocol"</span>: {
-    <span class="h">"operators"</span>: { "refine": true, "translate": false,
-      "ask": false, "followup": false, "selection": false,
-      "clipboard": true, "input": true },
-    <span class="h">"translation_policy"</span>: "opposite"
-  }
-}</pre>
-  <pre class="code" style="top:330px; right:90px; width:860px; height:420px; font-size:17px"><span class="c">// ui-state.json — window and settings</span>
-{
-  <span class="h">"version"</span>: 1, <span class="h">"saved_at"</span>: "…",
-  <span class="h">"settings"</span>: { "provider": "soniox", "model": "stt-rt-v5",
-    "languages": ["el","en"], "protocolMode": "dictation",
-    "llmEnabled": true, "llmProvider": "azure-anthropic",
-    "llmModel": "claude-opus-5-5",
-    "hotkeyEnabled": true, "hotkeyHoldToTalk": true,
-    "hotkey": "Control+`", "appearance": "light",
-    "perTurnOperators": ["ask","followup","selection"],
-    "selectionRole": "material", … },
-  <span class="h">"push_to_talk"</span>: { "enabled": true, "hotkey": "Control+`" }
-}</pre>
-  <div class="callout">Persisted operator values apply only when the corresponding flag or environment variable is not set. An invalid file is a typed error that names the file to fix or delete, never a silent reset.</div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 44 CLI ============================ -->
-<section class="slide">
-  <div class="eyebrow">04 · Command line</div>
-  <div class="title">One command, one subcommand, one helper.</div>
-  <div class="rule"></div>
-  <div class="grid g3" style="gap:32px">
-    <div class="card"><div class="tag">untype [options]</div><ul><li>Streams transcripts to stdout; diagnostics and warnings to stderr.</li><li>Ready line: <code>[untype] Ready to listen.</code></li><li><code>-h</code>, <code>--version</code> print and exit 0.</li><li>Unknown options raise <code>invalid_configuration</code>.</li></ul></div>
-    <div class="card"><div class="tag">untype ui</div><ul><li>Opens the native window; the same as double-clicking the bundle.</li><li>Runs the identical runtime in-process, so no terminal parsing.</li></ul></div>
-    <div class="card"><div class="tag">untype-input-helper</div><ul><li><code>diagnose</code> reports Accessibility trust and focused-element capabilities.</li><li><code>send --method auto|ax-value|unicode-events|paste-keycode</code> with text on stdin; one JSON line out; exit 2 on expected failure.</li></ul></div>
+  <div class="grid g2" style="gap:40px 60px">
+    <div class="card ink"><div class="tag">In the app</div><h3>Settings › Permissions &amp; Keys › <em>Edit Keys…</em></h3><ul>
+      <li>Also behind <em>Set keys…</em> on the welcome window.</li>
+      <li>Type or paste each key. Keys are hidden as you type; a <em>Show</em> switch reveals them.</li>
+      <li><em>Save</em> writes only what you changed. Emptying a field removes that key.</li>
+      <li>The pane shows whether a key is set and where it comes from, never the key itself.</li>
+    </ul></div>
+    <div class="card"><div class="tag">In the file</div><h3>For those who prefer a text editor</h3><ul>
+      <li>The keys live in <code>~/.tool-agents/untype/.env</code>, a file only you can read.</li>
+      <li>untype creates it with every setting listed and explained, each line starting with <code>#</code>. Remove the <code>#</code> and fill in the value.</li>
+      <li>Optional expiry dates such as <code>SONIOX_API_KEY_EXPIRES_AT</code> make untype warn you two weeks before a key runs out.</li>
+    </ul></div>
   </div>
-  <pre class="code" style="top:720px; left:90px; right:90px; height:200px; font-size:18px">untype --api-key sk_... --language el --language en
-SONIOX_API_KEY=sk_... untype --output-mode append
-untype --stt-provider elevenlabs --elevenlabs-api-key xi_... --language auto
-untype --no-refine --interaction-mode hybrid --protocol-output ./events.jsonl</pre>
+  <div class="callout warn"><strong>untype never guesses.</strong> If a key that a feature needs is missing, it says which one, instead of quietly using something else. Keys never appear in logs.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 04</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 45 DIVIDER 05 ============================ -->
+<!-- ============================ DIVIDER 05 ============================ -->
 <section class="slide divider dark">
-  <div class="photo" style="background-image:url('{{TROUBLESHOOT_LOGS}}')"></div>
+  <div class="photo" style="background-image:url('{{CONFIG_DRAWERS}}')"></div>
   <div class="num">05</div>
-  <div class="label">Operating and troubleshooting</div>
-  <div class="cap">The daily loop, what the logs say, the symptoms you will meet, and the rules that keep the two core features intact.</div>
+  <div class="label">Settings</div>
+  <div class="cap">Everything untype can be told, pane by pane, and where it keeps what you told it.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 46 DAILY WORKFLOW ============================ -->
+<!-- ============================ SETTINGS MAP ============================ -->
 <section class="slide">
-  <div class="eyebrow">05 · Daily workflow</div>
-  <div class="title">Focus a field, hold, speak, release.</div>
+  <div class="eyebrow">05 · The Settings window</div>
+  <div class="title">Nine panes, organised by what you do. Open it with ⌘,</div>
   <div class="rule"></div>
-  <div class="grid g4">
-    <div class="col"><div class="n">01</div><h3>Set the turn</h3><p>In the menu-bar dropdown, switch on what this turn needs: Ask, Follow-up or Selection. Refine, Translate, Clipboard and Input usually stay on.</p></div>
-    <div class="col"><div class="n">02</div><h3>Focus and hold</h3><p>Click into the target field, or select the text to work on. Hold the hotkey, or press once in push-to-listen mode, and speak. Your words appear as you say them.</p></div>
-    <div class="col"><div class="n">03</div><h3>Flip mid-turn</h3><p>Still holding, press R, T, A, F, S, C or I to switch an operator. The overlay chips show the result. Keep the caret where it is.</p></div>
-    <div class="col"><div class="n">04</div><h3>Release</h3><p>The wave breathes while the model works, then the live text is replaced in place. Operators set to <em>this turn</em> switch off again.</p></div>
-  </div>
-  <div class="callout">Quick Close trades accuracy for speed: it submits the latest partial the moment you release. With voice commands on, say "command send", "command cancel", "command status" or "command ask on". Switch them off in Settings › Protocol if you dictate text containing those words.</div>
+  <table class="t compact" style="top:310px">
+    <thead><tr><th style="width:330px">Pane</th><th>What you set there</th></tr></thead>
+    <tbody>
+      <tr><td><strong>General</strong></td><td>Light or dark theme, whether the overlay stays on screen and where it sits, and the state of the current session.</td></tr>
+      <tr><td><strong>Push-to-Talk</strong></td><td>The dictation hotkey, hands-free punctuation, Quick Close, and a test of the hotkey.</td></tr>
+      <tr><td><strong>Push-to-Act</strong></td><td>The hotkey that works on selected text.</td></tr>
+      <tr><td><strong>Meetings</strong></td><td>Transcript language, the assistant's model, saved audio, the three clean-transcript switches, folder, Apple Notes, stop after silence, calendar.</td></tr>
+      <tr><td><strong>Speech</strong></td><td>The speech-recognition provider, model and languages, the dictionary, Only my voice, and voice commands.</td></tr>
+      <tr><td><strong>Operators</strong></td><td>Each operator's state and how long a change lasts, the translation direction, and the experimental operators.</td></tr>
+      <tr><td><strong>Language Models</strong></td><td>The main model and the two alternatives.</td></tr>
+      <tr><td><strong>Prompts</strong></td><td>The instructions the language model gets, editable.</td></tr>
+      <tr><td><strong>Permissions &amp; Keys</strong></td><td>The state of the macOS permissions with a guide, and the provider keys.</td></tr>
+    </tbody>
+  </table>
+  <div class="note" style="bottom:96px">Each pane says in one line what it is for. Settings that shape a dictation are locked while one is running.</div>
   <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 46b RECIPES ============================ -->
+<!-- ============================ MENU BAR DROPDOWN ============================ -->
 <section class="slide">
-  <div class="eyebrow">05 · Recipes</div>
-  <div class="title">Five things to try in the first week.</div>
+  <div class="eyebrow">05 · The menu-bar dropdown</div>
+  <div class="title">The everyday switches, under the menu-bar icon.</div>
+  <div class="rule"></div>
+  <div class="grid g3" style="gap:32px">
+    <div class="card"><div class="tag">Controls</div><h3>What is on</h3><ul>
+      <li><strong>Hotkey</strong>: listen for the hotkey, or not.</li>
+      <li><strong>Overlay</strong>: keep it on screen.</li>
+      <li><strong>Experimental</strong>: the operators F, S, W and X.</li>
+      <li>The state at the top: idle, ready, recording or finalizing.</li>
+    </ul></div>
+    <div class="card ink"><div class="tag">Operators</div><h3>Switches, or a summary</h3><ul>
+      <li>While the overlay is not kept on screen, an <strong>Operators</strong> tab holds the switches and the translation target.</li>
+      <li>While it is, the dropdown only names what is <strong>on now</strong>: the overlay has the switches.</li>
+    </ul></div>
+    <div class="card"><div class="tag">Meeting and windows</div><h3>Everything else, one click away</h3><ul>
+      <li><strong>Record meeting</strong>, Attach, Open folder.</li>
+      <li>Transcript ⌘1, History ⌘2, Transcription window ⌘3, Meeting assistant ⌘4.</li>
+      <li>New conversation, Settings ⌘, and Quit ⌘Q.</li>
+    </ul></div>
+  </div>
+  <div class="callout">The <strong>Transcript</strong> and <strong>History</strong> windows show what was heard and what was delivered in this session, with a copy button on every turn. Nothing of it is kept after you quit.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ PUSH-TO-TALK PANE ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Push-to-Talk</div>
+  <div class="title" style="right:960px">The hotkey, and how a dictation ends.</div>
+  <div class="rule"></div>
+  <div class="body" style="right:960px; font-size:20px">
+    <ul>
+      <li><strong>Enable push-to-talk</strong> switches the hotkey on or off, like the switch in the dropdown.</li>
+      <li><strong>Hotkey</strong>: click the field and press the combination you want, for example <code>Control+`</code> or a single key such as <code>F16</code>.</li>
+      <li><strong>Hands-free (after a tap)</strong>: <em>I end the sentences</em> and <em>Full stop after a long pause</em> decide who punctuates.</li>
+      <li><strong>Quick Close</strong>: on release, deliver what was heard so far without waiting for the last correction. Faster; the last words can be a little less accurate.</li>
+      <li><strong>Test</strong> shows whether the hotkey listener is ready, and lets you try a dictation without the hotkey.</li>
+    </ul>
+  </div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_PUSH_TO_TALK}}" alt="untype Settings, Push-to-Talk pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05 · screenshot of build 87</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ SPEECH PROVIDERS ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Speech</div>
+  <div class="title">Three speech-recognition providers to choose from.</div>
   <div class="rule"></div>
   <table class="t" style="top:320px">
-    <thead><tr><th style="width:360px">Goal</th><th style="width:330px">Switch on</th><th>Do this</th></tr></thead>
+    <thead><tr><th style="width:260px">Provider</th><th style="width:420px">Model it starts with</th><th style="width:420px">Languages</th><th>Good to know</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Soniox</strong> · default</td><td><code>stt-rt-v6</code></td><td>Greek and English, or automatic</td><td>The one meetings and Only my voice work with.</td></tr>
+      <tr><td><strong>ElevenLabs</strong></td><td><code>scribe_v3_live</code></td><td>One language, or automatic</td><td>Takes dictionary words of up to 20 characters.</td></tr>
+      <tr><td><strong>Google</strong></td><td><code>gemini-3.5-transcribe-live</code></td><td>Greek and English, or automatic</td><td>Uses the same key as Gemini.</td></tr>
+    </tbody>
+  </table>
+  <div class="grid g2" style="top:640px; gap:32px">
+    <div class="card tint"><div class="tag">Staying current</div><p>Changing the provider sets its current model. <strong>Latest</strong> does the same later, and a model the provider has retired is replaced by its successor.</p></div>
+    <div class="card tint"><div class="tag">Voice commands</div><p>On: spoken phrases such as "command send" or "command translate on" are obeyed. Switch them <strong>off</strong> if you dictate text that contains those words; then everything you say is text.</p></div>
+  </div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ OPERATORS PANE ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Operators</div>
+  <div class="title" style="right:960px">How each operator starts, and how long it lasts.</div>
+  <div class="rule"></div>
+  <div class="body" style="right:960px; font-size:20px">
+    <ul>
+      <li><strong>Processing</strong>: Refine, Translate, Ask and Alternative LLM, each with its letter and a switch.</li>
+      <li><strong>Delivery</strong>: Clipboard and Focused input.</li>
+      <li><strong>Lasts</strong>, per operator: <em>Until changed</em> keeps it as you set it; <em>This turn</em> switches it off again after one dictation. Ask starts as <em>This turn</em>.</li>
+      <li><strong>Translation › Direction</strong>: the other language, to English, or to Greek.</li>
+      <li><strong>Experimental operators</strong>: one switch for Follow-up, Selection, Screenshot and Window text. While it is on, <em>Selected text is</em> chooses whether a selection is the material to rework or only context.</li>
+    </ul>
+  </div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_OPERATORS}}" alt="untype Settings, Operators pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05 · screenshot of build 87</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ LANGUAGE MODELS ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Language Models</div>
+  <div class="title" style="right:960px">A main model and two alternatives.</div>
+  <div class="rule"></div>
+  <div class="body" style="right:960px; font-size:20px">
+    <ul>
+      <li><strong>Primary</strong>: <em>Use a language model</em>, then the provider and the model. It serves Refine, Translate and Ask, and writes the English transcript and the titles of meetings.</li>
+      <li><strong>Alternative</strong>: the model the L operator switches to.</li>
+      <li><strong>Alternative 2</strong>: a third choice offered in the Push-to-Act pop-up.</li>
+      <li><strong>Providers</strong>: <code>azure-openai</code>, <code>google</code> (Gemini), <code>anthropic</code> and <code>azure-anthropic</code> (Claude, direct or on Microsoft Foundry), <code>deepseek</code>.</li>
+      <li><strong>Model</strong>: the provider's name for it, for example <code>gemini-3.8-flash</code> or <code>deepseek-flash</code>; on Azure, the name of your deployment.</li>
+      <li>An alternative needs both a provider and a model, and that provider's key.</li>
+    </ul>
+  </div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_MODELS}}" alt="untype Settings, Language Models pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05 · screenshot of build 87</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ MEETINGS PANE ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Meetings</div>
+  <div class="title">Everything about a recording, in one pane.</div>
+  <div class="rule"></div>
+  <table class="t compact" style="top:310px">
+    <thead><tr><th style="width:560px">Setting</th><th style="width:330px">Starts as</th><th>What it decides</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Transcript › Language</strong></td><td>English</td><td>English, with other lines translated at the end, or <em>As spoken</em>.</td></tr>
+      <tr><td><strong>Assistant › Provider and Model</strong></td><td>Not set</td><td>The model the meeting assistant answers with. It asks for one until you choose.</td></tr>
+      <tr><td><strong>Audio › Save audio</strong></td><td>Microphone and system</td><td>Both sides, only yours, only the call's, or no audio at all.</td></tr>
+      <tr><td><strong>Audio › Audio files</strong></td><td>Separate files</td><td>One file per side, or both mixed in one.</td></tr>
+      <tr><td><strong>Remove speaker sound · Only my voice</strong></td><td>Off</td><td>A clean transcript without headphones.</td></tr>
+      <tr><td><strong>Mute the microphone while dictating</strong></td><td>On</td><td>Whether what you dictate is kept out of the meeting.</td></tr>
+      <tr><td><strong>Files › Folder</strong></td><td><code>~/Documents/untype Meetings</code></td><td>Where the meeting folders are created.</td></tr>
+      <tr><td><strong>Files › Also save to Apple Notes</strong></td><td>Off</td><td>A note per meeting in the folder "untype".</td></tr>
+      <tr><td><strong>Stop after silence</strong></td><td>3 minutes</td><td>When a forgotten recording ends by itself; 0 means never.</td></tr>
+      <tr><td><strong>Calendar › Use my Outlook calendar</strong></td><td>Off</td><td>Reminders and names from your calendar.</td></tr>
+    </tbody>
+  </table>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ PROMPTS ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Prompts</div>
+  <div class="title" style="right:960px">Change how the model treats your words.</div>
+  <div class="rule"></div>
+  <div class="body" style="right:960px; font-size:20px">
+    <ul>
+      <li>The pane lists the instructions the model gets, by purpose: Refinement, Translation, Refine + translate, Ask, Selected text, Screenshot, Window text, Transcription context.</li>
+      <li>Edit one and press <strong>Save</strong> (⌘S). The next dictation already uses it; nothing has to be restarted.</li>
+      <li><strong>Revert</strong> drops what you have not saved. <strong>Reset to Default</strong> brings back the original text.</li>
+      <li>A prompt that is missing a required placeholder such as <code>{text}</code> cannot be saved, so you cannot break dictation from here.</li>
+      <li>Typical changes: a preferred tone for Refine, terms that must never be translated, a house style for Ask answers.</li>
+    </ul>
+  </div>
+  <div class="shot-panel"></div>
+  <img class="shot" src="{{UI_SETTINGS_PROMPTS}}" alt="untype Settings, Prompts pane" style="top:150px; right:60px; width:780px" />
+  <div class="footer" style="right:954px"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05 · screenshot of build 87</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ WHERE SETTINGS LIVE ============================ -->
+<section class="slide">
+  <div class="eyebrow">05 · Where it is kept</div>
+  <div class="title">Everything of yours sits in two folders.</div>
+  <div class="rule"></div>
+  <div class="tree" style="position:absolute; top:330px; left:90px; font-size:19px"><span class="d">~/.tool-agents/untype/</span>          <span class="m">only you can read it</span>
+  .env                           <span class="m">your provider keys, and the advanced settings</span>
+  prompts/                       <span class="m">the prompt files you edit in Settings › Prompts</span>
+  dictionary.json                <span class="m">your dictionary</span>
+  voice-sample.wav               <span class="m">a few seconds of your voice, for Only my voice</span>
+  ui-state.json                  <span class="m">what you chose in Settings, the overlay's place, pinned chips</span>
+  events.log                     <span class="m">what untype did and when; never what you said</span>
+
+<span class="d">~/Documents/untype Meetings/</span>    <span class="m">one folder per recorded meeting</span></div>
+  <div class="callout">To move to a new Mac, copy the first folder. To forget your voice, delete <code>voice-sample.wav</code>. When something goes wrong, <code>events.log</code> is the file to look at or to send along: it holds states, times and warnings, and no dictated text.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ DIVIDER 06 ============================ -->
+<section class="slide divider dark">
+  <div class="photo" style="background-image:url('{{UI_OVERVIEW}}')"></div>
+  <div class="num">06</div>
+  <div class="label">Everyday use</div>
+  <div class="cap">The daily loop, a few things worth trying, and what to do when untype does not do what you expect.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>Section 06</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ DAILY LOOP ============================ -->
+<section class="slide">
+  <div class="eyebrow">06 · The daily loop</div>
+  <div class="title">Click into a field, speak, and move on.</div>
+  <div class="rule"></div>
+  <div class="grid g4">
+    <div class="col"><div class="n">01</div><h3>Set the turn</h3><p>Glance at the chips. Refine and Input usually stay on; click Translate, Ask or L when this turn needs them.</p></div>
+    <div class="col"><div class="n">02</div><h3>Hold, or tap</h3><p>Hold the hotkey for a sentence or two. Tap it for a long message or when your hands are busy.</p></div>
+    <div class="col"><div class="n">03</div><h3>Watch and correct</h3><p>The words appear as you speak. Change your mind mid-turn: press a letter to flip an operator, or fix a word with the keyboard.</p></div>
+    <div class="col"><div class="n">04</div><h3>Finish</h3><p>Release, or after a tap press Enter to send, the hotkey to keep, Esc to drop. The result replaces the live words.</p></div>
+  </div>
+  <div class="callout">In a meeting, the same loop still works: start the recording from the overlay's tray, keep dictating into your notes or the chat, and ask the assistant when you need to catch up.</div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 06</span></div><span class="pg"></span></div>
+</section>
+
+<!-- ============================ RECIPES ============================ -->
+<section class="slide">
+  <div class="eyebrow">06 · Recipes</div>
+  <div class="title">Seven things to try in the first week.</div>
+  <div class="rule"></div>
+  <table class="t compact" style="top:310px">
+    <thead><tr><th style="width:400px">Goal</th><th style="width:260px">Switch on</th><th>Do this</th></tr></thead>
     <tbody>
       <tr><td><strong>Clean dictation</strong></td><td><span class="pill on">R</span><span class="pill on">I</span></td><td>Hold, speak naturally with ums and restarts, release. A tidy sentence replaces the raw words.</td></tr>
-      <tr><td><strong>Write in the other language</strong></td><td><span class="pill on">R</span><span class="pill on">T</span><span class="pill on">I</span></td><td>Speak Greek, get English, or the reverse. Pick the target next to Translate in the dropdown.</td></tr>
-      <tr><td><strong>Translate existing text</strong></td><td><span class="pill on">T</span><span class="pill on">S</span><span class="pill on">I</span></td><td>Select a paragraph and tap the hotkey without speaking. The paragraph is replaced by its translation.</td></tr>
-      <tr><td><strong>Draft a reply</strong></td><td><span class="pill on">A</span><span class="pill on">S</span><span class="pill on">I</span></td><td>Set <em>Selected text is</em> to Context, select the message, say "reply that I agree and propose Tuesday at ten". The draft goes after the message, not over it.</td></tr>
-      <tr><td><strong>Refine the draft</strong></td><td><span class="pill on">A</span><span class="pill on">F</span><span class="pill on">I</span></td><td>Right after an Ask, say "shorter and more formal". The model revises its previous answer.</td></tr>
+      <tr><td><strong>Write in the other language</strong></td><td><span class="pill on">R</span><span class="pill on">T</span><span class="pill on">I</span></td><td>Speak Greek and get English, or the reverse. Pick the direction in the overlay's tray.</td></tr>
+      <tr><td><strong>Send a chat message hands-free</strong></td><td><span class="pill on">R</span><span class="pill on">I</span></td><td>Tap the hotkey, say the message, press Enter. It is typed and sent.</td></tr>
+      <tr><td><strong>Draft a reply</strong></td><td><span class="pill on">A</span><span class="pill on">I</span></td><td>In the reply field say "thank them, agree, and propose Tuesday at ten". The draft is typed for you.</td></tr>
+      <tr><td><strong>Fix a paragraph you wrote</strong></td><td>Push-to-Act</td><td>Select it, press <code>Control+Option+`</code>, choose <code>R</code>, press Enter.</td></tr>
+      <tr><td><strong>Summarise a long email</strong></td><td><span class="pill on">A</span><span class="pill on">X</span><span class="pill on">C</span></td><td>With the email open, say "summarise this in three points". Needs the experimental operators.</td></tr>
+      <tr><td><strong>Catch up in a meeting</strong></td><td>Recording</td><td>Press ⌘4 and ask "what was decided so far?".</td></tr>
     </tbody>
   </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 06</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 47 READING THE LOG ============================ -->
+<!-- ============================ SYMPTOMS SETUP ============================ -->
 <section class="slide">
-  <div class="eyebrow">05 · Reading the latency log</div>
-  <div class="title">One line tells you which link is slow or broken.</div>
-  <div class="rule"></div>
-  <pre class="code" style="top:330px; left:90px; right:90px; height:130px; font-size:17px">tail -1 ~/.tool-agents/untype/release-latency.jsonl | python3 -c \
-  'import sys,json; r=json.load(sys.stdin); print(r.get("outcome"), r.get("focused_input"))'
-<span class="c"># expected:</span> delivered_to_focused_input {'attempted': True, 'ok': True, ...}</pre>
-  <table class="t compact" style="top:500px">
-    <thead><tr><th style="width:420px">Signal</th><th>Interpretation</th></tr></thead>
-    <tbody>
-      <tr><td class="k">provider_final_wait_ms high</td><td>Provider finalization or voice activity detection is slow; consider Quick Close for short commands.</td></tr>
-      <tr><td class="k">runtime_scheduling_ms high</td><td>UI or runtime scheduling contention on the main thread.</td></tr>
-      <tr><td class="k">refine_ms / translate_ms / ask_ms high</td><td>The LLM is the bottleneck: model choice, reasoning effort, answer length, or network.</td></tr>
-      <tr><td class="k">focused_input ok=false</td><td>Accessibility, target application or paste problems; check <code>code</code>. <code>method=live-typed</code> means live typing delivered the turn.</td></tr>
-      <tr><td class="k">events.log after a relaunch</td><td>Shows what happened before: <code>push-to-talk session ended unexpectedly</code>, then the re-warm attempts.</td></tr>
-      <tr><td class="k">text_source=timeout_fallback_partial</td><td>The provider did not finalize within 1.5 s; the latest partial was used with a warning.</td></tr>
-    </tbody>
-  </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 48 SYMPTOMS ============================ -->
-<section class="slide">
-  <div class="eyebrow">05 · Common symptoms</div>
+  <div class="eyebrow">06 · When it does not work · setup</div>
   <div class="title">What you see, why, and what to do.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:520px">Symptom</th><th style="width:520px">Cause</th><th>Fix</th></tr></thead>
+  <table class="t compact" style="top:310px">
+    <thead><tr><th style="width:520px">What you see</th><th style="width:520px">Why</th><th>What to do</th></tr></thead>
     <tbody>
-      <tr><td><code>focused_input_failed</code>, <code>accessibility_not_trusted</code></td><td>Accessibility grant tied to an older signing identity.</td><td><code>tccutil reset Accessibility com.local.untype</code>, relaunch, re-add the app.</td></tr>
-      <tr><td>Hotkey does nothing after an install</td><td>Input Monitoring grant belongs to the previous identity.</td><td>Remove the stale entry, re-add <code>/Applications/untype.app</code>, relaunch.</td></tr>
-      <tr><td>Text processed but not inserted; untype was frontmost</td><td>No external target to restore.</td><td>Focus the target edit control before release.</td></tr>
-      <tr><td>Processing wave lasts 15 s, raw text delivered</td><td>Hung LLM request hitting the fixed timeout.</td><td>Check the endpoint and deployment; delivery is fail-open.</td></tr>
-      <tr><td>Refinement silently skipped, HTTP 400</td><td><code>UNTYPE_LLM_REASONING_EFFORT</code> set on a non-reasoning deployment.</td><td>Unset it for that deployment.</td></tr>
-      <tr><td>UI shows one Azure deployment, requests use another</td><td>Duplicate <code>AZURE_OPENAI_DEPLOYMENT</code> lines; last one wins.</td><td>Keep a single definition in <code>.env</code>.</td></tr>
-      <tr><td>Warm session keeps restarting after a provider error</td><td>Fatal provider error such as an exhausted balance.</td><td>Auto-restart is skipped after fatal errors; fix the account, restart the session.</td></tr>
-      <tr><td>Notarization <code>status: Invalid</code></td><td>Signing or entitlement problem in the bundle.</td><td><code>xcrun notarytool log &lt;id&gt; --keychain-profile untype-notary</code>.</td></tr>
+      <tr><td>The hotkey does nothing</td><td>The hotkey is switched off; it starts that way.</td><td>Menu-bar icon › <em>Hotkey</em> on.</td></tr>
+      <tr><td>The hotkey works only while untype is in front</td><td>Input Monitoring is missing.</td><td>Add untype under Input Monitoring; quit and reopen.</td></tr>
+      <tr><td>The words are heard but not typed</td><td>Accessibility is missing or no longer valid.</td><td>Grant it, or remove and add untype again; quit and reopen.</td></tr>
+      <tr><td>A message about a missing key at the start</td><td>No key for the chosen speech provider.</td><td>Settings › Permissions &amp; Keys › <em>Edit Keys…</em></td></tr>
+      <tr><td>The text arrives exactly as spoken, with a warning</td><td>The language model is off, or its key is missing.</td><td>Settings › Language Models; then the keys.</td></tr>
+      <tr><td>With L on, the text is not processed</td><td>No alternative model is set.</td><td>Set a provider and a model under Alternative.</td></tr>
+      <tr><td>The meeting transcript has only <strong>You</strong></td><td>Screen &amp; System Audio Recording is missing.</td><td>Grant it and start the recording again.</td></tr>
+      <tr><td>The calendar switch will not stay on</td><td>The <code>nbg-m365</code> tool is not installed or not signed in.</td><td>Install it and sign in; Settings shows the reason.</td></tr>
     </tbody>
   </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 06</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 48b SYMPTOMS IN USE ============================ -->
+<!-- ============================ SYMPTOMS DAILY ============================ -->
 <section class="slide">
-  <div class="eyebrow">05 · Symptoms in daily use</div>
-  <div class="title">Live typing, Ask and Selection have their own pitfalls.</div>
+  <div class="eyebrow">06 · When it does not work · daily use</div>
+  <div class="title">Small surprises, and the switch behind each one.</div>
   <div class="rule"></div>
-  <table class="t compact" style="top:320px">
-    <thead><tr><th style="width:520px">Symptom</th><th style="width:560px">Cause</th><th>Fix</th></tr></thead>
+  <table class="t compact" style="top:310px">
+    <thead><tr><th style="width:520px">What you see</th><th style="width:560px">Why</th><th>What to do</th></tr></thead>
     <tbody>
-      <tr><td>Final text lands in the wrong place or garbled</td><td>The caret moved, or you typed, while the hotkey was held.</td><td>Keep hands off the field until the text settles.</td></tr>
-      <tr><td>Live words stay after "command cancel"</td><td>Only a delivered result replaces live text.</td><td>Undo or delete them by hand.</td></tr>
-      <tr><td>Ask returns your words, with "ask operator failed"</td><td>LLM off or misconfigured, or the request failed.</td><td>Turn on Refinement (LLM) and check the provider keys.</td></tr>
-      <tr><td>Ask answer cut off, "stop_reason max_tokens"</td><td>The answer exceeded the Ask output cap.</td><td>Raise <code>UNTYPE_ASK_MAX_OUTPUT_TOKENS</code> above 8 000.</td></tr>
-      <tr><td>Selection ignored</td><td>The app exposes no selection and the ⌘C fallback copied nothing.</td><td>Check Accessibility; some editors copy the whole line when nothing is selected.</td></tr>
-      <tr><td>Translated selection overwrote text you wanted to keep</td><td>The Material role replaces the selection.</td><td>Switch <em>Selected text is</em> to Context.</td></tr>
-      <tr><td>Ask switched itself off</td><td>Ask, Follow-up and Selection last one turn by default.</td><td>Set <em>Lasts</em> to Until changed in Settings › Operators.</td></tr>
-      <tr><td>An operator flips, or the turn ends, while you dictate</td><td>Your text contained a command phrase such as "command translate on".</td><td>Switch off Settings › Protocol › <em>Voice commands</em>.</td></tr>
-      <tr><td>"command send" does nothing and is typed as text</td><td>Voice commands are off.</td><td>Switch them on, or end the turn with the hotkey.</td></tr>
-      <tr><td>First press after a long idle did nothing (older builds)</td><td>The provider closed the idle socket.</td><td>Build 25 and later re-warm the session automatically; see <code>events.log</code>.</td></tr>
+      <tr><td>Ask switched itself off</td><td>Ask lasts one turn unless told otherwise.</td><td>Operators › <em>Lasts</em> › Until changed.</td></tr>
+      <tr><td>The chips F, S, W, X are not there</td><td>The experimental operators are off.</td><td>Operators › Experimental operators.</td></tr>
+      <tr><td>An operator flips while you dictate</td><td>You said a command phrase such as "command translate on".</td><td>Speech › <em>Voice commands</em> off.</td></tr>
+      <tr><td>A name is always written wrong</td><td>Speech recognition does not know it.</td><td>Speech › Dictionary › add it, then <em>Teach</em>.</td></tr>
+      <tr><td>A colleague's words get typed</td><td>The microphone hears everyone.</td><td>Speech › Only my voice › <em>Learn</em>.</td></tr>
+      <tr><td>The model takes long, then the raw text arrives</td><td>The model did not answer in time.</td><td>Nothing is lost; try again, or switch to L.</td></tr>
+      <tr><td>A long Ask answer is cut off</td><td>It exceeded the answer length limit.</td><td>Raise <code>UNTYPE_ASK_MAX_OUTPUT_TOKENS</code> in the <code>.env</code> file.</td></tr>
+      <tr><td>Other people appear as <strong>You</strong> in a meeting</td><td>The microphone hears the loudspeakers.</td><td>Headphones, or the clean-transcript switches.</td></tr>
+      <tr><td>A recording stopped by itself</td><td>Three minutes passed without speech.</td><td>Meetings › Stop after silence.</td></tr>
     </tbody>
   </table>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 06</span></div><span class="pg"></span></div>
 </section>
 
-<!-- ============================ 49 GUARDRAILS ============================ -->
-<section class="slide with-image">
-  <div class="eyebrow">05 · Guardrails for contributors</div>
-  <div class="title">Two features may never regress.</div>
-  <div class="rule"></div>
-  <div class="body">
-    <p class="lead">Do not break push-to-talk.</p>
-    <p>Any change to the UI, session controls, hotkey configuration, permission flow, overlay or runtime lifecycle must keep the whole chain: listening stays active, press and release reach the hotkey-owned session, the gate opens and closes, the overlay shows and hides, and delivery runs after release. Verify in <code>NativeUntypeUILauncher</code>, <code>UntypeHotkeyMonitor</code>, <code>HotkeySessionControl</code> and <code>TranscriptionSessionRuntime</code>.</p>
-    <p class="lead">Do not break focused-input delivery.</p>
-    <p>Any change touching delivery, live typing, the protocol controller, the packaging script, or any redeploy must be followed by a real release into a text field with <code>focused_input.ok=true</code> in the log. untype's own keystrokes must keep the marker that the hotkey monitors ignore.</p>
-    <p class="lead">Never redeploy an ad-hoc bundle.</p>
-    <p>Always package with the Developer ID identity and notarize; an unsigned build silently revokes Accessibility.</p>
-  </div>
-  <div class="image-right" style="background-image:url('{{GUARDRAILS_BRIDGE}}')"></div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_SMALL}}" alt="BikS2013" /><span>Section 05</span></div><span class="pg"></span></div>
-</section>
-
-<!-- ============================ 50 CLOSING ============================ -->
+<!-- ============================ CLOSING ============================ -->
 <section class="slide divider dark">
   <div class="photo" style="background-image:url('{{CLOSING_ATHENS}}')"></div>
   <div class="num" style="font-size:120px; top:300px">untype</div>
-  <div class="label" style="top:450px; bottom:auto; width:640px; font-size:48px; line-height:1.05">Where it stands, and what is next.</div>
-  <div class="cap" style="top:590px; width:620px; font-size:19px">
-    Build 28, on GitHub Releases and Homebrew, is a menu-bar app with live typing at the caret, a text-free oscilloscope overlay, seven operators including Ask, Follow-up and Selection, a voice-commands switch, a Settings window with hot-reloaded prompts, and Claude on Microsoft Foundry.<br /><br />
-    Open items: synchronise runtime state across execution contexts, await provider handshakes and trailing finals, reduce UI main-thread writes, and replace the placeholder bundle id in one deliberate build.<br /><br />
-    Docs: <code>docs/design/project-design.md</code>, <code>configuration-guide.md</code>, <code>deployment-guide.md</code>, <code>release-runbook.md</code> and the issue register in <code>Issues - Pending Items.md</code>.
+  <div class="label" style="top:450px; bottom:auto; width:640px; font-size:48px; line-height:1.05">Speak. It is written.</div>
+  <div class="cap" style="top:540px; width:620px; font-size:20px">
+    Build 87: dictation with one hotkey, an overlay you can click, six operators and four experimental ones, Push-to-Act, a dictionary, Only my voice, and meetings with a live transcript, attachments and an assistant.<br /><br />
+    Install: <code>brew tap biks2013-tools/untype</code>, then <code>brew install --cask untype</code>.<br /><br />
+    Downloads: <code>github.com/biks2013-tools/untype-s/releases</code><br />
+    This guide: <code>biks2013-tools.github.io/untype-s</code>
   </div>
-  <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>untype · technical deck</span></div><span class="pg"></span></div>
+  <div class="footer"><div class="brand"><img src="{{LOGO_KNOCKOUT}}" alt="BikS2013" /><span>untype · user guide</span></div><span class="pg"></span></div>
 </section>

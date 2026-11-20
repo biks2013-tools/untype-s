@@ -8,6 +8,12 @@ _None._
 
 ## Completed
 
+### Deck rewritten as a user guide for build 87 (2026-11-20)
+
+- **Issue:** the deck described build 28 and was written for a technical audience: the pipeline, hotkey detection layers, audio capture, provider protocols, the composite LLM call, the latency record, the code layout, building, packaging, signing, the configuration resolution chain, state files, the command line and the contributor guardrails. Builds 29 to 87 added most of what a user sees today, and none of it was in the deck.
+- **Solution:** 48 slides for users, in six parts: what untype is, dictation, meetings, install and set up, settings, everyday use. All technical-design and developer slides were removed. New material: the single hold-or-tap hotkey with hands-free turns, delivery to the app the turn started in, whole-sentence refine and edits kept, the clickable overlay with its tray, pinned chips and dragging, the Alternative LLM and the four experimental operators, Push-to-Act, the dictionary and Only my voice, the three speech providers, meeting recording with the transcription window, pause, attachments, saved files, Apple Notes, the Outlook calendar and the meeting assistant, the fourth permission (Screen & System Audio Recording) and the macOS 27 name of Accessibility, the provider keys per feature, and the nine Settings panes. Seven Settings screenshots were taken from build 87; two photos (`meeting-call`, `meeting-notes`) were generated in the BikS2013 palette. The old screenshots of builds 27 and 28 were removed.
+- **Left as it is:** the README on `main` still calls the deck a "Technical presentation (59 slides)"; `main` is outside the deck's publishing scope. The photos `module-layout`, `signing-seal`, `guardrails-bridge`, `streaming-audio`, `prompt-writing`, `troubleshoot-logs` and `cover-portrait` are no longer used by any slide and stay in `deck/images/` and `deck/assets/`.
+
 ### Deck updated to build 28: voice-commands switch; plan-037 now released (2026-10-25)
 
 - **Issue:** build 28 added Settings › General › Protocol › *Voice commands* (`--[no-]voice-commands`, `UNTYPE_VOICE_COMMANDS`, default on; off means no spoken marker is recognised). The deck also still said that Follow-up and Selection were uncommitted and that build 24 was the latest release, while builds 27 and 28 had been committed and released.
