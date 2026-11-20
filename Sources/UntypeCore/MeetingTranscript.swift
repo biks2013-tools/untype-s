@@ -159,6 +159,37 @@ public struct MeetingTokenAggregator: Sendable {
     /// Ends the current segment (stream closed).
     public mutating func flush() -> MeetingSegment? {
         defer { pending.removeAll() }
+        return segment(of: pending)
+    }
+
+    /// The marks that end a sentence, Greek question mark included.
+    private static let sentenceEnds: Set<Character> = [".", "!", "?", ";", "…"]
+
+    /// Ends the current segment at its last full stop (plan-078): the
+    /// sentences finished so far become a segment, the words after them
+    /// stay in progress. Nil when no sentence has ended yet. A mark inside
+    /// a number or a word ("3.5", "e.g") does not count.
+    public mutating func flushThroughLastSentenceEnd() -> MeetingSegment? {
+        var cut: Int?
+        for index in pending.indices {
+            guard let last = pending[index].text.last(where: { !$0.isWhitespace }), Self.sentenceEnds.contains(last) else {
+                continue
+            }
+            let endsWithSpace = pending[index].text.last?.isWhitespace ?? false
+            let nextStartsWord = index + 1 < pending.count ? (pending[index + 1].text.first?.isWhitespace ?? true) : true
+            if endsWithSpace || nextStartsWord {
+                cut = index
+            }
+        }
+        guard let cut else {
+            return nil
+        }
+        let done = Array(pending[...cut])
+        pending.removeSubrange(...cut)
+        return segment(of: done)
+    }
+
+    private func segment(of pending: [MeetingToken]) -> MeetingSegment? {
         let text = pending.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             return nil

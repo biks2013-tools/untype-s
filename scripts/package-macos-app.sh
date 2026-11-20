@@ -257,6 +257,49 @@ cp "$UNTYPE_BINARY" "$MACOS/untype"
 cp "$HELPER_BINARY" "$MACOS/untype-input-helper"
 chmod +x "$MACOS/untype" "$MACOS/untype-input-helper"
 
+# The meeting assistant (plan-078): the Node.js runtime and the agent that
+# runs on it. Node.js is the official arm64 build, pinned and checked.
+NODE_VERSION="v22.23.5"
+NODE_SHA256="e7131995759b61a0170b646010d2ad35a5d37b4cb0d471f3e8317eac6f742f3d"
+NODE_NAME="node-$NODE_VERSION-darwin-arm64"
+NODE_CACHE="$PROJECT_ROOT/.build/node-cache"
+NODE_ENTITLEMENTS="$PROJECT_ROOT/packaging/macos/node.entitlements"
+AGENT_SOURCE="$PROJECT_ROOT/agent"
+AGENT="$RESOURCES/agent"
+[[ -f "$NODE_ENTITLEMENTS" ]] || fail "missing entitlements file: $NODE_ENTITLEMENTS"
+[[ -f "$AGENT_SOURCE/package-lock.json" ]] || fail "missing agent project: $AGENT_SOURCE"
+require_command npm
+require_command curl
+
+note "Adding Node.js $NODE_VERSION"
+mkdir -p "$NODE_CACHE"
+if [[ ! -f "$NODE_CACHE/$NODE_NAME.tar.gz" ]]; then
+  curl -fsSL -o "$NODE_CACHE/$NODE_NAME.tar.gz" "https://nodejs.org/dist/$NODE_VERSION/$NODE_NAME.tar.gz"
+fi
+echo "$NODE_SHA256  $NODE_CACHE/$NODE_NAME.tar.gz" | shasum -a 256 -c - >/dev/null \
+  || fail "Node.js archive does not match its checksum: $NODE_CACHE/$NODE_NAME.tar.gz"
+rm -rf "$NODE_CACHE/$NODE_NAME"
+tar -xzf "$NODE_CACHE/$NODE_NAME.tar.gz" -C "$NODE_CACHE" "$NODE_NAME/bin/node" "$NODE_NAME/LICENSE"
+cp "$NODE_CACHE/$NODE_NAME/bin/node" "$MACOS/untype-node"
+chmod +x "$MACOS/untype-node"
+
+note "Building the meeting assistant"
+(cd "$AGENT_SOURCE" && npm ci --no-audit --no-fund >/dev/null && npm test >/dev/null) \
+  || fail "the meeting assistant does not build or its tests fail (cd agent && npm test)"
+mkdir -p "$AGENT/dist"
+cp "$AGENT_SOURCE/package.json" "$AGENT_SOURCE/package-lock.json" "$AGENT/"
+cp -R "$AGENT_SOURCE/dist/src" "$AGENT/dist/src"
+(cd "$AGENT" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null) \
+  || fail "the meeting assistant's dependencies could not be installed"
+rm -rf "$AGENT/node_modules/.bin" "$AGENT/node_modules/.package-lock.json"
+find "$AGENT" -type f \( -name "*.map" -o -name "*.d.ts" -o -name "*.d.mts" -o -name "*.d.cts" \) -delete
+cp "$NODE_CACHE/$NODE_NAME/LICENSE" "$AGENT/NODE-LICENSE"
+# Everything under Resources is data to codesign: a program there would be
+# refused by notarization.
+if find "$AGENT" -type f -exec file {} + | grep -q "Mach-O"; then
+  fail "the meeting assistant's dependencies contain a native program; it must be signed and placed outside Resources"
+fi
+
 if [[ -n "$ICON_PATH" ]]; then
   [[ -f "$ICON_PATH" ]] || fail "icon file does not exist: $ICON_PATH"
   cp "$ICON_PATH" "$RESOURCES/AppIcon.icns"
@@ -320,6 +363,11 @@ fi
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   note "Signing nested executables"
+  codesign --force --timestamp --options runtime \
+    --entitlements "$NODE_ENTITLEMENTS" \
+    --sign "$SIGN_IDENTITY" \
+    "$MACOS/untype-node"
+
   codesign --force --timestamp --options runtime \
     --entitlements "$ENTITLEMENTS" \
     --sign "$SIGN_IDENTITY" \

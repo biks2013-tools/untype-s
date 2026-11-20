@@ -62,6 +62,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var menuBar: UntypeMenuBarController?
     private var settingsWindow: UntypeSettingsWindowController?
     private var transcriptionWindow: UntypeTranscriptionWindowController?
+    private var assistantWindow: UntypeAssistantWindowController?
     private var wasCompactWindow: Bool = false
 
     private static let miniSize = NSSize(width: 440, height: 260)
@@ -123,7 +124,22 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         model.showSettingsWindow = { [weak settingsWindow] tab in
             settingsWindow?.show(tab: tab)
         }
-        let transcriptionWindow = UntypeTranscriptionWindowController(feed: model.transcriptFeed)
+        // The meeting assistant (plan-078).
+        let assistantWindow = UntypeAssistantWindowController(model: model.assistant)
+        self.assistantWindow = assistantWindow
+        model.assistant.onEvent = { [weak model] line in
+            model?.appendEvent(line)
+        }
+        model.assistantWindowIsKey = { [weak assistantWindow] in
+            assistantWindow?.isKey ?? false
+        }
+        model.showAssistantWindow = { [weak assistantWindow, weak model] in
+            model?.prepareAssistantMeeting()
+            assistantWindow?.show()
+        }
+        let transcriptionWindow = UntypeTranscriptionWindowController(feed: model.transcriptFeed, openAssistant: { [weak model] in
+            model?.showAssistantWindow?()
+        })
         self.transcriptionWindow = transcriptionWindow
         model.showTranscriptionWindow = { [weak transcriptionWindow] in
             transcriptionWindow?.show()
@@ -228,6 +244,8 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     func applicationWillTerminate(_ notification: Notification) {
         hotkeyMonitor?.stop()
         overlay?.destroy()
+        model?.assistant.shutDown()
+        model?.restoreOutputVolume()
         model?.stopFromApplicationQuit()
     }
 
@@ -345,8 +363,13 @@ final class UntypeUIModel: ObservableObject {
     @Published var hotkeyPressed = false {
         didSet {
             updateMeetingMicrophoneMute()
+            if hotkeyPressed != oldValue {
+                updateOutputVolumeDuck()
+            }
         }
     }
+    /// The Mac's sound, lowered while the user dictates to the assistant.
+    private var outputVolumeDuck = OutputVolumeDuck()
     @Published var hotkeyMonitorStatus = "disabled"
     @Published var audioStatus = "idle"
     /// Bumped whenever a prompt file changes on disk, so open editors refresh.
@@ -375,6 +398,12 @@ final class UntypeUIModel: ObservableObject {
     /// The live transcript of the meeting, for the transcription window.
     let transcriptFeed = MeetingTranscriptFeed()
     var showTranscriptionWindow: (() -> Void)?
+    /// The meeting assistant: answers questions about the meeting being
+    /// recorded, or the last one (plan-078).
+    let assistant = MeetingAssistantModel()
+    var showAssistantWindow: (() -> Void)?
+    /// Whether the assistant window is the one the user types in now.
+    var assistantWindowIsKey: (() -> Bool)?
     @Published private(set) var meetingRecording = false
     /// Starting, or saving the transcript after the stop.
     @Published private(set) var meetingBusy = false
@@ -549,7 +578,9 @@ final class UntypeUIModel: ObservableObject {
     }
 
     private func rememberFocusedInputCandidate(_ application: NSRunningApplication?) {
-        guard let application, isExternalFocusedInputApplication(application) else {
+        // untype itself (its assistant window) is never the app to go back to.
+        guard let application, isExternalFocusedInputApplication(application),
+              application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             return
         }
         lastExternalFocusedInputApplication = application
@@ -953,8 +984,13 @@ final class UntypeUIModel: ObservableObject {
         guard let application else {
             return false
         }
-        return application.processIdentifier != ProcessInfo.processInfo.processIdentifier
-            && !application.isTerminated
+        if application.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            // untype's own windows are not a place to dictate into, except
+            // the assistant window: its question field takes dictation like
+            // any other app's field (plan-078).
+            return assistantWindowIsKey?() ?? false
+        }
+        return !application.isTerminated
     }
 
     func update(_ patch: UntypeUISettingsPatch) {
@@ -2632,6 +2668,30 @@ final class UntypeUIModel: ObservableObject {
         transcriptFeed.onAttachRequest = { [weak self] in
             self?.attachClipboardToMeeting()
         }
+        transcriptFeed.onDeleteRequest = { [weak self] row in
+            self?.deleteFromMeeting(row)
+        }
+        transcriptFeed.onCutRequest = { [weak self] in
+            guard let self else {
+                return
+            }
+            let lines = self.meetingRecorder.cutAtLastSentenceEnd()
+            self.transcriptFeed.noteAttach(added: [], note: lines == 0
+                ? "No sentence has ended yet: nothing to put in the transcript"
+                : "Ended at the last full stop: \(lines) line\(lines == 1 ? "" : "s") added")
+            self.appendEvent("diagnostic.info: [untype] meeting lines ended at the last full stop on request: \(lines)")
+        }
+        assistant.beforeAsk = { [weak self] in
+            // What was said up to the last full stop is in the transcript
+            // before the assistant reads it.
+            guard let self, self.meetingRecorder.isRecording else {
+                return
+            }
+            let lines = self.meetingRecorder.cutAtLastSentenceEnd()
+            if lines > 0 {
+                self.appendEvent("diagnostic.info: [untype] meeting lines ended at the last full stop for the assistant: \(lines)")
+            }
+        }
         transcriptFeed.onAttachFilesRequest = { [weak self] files in
             self?.attachToMeeting(MeetingClipboardContent(files: files), source: "files")
         }
@@ -2644,6 +2704,7 @@ final class UntypeUIModel: ObservableObject {
                 transcriptFeed.begin(meetingName: "")
                 try await meetingRecorder.start(options: options)
                 transcriptFeed.setMeetingFolder(meetingRecorder.folder)
+                assistant.setMeeting(folder: meetingRecorder.folder, recording: true)
                 meetingBusy = false
                 meetingRecording = true
                 overlay?.setMeeting(start: meetingRecorder.startDate)
@@ -2672,6 +2733,37 @@ final class UntypeUIModel: ObservableObject {
             return
         }
         attachToMeeting(content, source: "clipboard")
+    }
+
+    /// Delete on a row of the transcription window: the line or the
+    /// attachment leaves the meeting being recorded and its files.
+    private func deleteFromMeeting(_ row: TranscriptionRow) {
+        switch row {
+        case .line(let line):
+            if meetingRecorder.remove(line.segment) {
+                transcriptFeed.removed(row)
+                appendEvent("diagnostic.info: [untype] meeting line deleted from the transcript on request (\(line.segment.text.count) characters, at \(MeetingTranscriptFormat.timestamp(line.segment.startMs)))")
+            } else {
+                transcriptFeed.noteAttach(added: [], note: "The line could not be deleted: the recording has ended")
+            }
+        case .attachment(let shown):
+            Task { [weak self] in
+                guard let self else {
+                    return
+                }
+                do {
+                    if try await self.meetingRecorder.removeAttachment(id: shown.id) {
+                        self.transcriptFeed.removed(row)
+                        self.appendEvent("diagnostic.info: [untype] meeting attachment #\(shown.id) deleted on request")
+                    } else {
+                        self.transcriptFeed.noteAttach(added: [], note: "The attachment could not be deleted: the recording has ended")
+                    }
+                } catch {
+                    self.transcriptFeed.noteAttach(added: [], note: "The attachment could not be deleted — see Events")
+                    self.appendEvent("diagnostic.warning: [untype] meeting attachment could not be deleted: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     /// Saves `content` (the clipboard's, or files dropped on or chosen in
@@ -2703,6 +2795,42 @@ final class UntypeUIModel: ObservableObject {
             }
             self.transcriptFeed.noteAttach(added: result.added, note: note)
             self.overlay?.showNotice(note)
+        }
+    }
+
+    /// While the user dictates into the assistant window, loud sound from
+    /// the Mac (the call) is lowered so that speech recognition hears the
+    /// user; it goes back when the dictation ends (plan-078).
+    private func updateOutputVolumeDuck() {
+        if hotkeyPressed {
+            guard assistantWindowIsKey?() ?? false else {
+                return
+            }
+            let current = SystemOutputVolume.get()
+            guard let quiet = outputVolumeDuck.begin(current: current) else {
+                return
+            }
+            if SystemOutputVolume.set(quiet) {
+                appendEvent("diagnostic.info: [untype] sound lowered while dictating to the assistant (\(Int(((current ?? 0) * 100).rounded()))% → \(Int((quiet * 100).rounded()))%)")
+            } else {
+                _ = outputVolumeDuck.end(current: nil)
+                appendEvent("diagnostic.warning: [untype] the sound could not be lowered while dictating to the assistant: this output has no volume untype can set")
+            }
+        } else {
+            restoreOutputVolume()
+        }
+    }
+
+    /// Puts the sound back where it was (the dictation ended, or untype quits).
+    func restoreOutputVolume() {
+        guard outputVolumeDuck.previous != nil else {
+            return
+        }
+        if let volume = outputVolumeDuck.end(current: SystemOutputVolume.get()) {
+            SystemOutputVolume.set(volume)
+            appendEvent("diagnostic.info: [untype] sound back to \(Int((volume * 100).rounded()))%")
+        } else {
+            appendEvent("diagnostic.info: [untype] sound left as it is: it was changed during the dictation")
         }
     }
 
@@ -2788,6 +2916,7 @@ final class UntypeUIModel: ObservableObject {
                 let renamed = try MeetingNaming.rename(folder: folder, title: title)
                 lastMeetingFolder = renamed
                 transcriptFeed.folderRenamed(from: folder, to: renamed)
+                assistant.folderRenamed(from: folder, to: renamed)
                 namingFolder = nil
                 appendEvent("diagnostic.info: [untype] meeting named: \(renamed.lastPathComponent)")
                 showSavedNotice(renamed, headline: "Renamed")
@@ -2852,6 +2981,17 @@ final class UntypeUIModel: ObservableObject {
         NSWorkspace.shared.open(folder)
     }
 
+    /// The assistant window opens on the meeting being recorded; without
+    /// one, on the last meeting of this session.
+    func prepareAssistantMeeting() {
+        if meetingRecorder.isRecording, let folder = meetingRecorder.folder {
+            assistant.setMeeting(folder: folder, recording: true)
+        } else if !assistant.hasMeeting, let folder = lastMeetingFolder,
+                  FileManager.default.fileExists(atPath: folder.path) {
+            assistant.setMeeting(folder: folder, recording: false)
+        }
+    }
+
     private func meetingStartFailed(_ error: Error) {
         recordingCalendarMeeting = nil
         recordingStartedAt = nil
@@ -2868,6 +3008,10 @@ final class UntypeUIModel: ObservableObject {
         meetingBusy = false
         meetingRecording = false
         lastMeetingFolder = folder ?? lastMeetingFolder
+        if let folder {
+            // The recording ended: the assistant goes on answering about it.
+            assistant.setMeeting(folder: folder, recording: false)
+        }
         overlay?.setMeeting(start: nil)
         let headline: String
         switch reason {
@@ -2927,6 +3071,7 @@ final class UntypeUIModel: ObservableObject {
             let renamed = try MeetingNaming.rename(folder: folder, title: title)
             lastMeetingFolder = renamed
             transcriptFeed.folderRenamed(from: folder, to: renamed)
+                assistant.folderRenamed(from: folder, to: renamed)
             appendEvent("diagnostic.info: [untype] meeting named from the calendar: \(renamed.lastPathComponent)")
             showSavedNotice(renamed, headline: headline)
             saveToAppleNotes(renamed)

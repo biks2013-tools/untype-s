@@ -143,6 +143,8 @@ public actor MeetingAttachmentStore {
     private let indexURL: URL
     private var index: MeetingAttachmentIndex
     private var clips = 0
+    /// Numbers are never used twice, also after an attachment is removed.
+    private var lastID = 0
 
     public init(folder: URL, names: MeetingFileNames, start: Date) {
         self.folder = folder
@@ -171,7 +173,7 @@ public actor MeetingAttachmentStore {
         let time = MeetingTranscriptFormat.timestamp(offsetMs)
 
         func save(kind: MeetingAttachmentKind, name: String, write: (URL) throws -> Void, fill: (inout MeetingAttachment) -> Void) {
-            let id = (index.attachments.last?.id ?? 0) + 1
+            let id = lastID + 1
             let fileName = Self.fileName(id: id, time: time, name: name)
             let target = directory.appendingPathComponent(fileName)
             do {
@@ -186,6 +188,7 @@ public actor MeetingAttachmentStore {
                     file: Self.folderName + "/" + fileName
                 )
                 fill(&attachment)
+                lastID = id
                 index.attachments.append(attachment)
                 try index.encoded().write(to: indexURL, options: .atomic)
                 result.added.append(attachment)
@@ -223,6 +226,23 @@ public actor MeetingAttachmentStore {
             })
         }
         return result
+    }
+
+    /// Takes an attachment out of the meeting: its file (the copy in the
+    /// meeting folder) is deleted and it leaves the index. False when
+    /// there is none with that number.
+    public func remove(id: Int) throws -> Bool {
+        guard let position = index.attachments.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        let attachment = index.attachments[position]
+        let file = folder.appendingPathComponent(attachment.file)
+        if FileManager.default.fileExists(atPath: file.path) {
+            try FileManager.default.removeItem(at: file)
+        }
+        index.attachments.remove(at: position)
+        try index.encoded().write(to: indexURL, options: .atomic)
+        return true
     }
 
     /// `003-00-12-34-<name>`: in order, with the moment of the meeting.
