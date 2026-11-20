@@ -1,6 +1,6 @@
 cask "untype" do
-  version "0.1.0,88"
-  sha256 "cb3d5ebcc3c5430b80f0f06f904d1e9d94307aa87907adbc1fc848d03db5b82d"
+  version "0.1.0,89"
+  sha256 "8d7be22c25e8354f0c278cc422119ec67952e7ddba381e6441e020a18b560ccc"
 
   url "https://github.com/biks2013-tools/untype-s/releases/download/v#{version.csv.first}-b#{version.csv.second}/untype-#{version.csv.first}.dmg"
   name "untype"
@@ -18,6 +18,7 @@ cask "untype" do
     end
   end
 
+  auto_updates true
   depends_on macos: :sonoma
 
   app "untype.app"
