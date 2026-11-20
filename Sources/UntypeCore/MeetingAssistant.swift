@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import Foundation
+import PDFKit
 import SwiftUI
 
 // plan-078: the meeting assistant. An agent (pi-durable, TypeScript) runs
@@ -40,6 +41,9 @@ public enum MeetingAssistantEvent: Equatable, Sendable {
     case runEnd(failure: String?)
     case error(String)
     case fatal(String)
+    /// The helper asks untype for the text of a document (a PDF, an old
+    /// Word or rich text file); answered with an `extracted` request.
+    case extract(id: String, path: String)
 
     public static func parse(_ line: String) -> MeetingAssistantEvent? {
         guard let data = line.data(using: .utf8),
@@ -72,8 +76,52 @@ public enum MeetingAssistantEvent: Equatable, Sendable {
             return .error(object["message"] as? String ?? "")
         case "fatal":
             return .fatal(object["message"] as? String ?? "")
+        case "extract":
+            guard let id = object["id"] as? String, let path = object["path"] as? String else {
+                return nil
+            }
+            return .extract(id: id, path: path)
         default:
             return nil
+        }
+    }
+}
+
+/// The text of the documents the assistant's helper cannot read itself:
+/// PDF (PDFKit) and old Word / rich text files (the system's reader).
+public enum MeetingDocumentText {
+    public struct Failure: LocalizedError, Sendable {
+        public let errorDescription: String?
+
+        public init(errorDescription: String?) {
+            self.errorDescription = errorDescription
+        }
+    }
+
+    /// The document's text; a PDF's pages are marked ("--- Page 3 ---").
+    /// Empty when the document has none (scanned pages).
+    public static func extract(_ url: URL) throws -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf":
+            guard let document = PDFDocument(url: url) else {
+                throw Failure(errorDescription: "the PDF cannot be opened")
+            }
+            guard !document.isLocked else {
+                throw Failure(errorDescription: "the PDF is protected with a password")
+            }
+            var parts: [String] = []
+            for index in 0..<document.pageCount {
+                let text = document.page(at: index)?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !text.isEmpty {
+                    parts.append("--- Page \(index + 1) of \(document.pageCount) ---\n\(text)")
+                }
+            }
+            return parts.joined(separator: "\n\n")
+        case "doc", "rtf":
+            let type: NSAttributedString.DocumentType = url.pathExtension.lowercased() == "rtf" ? .rtf : .docFormat
+            return try NSAttributedString(url: url, options: [.documentType: type], documentAttributes: nil).string
+        default:
+            throw Failure(errorDescription: "files of type .\(url.pathExtension) cannot be read")
         }
     }
 }
@@ -560,6 +608,41 @@ public final class MeetingAssistantModel: ObservableObject {
             onEvent("diagnostic.warning: [untype] assistant: \(message)")
         case .fatal(let message):
             fail(message)
+        case .extract(let id, let path):
+            extract(id: id, path: path)
+        }
+    }
+
+    /// The helper asked for a document's text: only files of the meeting
+    /// it looks at are read, off the main thread.
+    private func extract(id: String, path: String) {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        guard let folder = folder?.standardizedFileURL, url.path.hasPrefix(folder.path + "/") else {
+            process?.send(["type": "extracted", "id": id, "error": "the file is not in the meeting folder"])
+            return
+        }
+        let kind = url.pathExtension.lowercased()
+        let generation = generation
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<String, MeetingDocumentText.Failure> in
+                do {
+                    return .success(try MeetingDocumentText.extract(url))
+                } catch {
+                    return .failure(.init(errorDescription: error.localizedDescription))
+                }
+            }.value
+            guard let self, generation == self.generation else {
+                return
+            }
+            switch result {
+            case .success(let text):
+                self.process?.send(["type": "extracted", "id": id, "text": text])
+                self.onEvent("diagnostic.info: [untype] assistant: a .\(kind) attachment was read (\(text.count) characters)")
+            case .failure(let failure):
+                let message = failure.errorDescription ?? "the document cannot be read"
+                self.process?.send(["type": "extracted", "id": id, "error": message])
+                self.onEvent("diagnostic.warning: [untype] assistant: a .\(kind) attachment could not be read: \(message)")
+            }
         }
     }
 

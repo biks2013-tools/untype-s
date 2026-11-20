@@ -1,7 +1,8 @@
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 import { defineExtension, defineTool, section, type Extension } from "@earendil-works/pi-durable";
 import { DEFAULT_IMAGE_LIMITS, type ImageProcessor } from "@earendil-works/pi-durable/tools";
-import { attachmentContent, clock, describeAttachment, parseClock, readAttachments, readSegments, search, segmentsIn, transcriptText } from "./meeting.js";
+import { readOffice } from "./lib/ooxml-read.js";
+import { attachmentContent, textPage, clock, describeAttachment, parseClock, readAttachments, readSegments, search, segmentsIn, transcriptText } from "./meeting.js";
 
 /** The meeting the assistant is looking at: set by untype, read by every tool call. */
 export interface MeetingState {
@@ -9,7 +10,14 @@ export interface MeetingState {
   recording: boolean;
 }
 
+/** Reads documents this process cannot: untype does it (PDF with PDFKit, old Word and rich text files). */
+export interface DocumentHost {
+  extract(path: string): Promise<string>;
+}
+
 const MAX_OUTPUT_CHARS = 30_000;
+/** Rows read of each sheet of a workbook. */
+const MAX_SHEET_ROWS = 500;
 
 const INSTRUCTIONS = `You are the meeting assistant of untype, an application that records and transcribes meetings on the user's Mac.
 The user is in a meeting that is being recorded (or looks at one that ended) and asks you about it.
@@ -40,7 +48,7 @@ export function meetingNow(state: MeetingState, minutes: number): string {
   ].join("\n");
 }
 
-export function meetingExtension(state: MeetingState, images: ImageProcessor): Extension {
+export function meetingExtension(state: MeetingState, images: ImageProcessor, host: DocumentHost): Extension {
   const overview = defineTool({
     name: "meeting_overview",
     description: "How long the meeting is so far, how many lines its transcript has, who speaks, and the list of attachments.",
@@ -104,15 +112,28 @@ export function meetingExtension(state: MeetingState, images: ImageProcessor): E
 
   const attachment = defineTool({
     name: "read_attachment",
-    description: "Look at one attachment of the meeting by its number (from meeting_overview or the transcript): a picture is shown to you, text and text files are returned as text.",
-    parameters: obj({ id: int({ minimum: 1, description: "The attachment's number" }) }),
+    description:
+      "Look at one attachment of the meeting by its number (from meeting_overview or the transcript): a picture is shown to you; text, text files, PDF, Word (.docx, .doc, .rtf), Excel (.xlsx) and PowerPoint (.pptx) files are returned as text. " +
+      "A long document comes in parts of 40 000 characters: read on with offset. A PDF of scanned pages has no text to return.",
+    parameters: obj({
+      id: int({ minimum: 1, description: "The attachment's number" }),
+      offset: opt(int({ minimum: 0, description: "Where to read on in a long document, in characters (given at the end of the previous part)" })),
+    }),
     replay: "safe",
     async execute(args) {
       const found = readAttachments(state.folder).find((a) => a.id === args.id);
       if (found === undefined) throw new Error(`there is no attachment #${args.id}`);
       const content = attachmentContent(state.folder, found);
       if (content.type === "unreadable") return text(`Attachment ${describeAttachment(found)} — ${content.reason}.`);
-      if (content.type === "text") return text(`Attachment ${describeAttachment(found)}:\n\n${content.text}`);
+      if (content.type !== "image") {
+        const whole =
+          content.type === "text" ? content.text
+          : content.type === "office" ? readOffice(content.path, { maxRowsPerSheet: MAX_SHEET_ROWS })
+          : await host.extract(content.path);
+        if (whole.trim() === "") return { output: [{ type: "text" as const, text: `Attachment ${describeAttachment(found)} has no text that can be read (a PDF of scanned pages, or an empty document).` }] };
+        // Parts of MAX_TEXT_CHARS, not cut again by the general limit.
+        return { output: [{ type: "text" as const, text: `Attachment ${describeAttachment(found)}:\n\n${textPage(whole, args.offset ?? 0)}` }] };
+      }
       const prepared = await images.prepare(content.bytes, content.mimeType, DEFAULT_IMAGE_LIMITS);
       const image = prepared ?? { data: Buffer.from(content.bytes).toString("base64"), mimeType: content.mimeType };
       return {

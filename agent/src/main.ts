@@ -7,13 +7,15 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createRegistry, defineDoc, Harness, LiveDoc, type Conversation, type ConversationId, type ConversationView, type EntryRecord, type LiveState } from "@earendil-works/pi-durable";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { meetingExtension, meetingNow, type MeetingState } from "./extension.js";
+import { meetingExtension, meetingNow, type DocumentHost, type MeetingState } from "./extension.js";
 
 /**
  * untype's meeting assistant, run by untype.app as a helper process.
  *
  *   main.js catalog   prints the model providers and their models as JSON, and exits
  *   main.js serve     JSON lines on stdin (requests) and stdout (events); logs on stderr
+ *                     (one event asks untype for something: `extract {id, path}`, answered by the request
+ *                     `extracted {id, text}` or `extracted {id, error}`)
  *
  * Settings come from the environment untype gives it, none has a default:
  *   UNTYPE_AGENT_HOME          where the conversations are kept (SQLite)
@@ -25,6 +27,8 @@ import { meetingExtension, meetingNow, type MeetingState } from "./extension.js"
 const ctx = BACKGROUND_CONTEXT;
 /** How many minutes of transcript go along with every question. */
 const RECENT_MINUTES = 3;
+/** How long untype may take to read a document for the assistant. */
+const EXTRACT_TIMEOUT_MS = 60_000;
 
 /** Which conversation belongs to which recording (its stem, `recording-yyyy-MM-dd-HH-mm`, and folder date). */
 const MeetingsDoc = defineDoc<{ meetings: { [key: string]: number } }>({
@@ -149,8 +153,23 @@ async function serve(): Promise<void> {
 
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const state: MeetingState = { folder: "", recording: false };
+  // Documents untype reads for the assistant: asked with an `extract` event, answered with an `extracted` request.
+  const extractions = new Map<string, { resolve(text: string): void; reject(error: Error): void; timer: NodeJS.Timeout }>();
+  let extractionNumber = 0;
+  const host: DocumentHost = {
+    extract: (path) =>
+      new Promise<string>((resolve, reject) => {
+        const id = `x${++extractionNumber}`;
+        const timer = setTimeout(() => {
+          extractions.delete(id);
+          reject(new Error("untype did not read the document in time"));
+        }, EXTRACT_TIMEOUT_MS);
+        extractions.set(id, { resolve, reject, timer });
+        emit({ type: "extract", id, path });
+      }),
+  };
   const registry = createRegistry();
-  registry.install(meetingExtension(state, await createNodePhotonImages()));
+  registry.install(meetingExtension(state, await createNodePhotonImages(), host));
   const storage = await openNodeSqliteStorage(join(home, "state.sqlite"));
   const harness = await Harness.open(
     storage,
@@ -224,6 +243,15 @@ async function serve(): Promise<void> {
           },
           ctx,
         );
+        return;
+      }
+      case "extracted": {
+        const waiting = typeof request.id === "string" ? extractions.get(request.id) : undefined;
+        if (waiting === undefined) return;
+        extractions.delete(request.id as string);
+        clearTimeout(waiting.timer);
+        if (typeof request.error === "string") waiting.reject(new Error(request.error));
+        else waiting.resolve(typeof request.text === "string" ? request.text : "");
         return;
       }
       case "abort": {
