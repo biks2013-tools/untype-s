@@ -146,15 +146,31 @@ export function search(segments: readonly Segment[], query: string, maxResults: 
   return blocks;
 }
 
-const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv", ".tsv", ".json", ".jsonl", ".xml", ".html", ".htm", ".yaml", ".yml", ".log", ".rtf", ".swift", ".ts", ".js", ".py", ".sql", ".sh", ".css", ".ini", ".toml"]);
+const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv", ".tsv", ".json", ".jsonl", ".xml", ".html", ".htm", ".yaml", ".yml", ".log", ".swift", ".ts", ".js", ".py", ".sql", ".sh", ".css", ".ini", ".toml"]);
 const IMAGE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp" };
+/** Word, Excel and PowerPoint files, read here from their XML parts. */
+const OFFICE_EXTENSIONS = new Set([".docx", ".dotx", ".xlsx", ".xlsm", ".pptx", ".potx"]);
+/** Read by untype itself (PDFKit, and the system's reader of old Word and rich text files). */
+const HOST_EXTENSIONS = new Set([".pdf", ".doc", ".rtf"]);
 
 export type AttachmentContent =
   | { readonly type: "text"; readonly text: string }
   | { readonly type: "image"; readonly bytes: Uint8Array; readonly mimeType: string }
+  /** A Word, Excel or PowerPoint file: `readOffice(path)` gives its text. */
+  | { readonly type: "office"; readonly path: string }
+  /** A PDF, old Word or rich text file: untype gives its text. */
+  | { readonly type: "host"; readonly path: string }
   | { readonly type: "unreadable"; readonly reason: string };
 
 export const MAX_TEXT_CHARS = 40_000;
+
+/** `MAX_TEXT_CHARS` of `text` from `offset`, saying how to read on when there is more. */
+export function textPage(text: string, offset: number): string {
+  if (offset >= text.length && text.length > 0) return `[nothing from character ${offset}: the text has ${text.length} characters]`;
+  const end = Math.min(text.length, offset + MAX_TEXT_CHARS);
+  const more = end < text.length ? `\n\n[characters ${offset}–${end} of ${text.length}: read on with offset ${end}]` : "";
+  return text.slice(offset, end) + more;
+}
 
 /** What an attachment holds, as far as this agent can read it. The file must be inside the meeting folder. */
 export function attachmentContent(folder: string, a: Attachment): AttachmentContent {
@@ -166,9 +182,8 @@ export function attachmentContent(folder: string, a: Attachment): AttachmentCont
   const ext = extname(path).toLowerCase();
   const imageType = IMAGE_TYPES[ext];
   if (a.kind === "image" || imageType !== undefined) return { type: "image", bytes: readFileSync(path), mimeType: imageType ?? "image/png" };
-  if (a.kind === "text" || TEXT_EXTENSIONS.has(ext)) {
-    const text = readFileSync(path, "utf8");
-    return { type: "text", text: text.length > MAX_TEXT_CHARS ? `${text.slice(0, MAX_TEXT_CHARS)}\n\n[cut: ${text.length} characters in all]` : text };
-  }
-  return { type: "unreadable", reason: `files of type ${ext || "(none)"} cannot be read by the assistant yet` };
+  if (a.kind === "text" || TEXT_EXTENSIONS.has(ext)) return { type: "text", text: readFileSync(path, "utf8") };
+  if (OFFICE_EXTENSIONS.has(ext)) return { type: "office", path };
+  if (HOST_EXTENSIONS.has(ext)) return { type: "host", path };
+  return { type: "unreadable", reason: `files of type ${ext || "(none)"} cannot be read by the assistant (it reads pictures, text files, PDF, Word, Excel and PowerPoint)` };
 }

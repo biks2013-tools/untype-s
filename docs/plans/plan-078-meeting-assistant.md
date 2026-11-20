@@ -42,10 +42,21 @@ Build 85 in use: dictation into the assistant's field was delivered there (`focu
 - **The sound is lowered while dictating to the assistant** (user request: the call playing from the loudspeakers kept speech recognition from hearing the user). When a dictation turn starts with the assistant window as the window typed in, and the Mac's output volume is above 15 %, it is set to 15 % (`OutputVolumeDuck.quiet`) and put back when the turn ends, unless the user changed it meanwhile; also when untype quits. `SystemOutputVolume` reads and sets the default output device's volume (CoreAudio); an output without a settable volume is reported in Events and left alone. Only for dictation to the assistant, not for dictation elsewhere.
 - **Delete a row of the transcript** (user request): while the meeting is recorded, a line or an attachment of the transcription window has a trash button (on hover, and in its context menu), with a confirmation. A line leaves the files written so far (`MeetingLiveFiles.rewrite`) and the files saved at the end (`MeetingRecorder.remove`); an attachment's copy in the meeting folder is deleted and it leaves `<stem>.attachments.json` (`MeetingAttachmentStore.remove`; numbers are not reused). The assistant no longer sees either. The audio is not changed. After the recording ends rows cannot be deleted.
 
+## PDF and Office attachments (2026-11-20, user request, after build 86)
+
+`read_attachment` now also returns the text of:
+
+- **Word, Excel, PowerPoint** (`.docx`, `.dotx`, `.xlsx`, `.xlsm`, `.pptx`, `.potx`): read in the agent from the files' XML parts (`agent/src/lib/ooxml-read.ts`, `zip.ts`, taken as they are from the user's deck-agent; no new dependency). A workbook gives up to 500 rows of each sheet; a presentation its slides with their notes.
+- **PDF, old Word (`.doc`) and rich text (`.rtf`)**: read by untype, which has the system's readers. The agent sends an `extract {id, path}` event, `MeetingAssistantModel` reads the file off the main thread (`MeetingDocumentText`: PDFKit, pages marked "--- Page 3 of 12 ---"; `NSAttributedString` for the other two) and answers with the request `extracted {id, text | error}`. Only files inside the meeting folder are read; 60 s at most.
+- A long document comes in parts of 40 000 characters (`offset`). A document with no text (a PDF of scanned pages) says so.
+
+Not read: scanned PDFs (no text recognition), protected PDFs, old Excel and PowerPoint (`.xls`, `.ppt`), pictures inside documents.
+
 ## Verified
 
-- `swift build`, 534/534 tests (10 new: lowering and restoring the sound, deleting a line and an attachment, the window's delete, the cut at the last full stop, the request for it, the events, the meeting's key, the settings with no default, the catalog, the model without its program).
-- `agent`: `npm test` 4/4 (the transcript in time order, ranges, search without accents, attachments, the context of a question); `npm audit` clean.
+- `swift build`, 536/536 tests (12 new: a PDF and a rich text file give their text, the request for a document, lowering and restoring the sound, deleting a line and an attachment, the window's delete, the cut at the last full stop, the request for it, the events, the meeting's key, the settings with no default, the catalog, the model without its program).
+- From the terminal, on a made-up meeting with a Word file and a PDF (the script playing untype's part for the PDF): both read, the three facts asked for answered correctly through Azure in 3.9 s.
+- `agent`: `npm test` 6/6 (Word, Excel and PowerPoint files as text, a long document in parts, the transcript in time order, ranges, search without accents, attachments, the context of a question); `npm audit` clean.
 - From the terminal, on a recording of 2026-11-20 with Azure `gpt-5.1`: the agent opened the meeting, looked at attachment 1 (a screenshot) and answered in 6.5 s; the answer came in pieces.
 - Node.js signed with the Developer ID under the hardened runtime runs the agent's tests.
 - Build 84 packaged with Node.js and the agent inside: notarized (`source=Notarized Developer ID`), 184 MB (130 MB before; the zip is 56 MB). The agent run from inside that bundle, with only the user's `.env` as environment, opened a recording, looked at a screenshot and answered through Azure in 9.4 s.
@@ -59,7 +70,7 @@ Build 85 in use: dictation into the assistant's field was delivered there (`focu
 
 - macOS only (a helper process). The app grows by 54 MB (130 → 184 MB).
 - Read-only: no notes, no summary file, no actions.
-- PDF and office files among the attachments are not read yet.
+- Scanned or protected PDFs, `.xls` and `.ppt` are not read.
 - The words being spoken (not yet a finished line) are not seen; a line appears when its sentence ends.
 - Claude on Azure Foundry (`azure-anthropic` in untype) is not among pi-ai's providers; Claude is reachable through `anthropic` (its own key) or `openrouter`.
 - What is asked and the parts of the meeting the assistant reads go to the chosen provider.

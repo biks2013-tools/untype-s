@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import UntypeCore
@@ -202,4 +203,44 @@ import Testing
     feed.end()
     feed.delete(rows[1])
     #expect(asked == ["line-0"])
+}
+
+@Test func theHelperAsksUntypeForTheTextOfADocument() {
+    #expect(MeetingAssistantEvent.parse(#"{"type":"extract","id":"x1","path":"/r/m/attachments/001-a.pdf"}"#) == .extract(id: "x1", path: "/r/m/attachments/001-a.pdf"))
+    #expect(MeetingAssistantEvent.parse(#"{"type":"extract","id":"x1"}"#) == nil)
+}
+
+@MainActor
+@Test func aPDFAndARichTextFileGiveTheirText() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("untype-documents-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+
+    // A two-page PDF drawn here.
+    let pdf = folder.appendingPathComponent("report.pdf")
+    var box = CGRect(x: 0, y: 0, width: 400, height: 300)
+    let context = try #require(CGContext(pdf as CFURL, mediaBox: &box, nil))
+    for words in ["Quarterly budget", "Ξεχωριστή σελίδα"] {
+        context.beginPDFPage(nil)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        (words as NSString).draw(at: CGPoint(x: 40, y: 150), withAttributes: [.font: NSFont.systemFont(ofSize: 18)])
+        NSGraphicsContext.restoreGraphicsState()
+        context.endPDFPage()
+    }
+    context.closePDF()
+    let text = try MeetingDocumentText.extract(pdf)
+    #expect(text.contains("--- Page 1 of 2 ---"))
+    #expect(text.contains("Quarterly budget"))
+    #expect(text.contains("--- Page 2 of 2 ---"))
+    #expect(text.contains("Ξεχωριστή σελίδα"))
+
+    let rtf = folder.appendingPathComponent("note.rtf")
+    let written = NSAttributedString(string: "Agreed: ship on Friday")
+    try written.data(from: NSRange(location: 0, length: written.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]).write(to: rtf)
+    #expect(try MeetingDocumentText.extract(rtf) == "Agreed: ship on Friday")
+
+    #expect(throws: (any Error).self) { try MeetingDocumentText.extract(folder.appendingPathComponent("archive.zip")) }
+    try Data("not a pdf".utf8).write(to: folder.appendingPathComponent("broken.pdf"))
+    #expect(throws: (any Error).self) { try MeetingDocumentText.extract(folder.appendingPathComponent("broken.pdf")) }
 }
