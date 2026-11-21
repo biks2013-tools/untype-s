@@ -134,7 +134,8 @@ public enum UserKeystroke: Equatable, Sendable {
 /// What the user typed after untype's last words, for fields that do not
 /// report their text: a full stop typed by hand is known from its key.
 public struct UserTypingTrail: Equatable, Sendable {
-    /// Typed by the user since untype last wrote.
+    /// Typed by the user since untype last wrote, or since the caret was
+    /// last moved: this is what stands right before the caret.
     public private(set) var typed = ""
     /// Characters of untype's own text the user erased.
     public private(set) var erased = 0
@@ -148,20 +149,30 @@ public struct UserTypingTrail: Equatable, Sendable {
         case .text(let text):
             typed += text
         case .erase:
-            if typed.isEmpty {
-                erased += 1
-            } else {
+            if !typed.isEmpty {
                 typed.removeLast()
+            } else if !moved {
+                erased += 1
             }
         case .move:
+            // What was typed before is no longer known to stand before the
+            // caret; what is typed from now on does.
             moved = true
+            typed = ""
+            erased = 0
         }
     }
 
-    /// The end of the text before the caret, given what untype wrote last;
-    /// nil when the caret was moved (then it is not known).
+    /// The end of the text before the caret, given what untype wrote last.
+    /// After the caret was moved, what the user typed since then is certain
+    /// (a space, a line break: no second space follows) and the text before
+    /// it is taken to be untype's; nil when nothing was typed since (then
+    /// it is not known).
     public func before(written: String) -> String? {
-        moved ? nil : String(written.dropLast(erased)) + typed
+        if moved {
+            return typed.isEmpty ? nil : written + typed
+        }
+        return String(written.dropLast(erased)) + typed
     }
 }
 
@@ -181,6 +192,8 @@ public struct HandsFreeTextFlow: Equatable, Sendable {
     private struct Utterance: Equatable, Sendable {
         var context: LiveCaretContext?
         var periodFirst: Bool
+        /// The user's keys before the utterance started.
+        var trailBefore: UserTypingTrail
     }
 
     /// - Parameter pausePeriodSeconds: nil: a pause never writes a full stop.
@@ -190,6 +203,13 @@ public struct HandsFreeTextFlow: Equatable, Sendable {
 
     /// A key or click of the user, between or during utterances.
     public mutating func note(_ keystroke: UserKeystroke) {
+        if let begun = current, partial.isEmpty {
+            // Words were recognised and taken back: nothing of this
+            // utterance is in the field. It starts again with its next
+            // words, from what stands before the caret then (with this key).
+            trail = begun.trailBefore
+            current = nil
+        }
         trail.note(keystroke)
     }
 
@@ -235,12 +255,12 @@ public struct HandsFreeTextFlow: Equatable, Sendable {
         }
         // A field that does not tell: before the caret stands what untype
         // wrote last and what the user typed after it (their full stop is
-        // known from its key). After a click or an arrow key only untype's
-        // own text is left to go by.
+        // known from its key). After a click or an arrow key only what was
+        // typed since then, after untype's own text, is left to go by.
         let known = trail.before(written: committed) ?? committed
         let context = field ?? (known.isEmpty ? nil : LiveCaretContext(before: known))
+        let utterance = Utterance(context: context, periodFirst: closesSentence(now: now, field: field), trailBefore: trail)
         trail = UserTypingTrail()
-        let utterance = Utterance(context: context, periodFirst: closesSentence(now: now, field: field))
         current = utterance
         return utterance
     }

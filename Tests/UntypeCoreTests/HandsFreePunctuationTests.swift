@@ -203,4 +203,52 @@ private func context(_ before: String, endsLine: Bool? = true) -> LiveCaretConte
     #expect(trail.before(written: "three teams") == "three teas.")
     trail.note(.move)
     #expect(trail.before(written: "three teams") == nil)
+    // Erasing after a move takes away text that is not known.
+    trail.note(.erase)
+    #expect(trail.before(written: "three teams") == nil)
+}
+
+@Test func aSpaceOrALineBreakTypedAfterMovingTheCaretGetsNoSecondSpace() {
+    // A click, an arrow key or a shortcut (switching the keyboard layout
+    // with Control+Space), then a space typed by hand.
+    var flow = HandsFreeTextFlow()
+    flow.commitFinal("We tested the new version.", now: 1, context: { nil })
+    flow.note(.move)
+    flow.note(.text(" "))
+    flow.commitFinal("With three teams.", now: 2, context: { nil })
+    #expect(flow.text == "We tested the new versionwith three teams")
+
+    // The same at the start of a new line.
+    flow = HandsFreeTextFlow()
+    flow.commitFinal("We tested the new version.", now: 1, context: { nil })
+    flow.note(.text("."))
+    flow.note(.move)
+    flow.note(.text("\n"))
+    flow.commitFinal("With three teams.", now: 2, context: { nil })
+    #expect(flow.text == "We tested the new versionwith three teams")
+
+    // Text typed after the move and erased again: not known, as before.
+    flow = HandsFreeTextFlow()
+    flow.commitFinal("We tested the new version.", now: 1, context: { nil })
+    flow.note(.move)
+    flow.note(.text(" "))
+    flow.note(.erase)
+    flow.commitFinal("With three teams.", now: 2, context: { nil })
+    #expect(flow.text == "We tested the new version with three teams")
+}
+
+@Test func wordsTakenBackDoNotFixThePlaceOfTheNextWords() {
+    var flow = HandsFreeTextFlow()
+    flow.commitFinal("We tested the new version.", now: 1, context: { nil })
+    flow.note(.text("."))
+    // A sound is recognised as a word and taken back.
+    flow.updatePartial("Mm", now: 2, context: { nil })
+    #expect(flow.text == "We tested the new version Mm")
+    flow.updatePartial("", now: 2.2, context: { nil })
+    // Then the user types a space and goes on speaking.
+    flow.note(.text(" "))
+    flow.updatePartial("With three", now: 3, context: { nil })
+    #expect(flow.text == "We tested the new versionWith three")
+    flow.commitFinal("With three teams.", now: 4, context: { nil })
+    #expect(flow.text == "We tested the new versionWith three teams")
 }

@@ -7127,6 +7127,10 @@ private final class UntypeReturnEscapeKeyTap {
 
     /// What a key press does to the text before the caret.
     static func keystroke(key: Int64, flags: CGEventFlags, characters: String) -> UserKeystroke? {
+        // Control+J is a line feed: the new line of terminal prompts.
+        if key == 38, flags.contains(.maskControl), flags.intersection([.maskCommand, .maskAlternate]).isEmpty {
+            return .text("\n")
+        }
         if !flags.intersection([.maskCommand, .maskControl]).isEmpty || caretKeys.contains(key) {
             return .move
         }
