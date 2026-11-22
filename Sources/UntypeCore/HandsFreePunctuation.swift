@@ -127,6 +127,10 @@ public enum UserKeystroke: Equatable, Sendable {
     case text(String)
     /// Backspace.
     case erase
+    /// The word before the caret was erased (Option+Backspace, Control+W):
+    /// the spaces right before the caret go, then the word; the space in
+    /// front of that word stays.
+    case eraseWord
     /// The caret may be elsewhere now: an arrow key, a click, a shortcut.
     case move
 }
@@ -134,11 +138,18 @@ public enum UserKeystroke: Equatable, Sendable {
 /// What the user typed after untype's last words, for fields that do not
 /// report their text: a full stop typed by hand is known from its key.
 public struct UserTypingTrail: Equatable, Sendable {
-    /// Typed by the user since untype last wrote, or since the caret was
-    /// last moved: this is what stands right before the caret.
+    private enum Edit: Equatable, Sendable {
+        case text(String)
+        case erase
+        case eraseWord
+    }
+
+    /// The user's edits since untype last wrote, or since the caret was
+    /// last moved, in order.
+    private var edits: [Edit] = []
+    /// Typed by the user since then and still there: this is what stands
+    /// right before the caret.
     public private(set) var typed = ""
-    /// Characters of untype's own text the user erased.
-    public private(set) var erased = 0
     /// The caret may have left the end of untype's text.
     public private(set) var moved = false
 
@@ -148,19 +159,45 @@ public struct UserTypingTrail: Equatable, Sendable {
         switch keystroke {
         case .text(let text):
             typed += text
+            edits.append(.text(text))
         case .erase:
             if !typed.isEmpty {
                 typed.removeLast()
+                edits.append(.erase)
             } else if !moved {
-                erased += 1
+                edits.append(.erase)
+            }
+        case .eraseWord:
+            if moved, typed.allSatisfy(\.isWhitespace) {
+                // A word that is not known was erased. What is left before
+                // the caret ends where a word started: after a space (or at
+                // the start of the line), so no space is to be added.
+                typed = " "
+                edits = [.text(" ")]
+            } else {
+                typed = Self.erasingWord(typed)
+                edits.append(.eraseWord)
             }
         case .move:
             // What was typed before is no longer known to stand before the
             // caret; what is typed from now on does.
             moved = true
             typed = ""
-            erased = 0
+            edits = []
         }
+    }
+
+    /// `text` after the word at its end is erased as terminals and text
+    /// fields do it: the spaces at the end go, then the word.
+    public static func erasingWord(_ text: String) -> String {
+        var rest = Substring(text)
+        while let last = rest.last, last.isWhitespace {
+            rest.removeLast()
+        }
+        while let last = rest.last, !last.isWhitespace {
+            rest.removeLast()
+        }
+        return String(rest)
     }
 
     /// The end of the text before the caret, given what untype wrote last.
@@ -169,10 +206,23 @@ public struct UserTypingTrail: Equatable, Sendable {
     /// it is taken to be untype's; nil when nothing was typed since (then
     /// it is not known).
     public func before(written: String) -> String? {
-        if moved {
-            return typed.isEmpty ? nil : written + typed
+        if moved, edits.isEmpty {
+            return nil
         }
-        return String(written.dropLast(erased)) + typed
+        var text = written
+        for edit in edits {
+            switch edit {
+            case .text(let typed):
+                text += typed
+            case .erase:
+                if !text.isEmpty {
+                    text.removeLast()
+                }
+            case .eraseWord:
+                text = Self.erasingWord(text)
+            }
+        }
+        return text
     }
 }
 

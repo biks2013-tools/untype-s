@@ -87,6 +87,14 @@ public struct TypedTailModel: Equatable, Sendable {
                 current.removeLast()
                 text = current
             }
+        case .eraseWord:
+            let kept = current.reversed().drop(while: \.isWhitespace)
+            if kept.isEmpty {
+                // The word erased was there before the turn.
+                text = nil
+            } else {
+                text = UserTypingTrail.erasingWord(current)
+            }
         case .move:
             text = nil
         }

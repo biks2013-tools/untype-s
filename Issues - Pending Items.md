@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P1 - Hands-free in a terminal: a second space after the last word is erased as a word - fixed in build 91 (2026-11-22)
+**Problem** (user, build 90): dictating into a Claude Code prompt, the last word is erased, the space in front of it stays, and the next dictated words get a second space. **Cause**: the word was erased with one key (Option+Backspace, or Control+W), which untype counted as "the caret moved", so it no longer knew what stood before the caret and wrote the space again (a terminal does not report its text). Letter-by-letter Backspace was already followed. **Fix**: `UserKeystroke.eraseWord` for Option+Backspace and Control+W; `UserTypingTrail` now keeps the user's edits in order and replays them on what untype wrote (`erasingWord`: the spaces at the end go, then the word), so the text before the caret ends in the space that was left; after a click or an arrow key, where the text is not known, a word erase is still taken to leave a space. `TypedTailModel` follows it too. 559/559 tests (3 new). **Not in an installed build**; to check in a Claude Code prompt: Option+Backspace and Control+W on the last word, then dictate; also several words erased, and Backspace held. Not covered: Command+Backspace / Control+U (erase to the start of the line) still count as a move.
+
 ### P1 - Hands-free "I end the sentences" in a terminal: a second space after a space or a line break typed by hand - fixed in build 90, confirmed by the user (2026-11-21)
 **Problem** (reported 2026-11-21, build 89): dictating hands-free in a terminal, most of all in a Claude Code prompt, the words that follow a space typed by hand, or that start a new line, still get a space in front.
 

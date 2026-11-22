@@ -7131,11 +7131,16 @@ private final class UntypeReturnEscapeKeyTap {
         if key == 38, flags.contains(.maskControl), flags.intersection([.maskCommand, .maskAlternate]).isEmpty {
             return .text("\n")
         }
+        // Control+W erases the word before the caret in terminal prompts.
+        if key == 13, flags.contains(.maskControl), flags.intersection([.maskCommand, .maskAlternate]).isEmpty {
+            return .eraseWord
+        }
         if !flags.intersection([.maskCommand, .maskControl]).isEmpty || caretKeys.contains(key) {
             return .move
         }
         if key == backspaceKey {
-            return flags.contains(.maskAlternate) ? .move : .erase
+            // Option+Backspace erases the word before the caret.
+            return flags.contains(.maskAlternate) ? .eraseWord : .erase
         }
         if returnKeys.contains(key) {
             return .text("\n")

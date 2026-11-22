@@ -252,3 +252,56 @@ private func context(_ before: String, endsLine: Bool? = true) -> LiveCaretConte
     flow.commitFinal("With three teams.", now: 4, context: { nil })
     #expect(flow.text == "We tested the new versionWith three teams")
 }
+
+// 2026-11-22: the last word erased as a word (Option+Backspace, Control+W)
+// leaves its space in the field; the next words got a second one.
+
+@Test func afterTheLastWordIsErasedAsAWordItsSpaceIsNotWrittenAgain() {
+    var flow = HandsFreeTextFlow()
+    flow.commitFinal("We ship the report on Monday", now: 0, context: { nil })
+    #expect(flow.committed == "We ship the report on Monday")
+    // The field now holds "We ship the report on ".
+    flow.note(.eraseWord)
+    flow.commitFinal("Friday", now: 1, context: { nil })
+    #expect(flow.committed == "We ship the report on Mondayfriday")
+    // (`committed` is what untype typed: "…Monday" then "friday", no space.)
+
+    // Two words erased, then a word typed by hand and erased again.
+    var trail = UserTypingTrail()
+    trail.note(.eraseWord)
+    trail.note(.eraseWord)
+    #expect(trail.before(written: "the report on Monday") == "the report ")
+    trail.note(.text("by next"))
+    trail.note(.eraseWord)
+    #expect(trail.before(written: "the report on Monday") == "the report by ")
+    // Erased letter by letter down to the space: the same.
+    var letters = UserTypingTrail()
+    for _ in 0..<6 { letters.note(.erase) }
+    #expect(letters.before(written: "on Monday") == "on ")
+    // A space at the end goes with the word, as terminals do it.
+    #expect(UserTypingTrail.erasingWord("on Monday  ") == "on ")
+    #expect(UserTypingTrail.erasingWord("Monday") == "")
+    #expect(UserTypingTrail.erasingWord("") == "")
+}
+
+@Test func aWordErasedWhereTheTextIsNotKnownStillLeavesNoSecondSpace() {
+    var flow = HandsFreeTextFlow()
+    flow.commitFinal("First part", now: 0, context: { nil })
+    // A click: what stands before the caret is no longer known.
+    flow.note(.move)
+    flow.note(.eraseWord)
+    flow.commitFinal("second", now: 1, context: { nil })
+    // No space in front: the erased word left its own.
+    #expect(flow.committed == "First partsecond")
+}
+
+@Test func theTurnsTextFollowsAWordErase() {
+    var tail = TypedTailModel(text: "three teams")
+    tail.note(.eraseWord)
+    #expect(tail.text == "three ")
+    tail.note(.eraseWord)
+    #expect(tail.text == "")
+    // The next one erases a word that was there before the turn.
+    tail.note(.eraseWord)
+    #expect(tail.text == nil)
+}
