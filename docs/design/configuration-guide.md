@@ -559,7 +559,7 @@ Stored in `~/.tool-agents/untype/ui-state.json` under `voiceFilter`; set in Sett
 
 Settings → Speech → **Soniox balance** → *Warn when the balance is low* (off by default) and *Warn below* (US dollars, default $5 when switched on). Stored as `balanceAlert.thresholdUsd` in `~/.tool-agents/untype/ui-state.json`; no environment variable.
 
-When the Soniox credit is below the amount, untype writes a warning in the Transcript and posts a macOS notification: once when it drops below, then at most once a day while it stays low; a top-up above the amount re-arms it. It reads the balance at launch, every 15 minutes, after each meeting and on **Check now**; the last reading is shown under the setting.
+When the Soniox credit is below the amount, untype writes a warning in the Transcript and shows a banner above the meeting Transcription window: in the Transcript once when it drops below, then at most once a day while it stays low; a top-up above the amount re-arms it. A macOS notification is posted only when the balance is used up. It reads the balance at launch, every 15 minutes, after each meeting and on **Check now**; the last reading is shown under the setting.
 
 | Variable | Purpose | How to get it | Default |
 |---|---|---|---|

@@ -1187,8 +1187,17 @@ final class UntypeUIModel: ObservableObject {
             transcriptFeed.setAccountWarning(BalanceWarningPolicy.lowBalanceNotice(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd))
             if let warning = balanceWarningPolicy.warning(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd) {
                 timeline.commitError(warning)
-                UntypeUserNotifier.shared.post(title: "Soniox balance is low", body: warning, identifier: "soniox_low_balance")
                 appendEvent("diagnostic.warning: \(warning)")
+            }
+            // The notification is kept for the moment nothing works any more;
+            // it shares the billing alert's identifier, so the two never stack.
+            if balanceWarningPolicy.shouldNotifyUsedUp(balance) {
+                UntypeUserNotifier.shared.post(
+                    title: "untype can't transcribe",
+                    body: BalanceWarningPolicy.message(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd ?? 0),
+                    identifier: "soniox_billing"
+                )
+                appendEvent("diagnostic.info: [untype] user alerted: soniox balance used up")
             }
         case .failure(let error):
             let message = (error as? UntypeError)?.message ?? error.localizedDescription

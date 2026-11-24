@@ -73,3 +73,20 @@ import Testing
     feed.setAccountWarning(nil)
     #expect(feed.accountWarning == nil)
 }
+
+@Test func theNotificationIsOnlyForAUsedUpBalanceAndOncePerTimeItRunsOut() {
+    var policy = BalanceWarningPolicy()
+    let low = SonioxBalance(availableUsd: 3, exhausted: false)
+    let empty = SonioxBalance(availableUsd: 0, exhausted: true)
+
+    let whileLow = policy.shouldNotifyUsedUp(low)
+    let first = policy.shouldNotifyUsedUp(empty)
+    let repeated = policy.shouldNotifyUsedUp(empty)
+    _ = policy.shouldNotifyUsedUp(low)
+    let afterTopUpSpent = policy.shouldNotifyUsedUp(empty)
+
+    #expect(!whileLow)
+    #expect(first)
+    #expect(!repeated)
+    #expect(afterTopUpSpent)
+}

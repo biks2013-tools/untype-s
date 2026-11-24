@@ -99,6 +99,7 @@ public enum SonioxBalanceClient {
 public struct BalanceWarningPolicy: Sendable {
     public let repeatInterval: TimeInterval
     private var lastWarned: Date?
+    private var notifiedUsedUp = false
 
     public init(repeatInterval: TimeInterval = 24 * 60 * 60) {
         self.repeatInterval = repeatInterval
@@ -115,6 +116,21 @@ public struct BalanceWarningPolicy: Sendable {
         }
         lastWarned = now
         return Self.message(for: balance, thresholdUsd: threshold)
+    }
+
+    /// A macOS notification is posted only when the balance is used up (a low
+    /// balance is told in the Transcript alone): once, and again only after a
+    /// top-up has been spent.
+    public mutating func shouldNotifyUsedUp(_ balance: SonioxBalance) -> Bool {
+        guard balance.exhausted || balance.availableUsd <= 0 else {
+            notifiedUsedUp = false
+            return false
+        }
+        if notifiedUsedUp {
+            return false
+        }
+        notifiedUsedUp = true
+        return true
     }
 
     /// The standing notice while the balance is below the threshold (not
