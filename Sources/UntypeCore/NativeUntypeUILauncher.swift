@@ -1144,6 +1144,7 @@ final class UntypeUIModel: ObservableObject {
     func checkSonioxBalance(force: Bool = false) {
         guard settings.balanceAlert.isOn else {
             balanceStatus = ""
+            transcriptFeed.setAccountWarning(nil)
             return
         }
         if !force, let last = lastBalanceCheck, Date().timeIntervalSince(last) < 5 * 60 {
@@ -1183,6 +1184,7 @@ final class UntypeUIModel: ObservableObject {
         case .success(let balance):
             balanceStatus = "\(BalanceWarningPolicy.formatUsd(balance.availableUsd)) left · checked at \(time)"
             appendEvent("diagnostic.info: [untype] soniox balance \(BalanceWarningPolicy.formatUsd(balance.availableUsd))")
+            transcriptFeed.setAccountWarning(BalanceWarningPolicy.lowBalanceNotice(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd))
             if let warning = balanceWarningPolicy.warning(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd) {
                 timeline.commitError(warning)
                 UntypeUserNotifier.shared.post(title: "Soniox balance is low", body: warning, identifier: "soniox_low_balance")

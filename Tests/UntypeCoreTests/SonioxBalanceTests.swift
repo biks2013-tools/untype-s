@@ -54,3 +54,22 @@ import Testing
     #expect(SonioxBalanceClient.apiKey(from: projectOnly) == nil)
     #expect(SonioxBalanceClient.apiKey(from: none) == nil)
 }
+
+@MainActor
+@Test func transcriptionWindowKeepsTheBalanceWarningUntilClosedOrChanged() {
+    let feed = MeetingTranscriptFeed()
+    let low = BalanceWarningPolicy.lowBalanceNotice(for: SonioxBalance(availableUsd: 9.02, exhausted: false), thresholdUsd: 10)
+    let lower = BalanceWarningPolicy.lowBalanceNotice(for: SonioxBalance(availableUsd: 8.5, exhausted: false), thresholdUsd: 10)
+    #expect(low?.contains("$9.02 left") == true)
+    #expect(BalanceWarningPolicy.lowBalanceNotice(for: SonioxBalance(availableUsd: 20, exhausted: false), thresholdUsd: 10) == nil)
+
+    feed.setAccountWarning(low)
+    #expect(feed.accountWarning == low)
+    feed.dismissAccountWarning()
+    feed.setAccountWarning(low)
+    #expect(feed.accountWarning == nil)
+    feed.setAccountWarning(lower)
+    #expect(feed.accountWarning == lower)
+    feed.setAccountWarning(nil)
+    #expect(feed.accountWarning == nil)
+}

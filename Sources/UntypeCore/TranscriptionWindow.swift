@@ -83,6 +83,11 @@ public final class MeetingTranscriptFeed: ObservableObject {
     @Published private var clearedAttachments = 0
     /// What the last attach action did, shown for a moment.
     @Published public private(set) var attachNote: String?
+    /// A standing warning about the speech provider's account (low or used-up
+    /// balance), shown as a banner above the transcript. It is about the
+    /// account, not one meeting, so a new recording keeps it.
+    @Published public private(set) var accountWarning: String?
+    private var dismissedAccountWarning: String?
     /// Asks the owner of the recorder to attach what the clipboard holds.
     public var onAttachRequest: (() -> Void)?
     /// Asks the owner of the recorder to attach these files or folders
@@ -179,6 +184,23 @@ public final class MeetingTranscriptFeed: ObservableObject {
         }
         rows.append(contentsOf: pending.map(TranscriptionRow.attachment))
         return rows
+    }
+
+    /// nil clears the banner. A warning the user closed stays closed until
+    /// its text changes (the balance in it moved).
+    public func setAccountWarning(_ warning: String?) {
+        if let warning, warning == dismissedAccountWarning {
+            return
+        }
+        if warning == nil {
+            dismissedAccountWarning = nil
+        }
+        accountWarning = warning
+    }
+
+    public func dismissAccountWarning() {
+        dismissedAccountWarning = accountWarning
+        accountWarning = nil
     }
 
     /// The answer: what was attached, and what to tell the user.
@@ -342,12 +364,39 @@ struct UntypeTranscriptionView: View {
         TranscriptionChannel(rawValue: channelValue) ?? .both
     }
 
+    private func accountWarningBanner(_ warning: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(UntypeDesignTokens.warnGold)
+            Text(verbatim: warning)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            Button {
+                feed.dismissAccountWarning()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Hide this warning")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(UntypeDesignTokens.warnGold.opacity(0.14))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             controls
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             Divider()
+            if let warning = feed.accountWarning {
+                accountWarningBanner(warning)
+                Divider()
+            }
             transcript
             Divider()
             status

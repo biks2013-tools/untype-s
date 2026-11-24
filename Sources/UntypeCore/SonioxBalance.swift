@@ -117,6 +117,15 @@ public struct BalanceWarningPolicy: Sendable {
         return Self.message(for: balance, thresholdUsd: threshold)
     }
 
+    /// The standing notice while the balance is below the threshold (not
+    /// throttled: the Transcription window shows it for as long as it holds).
+    public static func lowBalanceNotice(for balance: SonioxBalance, thresholdUsd: Double?) -> String? {
+        guard let threshold = thresholdUsd, threshold > 0, balance.availableUsd < threshold else {
+            return nil
+        }
+        return message(for: balance, thresholdUsd: threshold)
+    }
+
     public static func message(for balance: SonioxBalance, thresholdUsd: Double) -> String {
         if balance.exhausted || balance.availableUsd <= 0 {
             return "Your Soniox balance is used up: dictation and meeting recording stop working. Add funds at console.soniox.com."
