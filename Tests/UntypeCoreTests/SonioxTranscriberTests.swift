@@ -269,6 +269,28 @@ import Testing
     #expect(errors[2].code == "soniox_network")
 }
 
+@Test func sonioxTranscriberMapsExhaustedBalanceToBillingError() async throws {
+    let socket = MockRealtimeWebSocket()
+    let transcriber = makeSonioxTranscriber(socket: socket)
+    var errors: [UntypeError] = []
+    transcriber.setHandlers(TranscriberEventHandlers(
+        partial: { _ in },
+        final: { _ in },
+        error: { error in
+            if let error = error as? UntypeError {
+                errors.append(error)
+            }
+        }
+    ))
+
+    try await transcriber.start()
+    await transcriber.handleTextFrame(#"{"error_code":402,"error_message":"Payment required"}"#)
+    await transcriber.handleTextFrame(#"{"error_code":400,"error_message":"Organization balance exhausted. Please either add funds manually or enable autopay."}"#)
+
+    #expect(errors.count == 2)
+    #expect(errors.allSatisfy { $0.code == "soniox_billing" && $0.exitCode == .providerAuth })
+}
+
 @Test func sonioxTranscriberMapsConnectFailuresToNetworkError() async {
     let socket = MockRealtimeWebSocket()
     socket.connectError = TestSonioxSocketError()

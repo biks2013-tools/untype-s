@@ -593,6 +593,9 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
         let code = object["error_code"] as? Int
         let message = (object["error_message"] as? String)
             ?? "Soniox server returned error code \(code.map(String.init) ?? "unknown")."
+        if code == 402 || isSonioxBillingMessage(message) {
+            return .sonioxBilling("Soniox account cannot pay for transcription: \(message)")
+        }
         switch code {
         case 401, 403:
             return .sonioxAuth("Soniox authentication failed: \(message)")
@@ -602,6 +605,17 @@ public final class SonioxTranscriber: RuntimeTranscriber, @unchecked Sendable {
             return .sonioxProtocol(message)
         }
     }
+}
+
+/// Soniox has been seen to report an empty balance with a non-402 code
+/// ("Organization balance exhausted. Please either add funds manually or
+/// enable autopay."), so the message is checked too.
+func isSonioxBillingMessage(_ message: String) -> Bool {
+    let lowered = message.lowercased()
+    return lowered.contains("balance exhausted")
+        || lowered.contains("add funds")
+        || lowered.contains("insufficient funds")
+        || lowered.contains("payment required")
 }
 
 private func mergeFinalText(committed: String, incomingFinals: String) -> String {

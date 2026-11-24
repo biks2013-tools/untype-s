@@ -69,3 +69,18 @@ import Testing
     let size = try FileManager.default.attributesOfItem(atPath: log.url.path)[.size] as? NSNumber
     #expect((size?.intValue ?? .max) <= UntypeEventLogFile.maxBytes)
 }
+
+@Test func warmSessionRecoveryDoesNotRewarmAfterBillingOrAuthFailureMidSession() {
+    // Soniox sends "Organization balance exhausted" on the open socket; the
+    // re-warm must stop instead of looping once a minute.
+    let billing = UntypeError.sonioxBilling("Organization balance exhausted.")
+    #expect(!WarmSessionRecovery.shouldRewarm(afterFailure: billing))
+    #expect(!WarmSessionRecovery.shouldRewarm(afterFailure: UntypeError.sonioxAuth("x")))
+    #expect(!WarmSessionRecovery.shouldRewarm(afterFailure: UntypeError.missingConfiguration("x")))
+    #expect(WarmSessionRecovery.shouldRewarm(afterFailure: nil))
+    #expect(WarmSessionRecovery.shouldRewarm(afterFailure: UntypeError.sonioxNetwork("x")))
+    #expect(WarmSessionRecovery.shouldRewarm(afterFailure: UntypeError.sonioxProtocol("x")))
+    #expect(WarmSessionRecovery.shouldRewarm(afterFailure: URLError(.networkConnectionLost)))
+    #expect(!WarmSessionRecovery.shouldRetryStartup(after: billing))
+    #expect(WarmSessionRecovery.userActionMessage(for: billing).contains("Add funds"))
+}

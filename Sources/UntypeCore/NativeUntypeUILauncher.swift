@@ -2494,6 +2494,13 @@ final class UntypeUIModel: ObservableObject {
         )
         restartWarmSessionAfterStop = false
         resetStoppedSessionState(reason: "runtime-ended")
+        if let failure, !WarmSessionRecovery.shouldRewarm(afterFailure: failure) {
+            // Billing, auth and configuration failures repeat on every
+            // re-warm; stop here and tell the user what to fix.
+            appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the provider account or configuration, then toggle the hotkey")
+            timeline.commitError(WarmSessionRecovery.userActionMessage(for: failure))
+            return
+        }
         if wasRecording {
             timeline.commitError("The speech provider closed the session during this turn; nothing was submitted. Press again.")
         }
