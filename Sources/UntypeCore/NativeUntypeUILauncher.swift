@@ -539,6 +539,7 @@ final class UntypeUIModel: ObservableObject {
     /// the backoff.
     private var warmSessionRewarmTask: Task<Void, Never>?
     private var warmSessionRewarmAttempts = 0
+    private var providerAlertThrottle = AlertThrottle()
     private var warmSessionListeningSince: Date?
     private let audioEventInterval: TimeInterval = 2
 
@@ -2497,8 +2498,10 @@ final class UntypeUIModel: ObservableObject {
         if let failure, !WarmSessionRecovery.shouldRewarm(afterFailure: failure) {
             // Billing, auth and configuration failures repeat on every
             // re-warm; stop here and tell the user what to fix.
-            appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the provider account or configuration, then toggle the hotkey")
-            timeline.commitError(WarmSessionRecovery.userActionMessage(for: failure))
+            appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the provider account or configuration, then press the hotkey again")
+            if let alert = ProviderAccountAlert.make(for: failure) {
+                alertUser(alert)
+            }
             return
         }
         if wasRecording {
@@ -2512,10 +2515,27 @@ final class UntypeUIModel: ObservableObject {
     fileprivate func hotkeySessionStartFailed(_ error: Error) {
         guard WarmSessionRecovery.shouldRetryStartup(after: error) else {
             appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the configuration, then toggle the hotkey")
+            if let alert = ProviderAccountAlert.make(for: error) {
+                alertUser(alert)
+            }
             return
         }
         warmSessionRewarmAttempts += 1
         scheduleWarmSessionRewarm()
+    }
+
+    /// Tells the user about a provider problem they must fix, also with the
+    /// untype window closed: a Transcript row and a notice on the overlay
+    /// every time (the answer to the press), and a macOS notification at most
+    /// once per `AlertThrottle.interval` for the same problem.
+    private func alertUser(_ alert: ProviderAccountAlert) {
+        timeline.commitError(alert.body)
+        overlay?.showNotice(alert.short, seconds: 6)
+        guard providerAlertThrottle.shouldShow(alert.key) else {
+            return
+        }
+        UntypeUserNotifier.shared.post(title: alert.title, body: alert.body, identifier: alert.key)
+        appendEvent("diagnostic.info: [untype] user alerted: \(alert.key)")
     }
 
     private func scheduleWarmSessionRewarm() {
@@ -3053,8 +3073,13 @@ final class UntypeUIModel: ObservableObject {
             headline = "Meeting saved"
         case .silence(let minutes):
             headline = "Ended · \(minutes) min silence"
-        case .failure:
+        case .failure(let message):
             headline = "Stopped by an error"
+            if let alert = ProviderAccountAlert.make(forMeetingFailure: message),
+               providerAlertThrottle.shouldShow(alert.key) {
+                UntypeUserNotifier.shared.post(title: alert.title, body: alert.body, identifier: alert.key)
+                appendEvent("diagnostic.info: [untype] user alerted: \(alert.key)")
+            }
         }
         let calendarMeeting = recordingCalendarMeeting
         let startedAt = recordingStartedAt

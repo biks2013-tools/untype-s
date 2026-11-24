@@ -82,5 +82,40 @@ import Testing
     #expect(WarmSessionRecovery.shouldRewarm(afterFailure: UntypeError.sonioxProtocol("x")))
     #expect(WarmSessionRecovery.shouldRewarm(afterFailure: URLError(.networkConnectionLost)))
     #expect(!WarmSessionRecovery.shouldRetryStartup(after: billing))
-    #expect(WarmSessionRecovery.userActionMessage(for: billing).contains("Add funds"))
+}
+
+@Test func providerAccountAlertExplainsBillingAndAuthButNotTransientFailures() {
+    let billing = ProviderAccountAlert.make(for: UntypeError.sonioxBilling("Organization balance exhausted."))
+    #expect(billing?.title == "untype can't transcribe")
+    #expect(billing?.body.contains("Soniox balance is used up") == true)
+    #expect(billing?.body.contains("console.soniox.com") == true)
+    #expect(billing?.key == "soniox_billing")
+    #expect(billing?.short == "Soniox balance used up")
+
+    let auth = ProviderAccountAlert.make(for: UntypeError.elevenLabsAuth("bad key"))
+    #expect(auth?.body.hasPrefix("ElevenLabs rejected the API key.") == true)
+
+    #expect(ProviderAccountAlert.make(for: UntypeError.missingConfiguration("SONIOX_API_KEY is not set.")) != nil)
+    #expect(ProviderAccountAlert.make(for: UntypeError.sonioxNetwork("x")) == nil)
+    #expect(ProviderAccountAlert.make(for: UntypeError.sonioxProtocol("x")) == nil)
+    #expect(ProviderAccountAlert.make(for: URLError(.timedOut)) == nil)
+}
+
+@Test func providerAccountAlertRecognisesBillingInMeetingFailures() {
+    let alert = ProviderAccountAlert.make(forMeetingFailure: "Soniox (you): Organization balance exhausted. Please either add funds manually or enable autopay.")
+    #expect(alert?.title == "Meeting recording stopped")
+    #expect(ProviderAccountAlert.make(forMeetingFailure: "Soniox (you): connection lost") == nil)
+}
+
+@Test func alertThrottleShowsOncePerIntervalPerKey() {
+    var throttle = AlertThrottle(interval: 30)
+    let start = Date(timeIntervalSince1970: 1_000)
+    let first = throttle.shouldShow("soniox_billing", now: start)
+    let repeated = throttle.shouldShow("soniox_billing", now: start.addingTimeInterval(5))
+    let otherProblem = throttle.shouldShow("soniox_auth", now: start.addingTimeInterval(5))
+    let afterInterval = throttle.shouldShow("soniox_billing", now: start.addingTimeInterval(31))
+    #expect(first)
+    #expect(!repeated)
+    #expect(otherProblem)
+    #expect(afterInterval)
 }

@@ -43,15 +43,6 @@ public enum WarmSessionRecovery {
         return !needsUser(failure)
     }
 
-    /// What to tell the user when a failure stops the re-warming.
-    public static func userActionMessage(for failure: Error) -> String {
-        let detail = (failure as? UntypeError)?.message ?? failure.localizedDescription
-        if let error = failure as? UntypeError, error.code.hasSuffix("_billing") {
-            return "Push-to-talk is paused: \(detail) Add funds in the provider's console (or pick another provider in Settings), then toggle the hotkey off and on."
-        }
-        return "Push-to-talk is paused: \(detail) Fix the key or configuration in Settings, then toggle the hotkey off and on."
-    }
-
     private static func needsUser(_ error: Error) -> Bool {
         guard let untypeError = error as? UntypeError else {
             return false
