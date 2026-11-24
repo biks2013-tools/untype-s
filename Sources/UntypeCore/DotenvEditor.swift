@@ -10,6 +10,7 @@ public enum DotenvEditor {
     /// The variables the native UI credentials editor manages.
     public static let editableKeys: [String] = [
         "SONIOX_API_KEY",
+        "SONIOX_ORGANIZATION_API_KEY",
         "ELEVENLABS_API_KEY",
         "AZURE_OPENAI_API_KEY",
         "AZURE_OPENAI_ENDPOINT",

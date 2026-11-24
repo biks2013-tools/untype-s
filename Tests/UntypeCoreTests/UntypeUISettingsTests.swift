@@ -515,3 +515,15 @@ private final class UITemporaryDirectory {
         try UntypeUISettings.default.merged(UntypeUISettingsPatch(pinnedOperators: ["Q"]))
     }
 }
+
+@Test func uiSettingsStoreRoundTripsLowBalanceThreshold() throws {
+    let temp = UITemporaryDirectory()
+    #expect(!UntypeUISettings.default.balanceAlert.isOn)
+    let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(balanceAlert: BalanceAlertPreferences(thresholdUsd: 7.5)))
+
+    try UntypeUISettingsStore.save(settings, home: temp.url)
+    let loaded = try UntypeUISettingsStore.load(home: temp.url)
+
+    #expect(loaded.balanceAlert.thresholdUsd == 7.5)
+    #expect(loaded.balanceAlert.isOn)
+}

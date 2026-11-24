@@ -1,6 +1,6 @@
 #if os(macOS)
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// Posts macOS notifications (Notification Center banners). untype runs as a
 /// menu-bar app, so a banner is the one place the user sees a problem with

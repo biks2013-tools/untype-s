@@ -31,6 +31,10 @@ public enum UntypeEnvTemplate {
     # Reminder date (YYYY-MM-DD) for renewing SONIOX_API_KEY. Optional.
     # SONIOX_API_KEY_EXPIRES_AT=
 
+    # Soniox organization API key. Optional: only used to read the balance for
+    # the low-balance warning (Settings → Speech → Soniox balance).
+    # SONIOX_ORGANIZATION_API_KEY=
+
     # ElevenLabs API key. Required when UNTYPE_STT_PROVIDER is elevenlabs.
     # ELEVENLABS_API_KEY=
 
