@@ -212,7 +212,10 @@ final class CaretIndicatorController {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(200))
-        timer.setEventHandler { [weak self] in
+        // @Sendable: the handler runs on `queue`, not the main actor. Without it
+        // Swift 6.3 infers main-actor isolation from `start()` and traps on the
+        // first tick (EXC_BREAKPOINT in dispatch_assert_queue).
+        timer.setEventHandler { @Sendable [weak self] in
             let rect = CaretLocator.caretRect(excludingPID: ownPID)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
