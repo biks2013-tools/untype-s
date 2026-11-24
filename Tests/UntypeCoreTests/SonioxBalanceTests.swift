@@ -42,7 +42,7 @@ import Testing
     #expect(message.contains("used up"))
 }
 
-@Test func sonioxBalanceKeyPrefersTheOrganizationKey() throws {
+@Test func sonioxBalanceIsReadWithTheOrganizationKeyOnly() throws {
     let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temp) }
@@ -50,7 +50,7 @@ import Testing
     let projectOnly = try EnvChain(cwd: temp, home: temp, shell: ["SONIOX_API_KEY": "project"])
     let none = try EnvChain(cwd: temp, home: temp, shell: [:])
 
-    #expect(SonioxBalanceClient.apiKey(from: both)?.value == "org")
-    #expect(SonioxBalanceClient.apiKey(from: projectOnly)?.name == "SONIOX_API_KEY")
+    #expect(SonioxBalanceClient.apiKey(from: both) == "org")
+    #expect(SonioxBalanceClient.apiKey(from: projectOnly) == nil)
     #expect(SonioxBalanceClient.apiKey(from: none) == nil)
 }

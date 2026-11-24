@@ -854,7 +854,7 @@ struct UntypeSettingsView: View {
         } header: {
             Text("Soniox balance")
         } footer: {
-            caption("When your Soniox credit drops below this amount, a warning appears in the Transcript (and as a macOS notification) once, and again a day later if it is still low. untype reads the balance every 15 minutes and after each meeting. Soniox shows the balance only to an organization API key: create one at console.soniox.com and add it as SONIOX_ORGANIZATION_API_KEY in Permissions & Keys. Real-time transcription costs about $\(String(format: "%.2f", SonioxPricing.realtimeUsdPerHour)) per hour.")
+            caption("When your Soniox credit drops below this amount, a warning appears in the Transcript (and as a macOS notification) once, and again a day later if it is still low. untype reads the balance every 15 minutes and after each meeting. Soniox shows the balance only to an organization API key, not to the transcription key: an organization admin creates one at console.soniox.com (Settings → Organization API keys → Create API key), and you paste it as Soniox organization key in Permissions & Keys. Real-time transcription costs about $\(String(format: "%.2f", SonioxPricing.realtimeUsdPerHour)) per hour.")
         }
 
         Section {

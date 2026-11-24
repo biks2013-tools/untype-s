@@ -58,19 +58,16 @@ public struct SonioxBalance: Equatable, Sendable {
 
 public enum SonioxBalanceClient {
     public static let endpoint = URL(string: "https://api.soniox.com/v1/organization/balance")!
-    /// Soniox serves the balance to organization keys only.
+    /// Soniox serves the balance to organization keys only (prefix
+    /// `snx_org_`); the transcription key, a project key, gets HTTP 403
+    /// (checked live 2026-11-24), so it is never tried.
     public static let organizationKeyName = "SONIOX_ORGANIZATION_API_KEY"
 
-    /// The organization key when set; otherwise the transcription key, which
-    /// works only when it happens to be an organization key.
-    public static func apiKey(from env: EnvChain) -> (name: String, value: String)? {
-        if let value = env.get(organizationKeyName)?.value {
-            return (organizationKeyName, value)
-        }
-        if let value = env.get(STTProvider.soniox.apiKeyEnvName)?.value {
-            return (STTProvider.soniox.apiKeyEnvName, value)
-        }
-        return nil
+    /// How to get the key, for the Settings status line.
+    public static let howToGetKey = "In console.soniox.com open Settings → Organization API keys → Create API key (organization admins only), then paste it as Soniox organization key in Settings → Permissions & Keys."
+
+    public static func apiKey(from env: EnvChain) -> String? {
+        env.get(organizationKeyName)?.value
     }
 
     public static func fetch(apiKey: String, session: URLSession = .shared) async throws -> SonioxBalance {
@@ -88,7 +85,7 @@ public enum SonioxBalanceClient {
         case 200..<300:
             return try SonioxBalance.parse(data)
         case 401, 403:
-            throw UntypeError.sonioxAuth("Soniox only shows the balance to an organization API key. Add one as \(organizationKeyName) in Settings → Permissions & Keys.")
+            throw UntypeError.sonioxAuth("Soniox refused the organization key (HTTP \(status)). It must be an organization API key (it starts with snx_org_) with the balance permission on. \(howToGetKey)")
         default:
             throw UntypeError.sonioxNetwork("Soniox balance request failed (HTTP \(status)).")
         }

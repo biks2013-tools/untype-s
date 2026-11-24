@@ -1158,7 +1158,7 @@ final class UntypeUIModel: ObservableObject {
             shell: ProcessInfo.processInfo.environment
         )
         guard let key = env.flatMap(SonioxBalanceClient.apiKey(from:)) else {
-            balanceStatus = "Add a Soniox organization key in Permissions & Keys to read the balance."
+            balanceStatus = "The balance needs a Soniox organization API key; the transcription key cannot read it. \(SonioxBalanceClient.howToGetKey)"
             return
         }
         lastBalanceCheck = Date()
@@ -1166,7 +1166,7 @@ final class UntypeUIModel: ObservableObject {
         Task.detached { [weak self] in
             let result: Result<SonioxBalance, Error>
             do {
-                result = .success(try await SonioxBalanceClient.fetch(apiKey: key.value))
+                result = .success(try await SonioxBalanceClient.fetch(apiKey: key))
             } catch {
                 result = .failure(error)
             }

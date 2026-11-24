@@ -563,6 +563,6 @@ When the Soniox credit is below the amount, untype writes a warning in the Trans
 
 | Variable | Purpose | How to get it | Default |
 |---|---|---|---|
-| `SONIOX_ORGANIZATION_API_KEY` | Reads the balance (`GET https://api.soniox.com/v1/organization/balance`). Soniox serves the balance only to an organization key; a project key such as `SONIOX_API_KEY` is used when this is not set, and the setting then shows "Soniox only shows the balance to an organization API key". It is never used for transcription. | console.soniox.com → your organization → API keys (organization key). | not set |
+| `SONIOX_ORGANIZATION_API_KEY` | Reads the balance (`GET https://api.soniox.com/v1/organization/balance`). Soniox serves the balance only to an organization key (prefix `snx_org_`); a project key such as `SONIOX_API_KEY` gets HTTP 403, so it is not tried, and without this key the setting says how to get one. It is never used for transcription. | console.soniox.com → Settings → Organization API keys → Create API key (organization admins only; turn on Full access or the balance permission). The key is shown once. | not set |
 
 Store it like the other keys: in Settings → Permissions & Keys, which writes `~/.tool-agents/untype/.env`. Real-time transcription costs about $0.12 per hour (soniox.com/pricing, November 2026), so a $5 warning leaves about 40 hours of dictation.
