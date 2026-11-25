@@ -89,6 +89,8 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
     public var handsFree: HandsFreePreferences = HandsFreePreferences()
     /// Only my voice: the filter and the learned loudness of the user.
     public var voiceFilter: VoiceFilterPreferences = VoiceFilterPreferences()
+    /// Low Soniox balance warning: the dollar amount to warn below.
+    public var balanceAlert: BalanceAlertPreferences = BalanceAlertPreferences()
 
     /// The overlay's operator letters, in chip order.
     public static let operatorLetters = ["R", "T", "A", "F", "S", "L", "W", "X", "C", "I"]
@@ -365,6 +367,9 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         if let voiceFilter = patch.voiceFilter {
             next.voiceFilter = voiceFilter
         }
+        if let balanceAlert = patch.balanceAlert {
+            next.balanceAlert = balanceAlert
+        }
         if let meeting = patch.meeting {
             next.meeting = meeting
         }
@@ -500,6 +505,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
     public var meeting: MeetingPreferences?
     public var handsFree: HandsFreePreferences?
     public var voiceFilter: VoiceFilterPreferences?
+    public var balanceAlert: BalanceAlertPreferences?
     public var pinnedOperators: [String]?
 
     public init(
@@ -552,7 +558,8 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         meeting: MeetingPreferences? = nil,
         pinnedOperators: [String]? = nil,
         handsFree: HandsFreePreferences? = nil,
-        voiceFilter: VoiceFilterPreferences? = nil
+        voiceFilter: VoiceFilterPreferences? = nil,
+        balanceAlert: BalanceAlertPreferences? = nil
     ) {
         self.provider = provider
         self.model = model
@@ -603,6 +610,7 @@ public struct UntypeUISettingsPatch: Sendable, Equatable {
         self.meeting = meeting
         self.handsFree = handsFree
         self.voiceFilter = voiceFilter
+        self.balanceAlert = balanceAlert
         self.pinnedOperators = pinnedOperators
     }
 }
@@ -878,7 +886,8 @@ public enum UntypeUISettingsStore {
             meeting: current.meeting,
             pinnedOperators: current.pinnedOperators,
             handsFree: current.handsFree,
-            voiceFilter: current.voiceFilter
+            voiceFilter: current.voiceFilter,
+            balanceAlert: current.balanceAlert
         )
         return try settings.normalized().refreshingCredentialStatus(
             cwd: cwd,
@@ -957,6 +966,7 @@ private struct PersistedUISettings: Codable {
     let meeting: MeetingPreferences?
     let handsFree: HandsFreePreferences?
     let voiceFilter: VoiceFilterPreferences?
+    let balanceAlert: BalanceAlertPreferences?
     let pinnedOperators: [String]?
 
     enum CodingKeys: String, CodingKey {
@@ -1008,6 +1018,7 @@ private struct PersistedUISettings: Codable {
         case meeting
         case handsFree
         case voiceFilter
+        case balanceAlert
         case pinnedOperators
     }
 
@@ -1060,6 +1071,7 @@ private struct PersistedUISettings: Codable {
         self.meeting = settings.meeting
         self.handsFree = settings.handsFree
         self.voiceFilter = settings.voiceFilter
+        self.balanceAlert = settings.balanceAlert
         self.pinnedOperators = settings.pinnedOperators
     }
 
@@ -1115,7 +1127,8 @@ private struct PersistedUISettings: Codable {
                 meeting: meeting ?? MeetingPreferences(),
                 pinnedOperators: pinnedOperators ?? [],
                 handsFree: handsFree ?? HandsFreePreferences(),
-                voiceFilter: voiceFilter ?? VoiceFilterPreferences()
+                voiceFilter: voiceFilter ?? VoiceFilterPreferences(),
+                balanceAlert: balanceAlert ?? BalanceAlertPreferences()
             ))
         } catch {
             throw UntypeError.invalidConfiguration("Invalid UI settings state at \(path): \(error.localizedDescription). Delete or fix \(path).")

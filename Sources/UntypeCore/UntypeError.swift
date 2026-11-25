@@ -31,6 +31,13 @@ public struct UntypeError: Error, Equatable, Sendable {
         UntypeError(code: "soniox_auth", message: message, exitCode: .providerAuth)
     }
 
+    /// The Soniox account cannot pay for the session (e.g. "Organization
+    /// balance exhausted"). Like an auth failure it needs the user, so it
+    /// shares the `.providerAuth` exit code and is never retried.
+    public static func sonioxBilling(_ message: String) -> UntypeError {
+        UntypeError(code: "soniox_billing", message: message, exitCode: .providerAuth)
+    }
+
     public static func sonioxNetwork(_ message: String) -> UntypeError {
         UntypeError(code: "soniox_network", message: message, exitCode: .providerNetwork)
     }

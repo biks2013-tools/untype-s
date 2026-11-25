@@ -1138,7 +1138,7 @@ public final class MeetingNamer {
             onError: { [weak self] _ in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        Task { await self?.finish() }
+                        _ = Task { await self?.finish() }
                     }
                 }
             },

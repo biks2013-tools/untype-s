@@ -83,6 +83,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         model.configureHotkeyServices()
         overlay.applyAlwaysVisible()
         model.startCalendarWatch()
+        model.startBalanceWatch()
 
         let content = UntypeRootView(model: model)
         let initialCompact = model.settings.compactWindow
@@ -539,6 +540,13 @@ final class UntypeUIModel: ObservableObject {
     /// the backoff.
     private var warmSessionRewarmTask: Task<Void, Never>?
     private var warmSessionRewarmAttempts = 0
+    private var providerAlertThrottle = AlertThrottle()
+    /// Low Soniox balance warning (Settings → Speech → Soniox balance).
+    @Published private(set) var balanceStatus = ""
+    @Published private(set) var balanceChecking = false
+    private var balanceWarningPolicy = BalanceWarningPolicy()
+    private var lastBalanceCheck: Date?
+    private var balanceTimer: Timer?
     private var warmSessionListeningSince: Date?
     private let audioEventInterval: TimeInterval = 2
 
@@ -1098,6 +1106,103 @@ final class UntypeUIModel: ObservableObject {
             alignVoiceFilter()
         } catch {
             appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: Soniox balance
+
+    /// How often the balance is read while the warning is on. A dictation
+    /// costs fractions of a cent, so this is often enough to warn in time.
+    static let balanceCheckInterval: TimeInterval = 15 * 60
+
+    /// Settings → Speech → Soniox balance (nil or 0: off).
+    func setBalanceAlertThreshold(_ thresholdUsd: Double?) {
+        do {
+            settings = try settings.merged(UntypeUISettingsPatch(balanceAlert: BalanceAlertPreferences(thresholdUsd: thresholdUsd)))
+            try UntypeUISettingsStore.save(settings)
+            appendEvent("config.saved: low balance warning \(settings.balanceAlert.isOn ? "below \(BalanceWarningPolicy.formatUsd(thresholdUsd ?? 0))" : "off")")
+            balanceWarningPolicy = BalanceWarningPolicy()
+            checkSonioxBalance(force: true)
+        } catch {
+            appendEvent("diagnostic.warning: \(error.localizedDescription)")
+        }
+    }
+
+    func startBalanceWatch() {
+        balanceTimer?.invalidate()
+        balanceTimer = Timer.scheduledTimer(withTimeInterval: Self.balanceCheckInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.checkSonioxBalance(force: true)
+            }
+        }
+        checkSonioxBalance(force: true)
+    }
+
+    /// Reads the Soniox balance and, below the user's threshold, writes a
+    /// warning row in the Transcript (and a macOS notification). Without
+    /// `force` it is skipped when the last read is recent.
+    func checkSonioxBalance(force: Bool = false) {
+        guard settings.balanceAlert.isOn else {
+            balanceStatus = ""
+            transcriptFeed.setAccountWarning(nil)
+            return
+        }
+        if !force, let last = lastBalanceCheck, Date().timeIntervalSince(last) < 5 * 60 {
+            return
+        }
+        guard !balanceChecking else {
+            return
+        }
+        let env = try? EnvChain(
+            cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            home: FileManager.default.untypeHomeDirectory,
+            shell: ProcessInfo.processInfo.environment
+        )
+        guard let key = env.flatMap(SonioxBalanceClient.apiKey(from:)) else {
+            balanceStatus = "The balance needs a Soniox organization API key; the transcription key cannot read it. \(SonioxBalanceClient.howToGetKey)"
+            return
+        }
+        lastBalanceCheck = Date()
+        balanceChecking = true
+        Task.detached { [weak self] in
+            let result: Result<SonioxBalance, Error>
+            do {
+                result = .success(try await SonioxBalanceClient.fetch(apiKey: key))
+            } catch {
+                result = .failure(error)
+            }
+            dispatchToUI { [weak self] in
+                self?.balanceChecked(result)
+            }
+        }
+    }
+
+    private func balanceChecked(_ result: Result<SonioxBalance, Error>) {
+        balanceChecking = false
+        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        switch result {
+        case .success(let balance):
+            balanceStatus = "\(BalanceWarningPolicy.formatUsd(balance.availableUsd)) left · checked at \(time)"
+            appendEvent("diagnostic.info: [untype] soniox balance \(BalanceWarningPolicy.formatUsd(balance.availableUsd))")
+            transcriptFeed.setAccountWarning(BalanceWarningPolicy.lowBalanceNotice(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd))
+            if let warning = balanceWarningPolicy.warning(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd) {
+                timeline.commitError(warning)
+                appendEvent("diagnostic.warning: \(warning)")
+            }
+            // The notification is kept for the moment nothing works any more;
+            // it shares the billing alert's identifier, so the two never stack.
+            if balanceWarningPolicy.shouldNotifyUsedUp(balance) {
+                UntypeUserNotifier.shared.post(
+                    title: "untype can't transcribe",
+                    body: BalanceWarningPolicy.message(for: balance, thresholdUsd: settings.balanceAlert.thresholdUsd ?? 0),
+                    identifier: "soniox_billing"
+                )
+                appendEvent("diagnostic.info: [untype] user alerted: soniox balance used up")
+            }
+        case .failure(let error):
+            let message = (error as? UntypeError)?.message ?? error.localizedDescription
+            balanceStatus = "Balance not read (\(time)): \(message)"
+            appendEvent("diagnostic.warning: \(message)")
         }
     }
 
@@ -2494,6 +2599,15 @@ final class UntypeUIModel: ObservableObject {
         )
         restartWarmSessionAfterStop = false
         resetStoppedSessionState(reason: "runtime-ended")
+        if let failure, !WarmSessionRecovery.shouldRewarm(afterFailure: failure) {
+            // Billing, auth and configuration failures repeat on every
+            // re-warm; stop here and tell the user what to fix.
+            appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the provider account or configuration, then press the hotkey again")
+            if let alert = ProviderAccountAlert.make(for: failure) {
+                alertUser(alert)
+            }
+            return
+        }
         if wasRecording {
             timeline.commitError("The speech provider closed the session during this turn; nothing was submitted. Press again.")
         }
@@ -2505,10 +2619,27 @@ final class UntypeUIModel: ObservableObject {
     fileprivate func hotkeySessionStartFailed(_ error: Error) {
         guard WarmSessionRecovery.shouldRetryStartup(after: error) else {
             appendEvent("diagnostic.warning: [untype] push-to-talk not re-warmed: fix the configuration, then toggle the hotkey")
+            if let alert = ProviderAccountAlert.make(for: error) {
+                alertUser(alert)
+            }
             return
         }
         warmSessionRewarmAttempts += 1
         scheduleWarmSessionRewarm()
+    }
+
+    /// Tells the user about a provider problem they must fix, also with the
+    /// untype window closed: a Transcript row and a notice on the overlay
+    /// every time (the answer to the press), and a macOS notification at most
+    /// once per `AlertThrottle.interval` for the same problem.
+    private func alertUser(_ alert: ProviderAccountAlert) {
+        timeline.commitError(alert.body)
+        overlay?.showNotice(alert.short, seconds: 6)
+        guard providerAlertThrottle.shouldShow(alert.key) else {
+            return
+        }
+        UntypeUserNotifier.shared.post(title: alert.title, body: alert.body, identifier: alert.key)
+        appendEvent("diagnostic.info: [untype] user alerted: \(alert.key)")
     }
 
     private func scheduleWarmSessionRewarm() {
@@ -3044,10 +3175,17 @@ final class UntypeUIModel: ObservableObject {
         switch reason {
         case .user:
             headline = "Meeting saved"
+            checkSonioxBalance()
         case .silence(let minutes):
             headline = "Ended · \(minutes) min silence"
-        case .failure:
+        case .failure(let message):
             headline = "Stopped by an error"
+            checkSonioxBalance(force: true)
+            if let alert = ProviderAccountAlert.make(forMeetingFailure: message),
+               providerAlertThrottle.shouldShow(alert.key) {
+                UntypeUserNotifier.shared.post(title: alert.title, body: alert.body, identifier: alert.key)
+                appendEvent("diagnostic.info: [untype] user alerted: \(alert.key)")
+            }
         }
         let calendarMeeting = recordingCalendarMeeting
         let startedAt = recordingStartedAt
@@ -5986,6 +6124,7 @@ struct UntypeCredentialsEditorView: View {
 
     private static let speechFields: [Field] = [
         Field(key: "SONIOX_API_KEY", label: "Soniox API key", secret: true, hint: "Required when the provider is Soniox (default)."),
+        Field(key: "SONIOX_ORGANIZATION_API_KEY", label: "Soniox organization key", secret: true, hint: "Optional; reads the balance for the low-balance warning."),
         Field(key: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", secret: true, hint: "Required when the provider is ElevenLabs."),
         Field(key: "GOOGLE_API_KEY", label: "Google Gemini API key", secret: true, hint: "Required when the provider is Google; also used for refinement with the google LLM provider.")
     ]

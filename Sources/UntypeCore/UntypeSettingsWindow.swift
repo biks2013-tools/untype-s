@@ -817,6 +817,47 @@ struct UntypeSettingsView: View {
         .disabled(sessionShapingDisabled)
 
         Section {
+            Toggle("Warn when the balance is low", isOn: Binding(
+                get: { model.settings.balanceAlert.isOn },
+                set: { on in
+                    model.setBalanceAlertThreshold(on ? BalanceAlertPreferences.suggestedThresholdUsd : nil)
+                }
+            ))
+            LabeledContent("Warn below") {
+                HStack(spacing: 8) {
+                    Text(verbatim: "$")
+                        .foregroundStyle(.secondary)
+                    TextField("Amount", value: Binding(
+                        get: { model.settings.balanceAlert.thresholdUsd ?? BalanceAlertPreferences.suggestedThresholdUsd },
+                        set: { value in
+                            if value > 0, value != model.settings.balanceAlert.thresholdUsd {
+                                model.setBalanceAlertThreshold(value)
+                            }
+                        }
+                    ), format: .number.precision(.fractionLength(0...2)))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 90)
+                    Button(model.balanceChecking ? "Checking…" : "Check now") {
+                        model.checkSonioxBalance(force: true)
+                    }
+                    .disabled(model.balanceChecking)
+                }
+            }
+            .disabled(!model.settings.balanceAlert.isOn)
+            if model.settings.balanceAlert.isOn, !model.balanceStatus.isEmpty {
+                Text(model.balanceStatus)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        } header: {
+            Text("Soniox balance")
+        } footer: {
+            caption("When your Soniox credit drops below this amount, a warning appears in the Transcript and above the meeting Transcription window: once in the Transcript, and again a day later if it is still low. A macOS notification is sent only when the balance is used up. untype reads the balance every 15 minutes and after each meeting. Soniox shows the balance only to an organization API key, not to the transcription key: an organization admin creates one at console.soniox.com (Settings → Organization API keys → Create API key), and you paste it as Soniox organization key in Permissions & Keys. Real-time transcription costs about $\(String(format: "%.2f", SonioxPricing.realtimeUsdPerHour)) per hour.")
+        }
+
+        Section {
             HStack(spacing: 8) {
                 TextField("New word", text: $newDictionaryWord, prompt: Text("A name, an abbreviation, a term"))
                     .labelsHidden()
