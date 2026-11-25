@@ -1523,6 +1523,8 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     }
 
     /// Whether the microphone's transcript keeps only the user's words.
+    /// Off, everyone the microphone hears is written and told apart ("You",
+    /// "Person 2", …).
     public var keepsOnlyMyVoice: Bool {
         onlyMyVoice ?? false
     }

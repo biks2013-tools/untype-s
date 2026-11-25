@@ -2,7 +2,7 @@ import { int, obj, opt, str } from "@earendil-works/pi-schema";
 import { defineExtension, defineTool, section, type Extension } from "@earendil-works/pi-durable";
 import { DEFAULT_IMAGE_LIMITS, type ImageProcessor } from "@earendil-works/pi-durable/tools";
 import { readOffice } from "./lib/ooxml-read.js";
-import { attachmentContent, textPage, clock, describeAttachment, parseClock, readAttachments, readSegments, search, segmentsIn, transcriptText } from "./meeting.js";
+import { attachmentContent, textPage, clock, describeAttachment, parseClock, readAttachments, readSegments, search, segmentsIn, speaker, transcriptText } from "./meeting.js";
 
 /** The meeting the assistant is looking at: set by untype, read by every tool call. */
 export interface MeetingState {
@@ -59,7 +59,7 @@ export function meetingExtension(state: MeetingState, images: ImageProcessor, ho
       const attachments = readAttachments(state.folder);
       const speakers = new Map<string, number>();
       for (const s of segments) {
-        const name = s.side === "you" ? "You" : s.speaker === undefined ? "Call" : `Speaker ${s.speaker}`;
+        const name = speaker(s);
         speakers.set(name, (speakers.get(name) ?? 0) + 1);
       }
       return text(
