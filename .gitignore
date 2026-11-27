@@ -61,3 +61,6 @@ temp/
 *.tmp
 ios/UntypeApp/Info.plist
 ios/UntypeControls/Info.plist
+ios/UntypeShare/Info.plist
+ios/UntypeApp/untype.entitlements
+ios/UntypeShare/UntypeShare.entitlements

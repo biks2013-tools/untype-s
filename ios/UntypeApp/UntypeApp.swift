@@ -5,6 +5,7 @@ struct UntypeApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var engine = DictationEngine()
     @StateObject private var meetings = MeetingSession.shared
+    @StateObject private var videos = VideoDigestPhone()
 
     init() {
         // The "Record meeting" action (Siri, Shortcuts, Control Center).
@@ -29,6 +30,7 @@ struct UntypeApp: App {
                 .environmentObject(settings)
                 .environmentObject(engine)
                 .environmentObject(meetings)
+                .environmentObject(videos)
                 #if DEBUG && targetEnvironment(simulator)
                 // Simulator runs only: `UNTYPE_TEST_DICTATE_SECONDS=8` starts
                 // a dictation at launch and finishes it after that long;
@@ -60,6 +62,8 @@ struct RootView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var engine: DictationEngine
     @EnvironmentObject private var meetings: MeetingSession
+    @EnvironmentObject private var videos: VideoDigestPhone
+    @Environment(\.scenePhase) private var scenePhase
     @SceneStorage("tab") private var tab = "dictate"
 
     var body: some View {
@@ -85,6 +89,15 @@ struct RootView: View {
         .onChange(of: meetings.lastSaved) { _, saved in
             if saved != nil {
                 tab = "meetings"
+            }
+        }
+        // Videos shared to untype (the share extension) start when the app opens.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active, !meetings.isActive else {
+                return
+            }
+            if videos.processPending(settings: settings) {
+                tab = "videos"
             }
         }
         .onChange(of: meetings.quickStartRequested, initial: true) { _, requested in

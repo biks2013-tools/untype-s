@@ -17,8 +17,26 @@ final class VideoDigestPhone: ObservableObject {
         var title: String { self == .phone ? "This iPhone" : "My Mac" }
     }
 
-    @AppStorage("videos.libraryBookmark") private var bookmark = Data()
-    @AppStorage("videos.place") var placeRaw = Place.phone.rawValue
+    /// Kept in the App Group, so the share extension reaches the same folder.
+    @AppStorage("videos.place", store: SharedVideoQueue.defaults) var placeRaw = Place.phone.rawValue
+
+    private var bookmark: Data {
+        get {
+            if let shared = SharedVideoQueue.defaults?.data(forKey: SharedVideoQueue.bookmarkKey) {
+                return shared
+            }
+            // Chosen before the share extension (build 4): move it to the group.
+            if let old = UserDefaults.standard.data(forKey: SharedVideoQueue.bookmarkKey) {
+                SharedVideoQueue.defaults?.set(old, forKey: SharedVideoQueue.bookmarkKey)
+                return old
+            }
+            return Data()
+        }
+        set {
+            SharedVideoQueue.defaults?.set(newValue, forKey: SharedVideoQueue.bookmarkKey)
+            objectWillChange.send()
+        }
+    }
     @Published var address = ""
     /// "" = the language spoken in the video.
     @Published var language = ""
@@ -107,6 +125,31 @@ final class VideoDigestPhone: ObservableObject {
         }
     }
 
+    /// Requests the share extension queued: sent to the Mac, or the first
+    /// one for here started (the rest wait for it).
+    func processPending(settings: AppSettings) -> Bool {
+        var startedHere = false
+        for pending in SharedVideoQueue.all() {
+            switch pending.place {
+            case .mac:
+                do {
+                    try SharedVideoQueue.sendToMac(url: pending.url, language: pending.language, docx: pending.docx)
+                    SharedVideoQueue.remove(pending)
+                } catch {
+                    problem = "A shared video could not be sent to the Mac: \(error.localizedDescription)"
+                }
+            case .phone:
+                guard running == nil, !startedHere else { continue }
+                SharedVideoQueue.remove(pending)
+                startedHere = true
+                let request = VideoDigestRequest(url: pending.url, language: pending.language, docx: pending.docx)
+                Task { await runHere(request, settings: settings) }
+            }
+        }
+        refresh()
+        return startedHere || !SharedVideoQueue.all().isEmpty
+    }
+
     func resume(_ entry: VideoDigestEntry, settings: AppSettings) {
         Task { await runHere(nil, resume: entry.folder, settings: settings) }
     }
@@ -136,6 +179,9 @@ final class VideoDigestPhone: ObservableObject {
             running = nil
             progress = ""
             refresh()
+            if SharedVideoQueue.all().contains(where: { $0.place == .phone }) {
+                _ = processPending(settings: settings)
+            }
         }
         let pipeline = VideoDigestPipeline(
             media: CaptionsOnlyMediaSource(),
@@ -161,7 +207,7 @@ final class VideoDigestPhone: ObservableObject {
 
 struct VideosView: View {
     @EnvironmentObject private var settings: AppSettings
-    @StateObject private var model = VideoDigestPhone()
+    @EnvironmentObject private var model: VideoDigestPhone
     @State private var picking = false
     @State private var showing: VideoDigestEntry?
 

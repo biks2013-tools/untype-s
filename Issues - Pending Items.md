@@ -2,14 +2,16 @@
 
 ## Pending Items
 
-### P2 - Video digest: Mac done and installed (build 96), iPhone built but not installed (2026-11-27)
+### P2 - Video digest: Mac installed (build 96), iPhone installed (build 5, with the share extension) (2026-11-27)
 **Request** (user): give a YouTube video and get the key points, what is said and how, screenshots of the moments for presentations, HTML (DOCX on request), in the video's language unless changed; on the iPhone itself or through iCloud on the Mac. FR-86, plan-080, design "Video digest".
 
 **Done:** the shared core, the Mac window (⌘5) and command, the iCloud request path (verified with build 96: a request claimed in 18 s, done in 27 s), the iPhone Videos tab (built; install failed: the iPhone was unavailable, CoreDevice error 4016).
 
 **Not verified:** the iPhone tab on the device (folder picker on iCloud Drive, a digest made there, a request sent to the Mac, reading a digest), the Mac window by hand, a video without captions through Soniox in the full pipeline (the file API was tested alone), a video longer than 60 000 characters of transcript (the parts path).
 
-**Pending:** share extension (Share → untype from the YouTube app, plan-080 step 4); untype studio must include the iCloud library (step 5, in the untype-studio repository); the iPhone's iCloud placeholders are only asked to download, a digest not yet downloaded shows up on a later refresh.
+**Share extension (step 4, iOS build 5):** Share → untype on a YouTube video; "My Mac" writes the request into iCloud at once (through the folder bookmark, now kept in the App Group `group.com.biks2013.untype`); "This iPhone" queues it in the App Group and the app starts it when opened (an extension may neither do the work nor open the app). The user confirmed the Videos tab works on the iPhone (build 4). Not verified yet: the share extension on the device.
+
+**Pending:** untype studio must include the iCloud library (step 5, in the untype-studio repository); the iPhone's iCloud placeholders are only asked to download, a digest not yet downloaded shows up on a later refresh.
 
 ### P1 - Meeting in a room: everyone at the microphone is written as "You" - fixed in build 95 (2026-11-25)
 **Problem** (user, build 92; FR-85): a meeting recorded in person, several people around one Mac: every line of the transcript is "You" (one recording of 2026-11-25: 289 lines, all "You", clearly a dialogue). **Cause**: by design the microphone was one speaker: only the call side (system audio) asked Soniox for speaker diarization, and `MeetingTokenAggregator` gave microphone segments no speaker. **Fix** (FR-84), always on at the user's request (no switch): the microphone's stream is diarized, its segments end at a speaker change, and the lines are named "You" (the speaker of the saved voice sample, Settings → Speech → Learn, now sent with every meeting; nobody without one) and "Person 2", "Person 3", …; nobody is dropped. "Only my voice" still keeps only the user's words when on. Checked on the user's recording: Soniox (stt-rt-v6) found 3 speakers and 19 speaker changes in about 40 s of the microphone's audio. 574/574 tests (3 new), agent 6/6. **Pending**: a recording in the app (labels in the transcription window and the saved transcript; with and without a voice sample). Not covered: recordings already made keep "You" (their audio is saved, a re-transcription tool does not exist); voices that sound alike or overlap can be mixed up by Soniox; a call heard from the loudspeakers counts as a person; names instead of numbers; without a saved voice sample a person alone at the microphone is now "Person 1", not "You".

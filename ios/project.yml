@@ -15,13 +15,14 @@ settings:
     DEVELOPMENT_TEAM: 9F9H8NCAUB
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "4"
+    CURRENT_PROJECT_VERSION: "5"
 targets:
   untype:
     type: application
     platform: iOS
     sources:
       - path: UntypeApp
+      - path: Shared
     # Merged with the generated keys below: recording goes on with the screen
     # locked, and the saved meetings are visible in the Files app.
     info:
@@ -30,10 +31,15 @@ targets:
         UIBackgroundModes: [audio]
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+    entitlements:
+      path: UntypeApp/untype.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.biks2013.untype]
     dependencies:
       - package: untype-s
         product: UntypeCore
       - target: UntypeControls
+      - target: UntypeShare
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.biks2013.untype
@@ -67,6 +73,39 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.biks2013.untype.controls
         PRODUCT_NAME: UntypeControls
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+  # Share → untype on a YouTube video (plan-080 step 4).
+  UntypeShare:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UntypeShare
+      - path: Shared
+    dependencies:
+      - package: untype-s
+        product: UntypeCore
+    info:
+      path: UntypeShare/Info.plist
+      properties:
+        CFBundleDisplayName: untype
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    entitlements:
+      path: UntypeShare/UntypeShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.biks2013.untype]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.biks2013.untype.share
+        PRODUCT_NAME: UntypeShare
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
