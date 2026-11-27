@@ -19,7 +19,7 @@ public struct CalendarAttendee: Codable, Sendable, Equatable {
     }
 }
 
-/// One event of the user's Outlook calendar.
+/// One event of the user's calendar.
 public struct CalendarMeeting: Codable, Sendable, Equatable {
     public var id: String
     public var subject: String
@@ -29,6 +29,10 @@ public struct CalendarMeeting: Codable, Sendable, Equatable {
     public var organizerName: String
     public var organizerAddress: String
     public var attendees: [CalendarAttendee]
+    /// The user's own answer as the calendar gives it (`organizer`,
+    /// `accepted`, `tentativelyAccepted`, `declined`, `notResponded`, …);
+    /// nil: worked out from the organizer and the attendees.
+    public var myResponse: String?
 
     public init(
         id: String,
@@ -38,7 +42,8 @@ public struct CalendarMeeting: Codable, Sendable, Equatable {
         online: Bool,
         organizerName: String,
         organizerAddress: String,
-        attendees: [CalendarAttendee]
+        attendees: [CalendarAttendee],
+        myResponse: String? = nil
     ) {
         self.id = id
         self.subject = subject
@@ -48,6 +53,7 @@ public struct CalendarMeeting: Codable, Sendable, Equatable {
         self.organizerName = organizerName
         self.organizerAddress = organizerAddress
         self.attendees = attendees
+        self.myResponse = myResponse
     }
 }
 
@@ -56,86 +62,96 @@ public enum MeetingCalendar {
     /// A recording that starts up to this long before a meeting belongs to it.
     public static let earlyStart: TimeInterval = 10 * 60
 
-    // MARK: Reading the CLI's JSON
+    // MARK: Reading the calendar command's JSON
 
-    /// The event ids of `calendar list --json` (`{ "data": [ { "id": … } ] }`).
-    public static func listedIDs(_ data: Data) throws -> [String] {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let events = object["data"] as? [[String: Any]] else {
-            throw UntypeError.invalidConfiguration("The calendar list is not in the expected format ({\"data\": [...]}).")
+    /// The calendar document the calendar command prints — the format of
+    /// `m365mail calendar export`:
+    ///
+    ///     { "owner": { "name": …, "address": "me@example.com" },
+    ///       "events": [ { "id", "subject", "start", "end", "allDay",
+    ///                     "myResponse", "onlineMeeting": { "joinUrl" },
+    ///                     "teamsMeeting", "organizer": { "name", "address" },
+    ///                     "attendees": [ { "name", "address",
+    ///                                      "type", "response" } ] } ] }
+    ///
+    /// `owner.address` (the user) and each event's `start` and `end` (ISO
+    /// 8601 with an offset) are required; all-day events are left out
+    /// (never a meeting to record); unknown fields are ignored.
+    public static func parseDocument(_ data: Data) throws -> (me: String, meetings: [CalendarMeeting]) {
+        let root: Any
+        do {
+            root = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            let head = String(decoding: data.prefix(120), as: UTF8.self)
+            throw UntypeError.invalidConfiguration("The calendar command did not print JSON: \(head.isEmpty ? "empty output" : head)")
         }
-        return events.compactMap { $0["id"] as? String }
+        guard let object = root as? [String: Any], let events = object["events"] as? [Any] else {
+            throw UntypeError.invalidConfiguration("The calendar command's JSON has no \"events\" list ({\"owner\": …, \"events\": [...]}).")
+        }
+        guard let owner = object["owner"] as? [String: Any],
+              let me = owner["address"] as? String, !me.isEmpty else {
+            throw UntypeError.invalidConfiguration("The calendar command's JSON does not say whose calendar it is (\"owner\": {\"address\": …}).")
+        }
+        var meetings: [CalendarMeeting] = []
+        for (index, item) in events.enumerated() {
+            guard let event = item as? [String: Any] else {
+                throw UntypeError.invalidConfiguration("Calendar event \(index + 1) is not an object.")
+            }
+            if event["allDay"] as? Bool == true {
+                continue
+            }
+            meetings.append(try parseEvent(event, index: index))
+        }
+        return (me, meetings)
     }
 
-    /// One event of `calendar read <id> --json` (Graph's event, under `data`).
-    public static func parseEvent(_ data: Data) throws -> CalendarMeeting {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let event = object["data"] as? [String: Any],
-              let id = event["id"] as? String else {
-            throw UntypeError.invalidConfiguration("The calendar event is not in the expected format ({\"data\": {\"id\": …}}).")
+    static func parseEvent(_ event: [String: Any], index: Int) throws -> CalendarMeeting {
+        func text(_ value: Any?) -> String? {
+            guard let value = value as? String, !value.isEmpty else {
+                return nil
+            }
+            return value
         }
-        guard let start = date(event["start"]), let end = date(event["end"]) else {
-            throw UntypeError.invalidConfiguration("The calendar event \(id) has no readable start or end.")
+        let subject = text(event["subject"]) ?? ""
+        guard let start = text(event["start"]).flatMap(date), let end = text(event["end"]).flatMap(date) else {
+            throw UntypeError.invalidConfiguration("Calendar event \(index + 1) (\(subject)) has no readable start or end (ISO 8601 with an offset).")
         }
-        let organizer = (event["organizer"] as? [String: Any])?["emailAddress"] as? [String: Any]
+        let organizer = event["organizer"] as? [String: Any]
         let attendees: [CalendarAttendee] = (event["attendees"] as? [[String: Any]] ?? []).compactMap { attendee in
-            guard let email = attendee["emailAddress"] as? [String: Any],
-                  let address = email["address"] as? String else {
+            guard let address = text(attendee["address"]) else {
                 return nil
             }
             return CalendarAttendee(
-                name: email["name"] as? String ?? address,
+                name: text(attendee["name"]) ?? address,
                 address: address,
                 required: (attendee["type"] as? String) == "required",
-                response: ((attendee["status"] as? [String: Any])?["response"] as? String) ?? "none"
+                response: text(attendee["response"]) ?? "none"
             )
         }
+        let joinURL = text((event["onlineMeeting"] as? [String: Any])?["joinUrl"])
         return CalendarMeeting(
-            id: id,
-            subject: event["subject"] as? String ?? "",
+            id: text(event["id"]) ?? text(event["iCalUId"]) ?? "\(subject)@\(Int(start.timeIntervalSince1970))",
+            subject: subject,
             start: start,
             end: end,
-            online: event["isOnlineMeeting"] as? Bool ?? false,
-            organizerName: organizer?["name"] as? String ?? "",
-            organizerAddress: organizer?["address"] as? String ?? "",
-            attendees: attendees
+            online: joinURL != nil || event["teamsMeeting"] as? Bool == true,
+            organizerName: text(organizer?["name"]) ?? "",
+            organizerAddress: text(organizer?["address"]) ?? "",
+            attendees: attendees,
+            myResponse: text(event["myResponse"])
         )
     }
 
-    /// `--start` / `--end` for `calendar list`: exact UTC instants
-    /// (`2026-11-11T22:00:00Z`), never bare dates, which the CLI takes as
-    /// midnight UTC.
-    public static func listRange(from start: Date, to end: Date) -> [String] {
-        let format = ISO8601DateFormatter()
-        format.timeZone = TimeZone(secondsFromGMT: 0)
-        format.formatOptions = [.withInternetDateTime]
-        return ["--start", format.string(from: start), "--end", format.string(from: end)]
-    }
-
-    /// The signed-in user's address from `status --json`.
-    public static func signedInAddress(_ data: Data) throws -> String {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let status = object["data"] as? [String: Any],
-              let email = status["email"] as? String, !email.isEmpty else {
-            throw UntypeError.invalidConfiguration("The calendar CLI did not report the signed-in user's email.")
+    /// `2026-11-11T10:00:00+02:00`, with or without fractional seconds.
+    static func date(_ text: String) -> Date? {
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: text) {
+            return date
         }
-        return email
-    }
-
-    /// Graph's `{ "dateTime": "2026-11-11T10:00:00.0000000", "timeZone": "Europe/Athens" }`.
-    static func date(_ value: Any?) -> Date? {
-        guard let value = value as? [String: Any],
-              let text = value["dateTime"] as? String,
-              let zoneName = value["timeZone"] as? String,
-              let zone = TimeZone(identifier: zoneName) ?? (zoneName == "UTC" ? TimeZone(secondsFromGMT: 0) : nil) else {
-            return nil
-        }
-        let whole = text.split(separator: ".").first.map(String.init) ?? text
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.timeZone = zone
-        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return parser.date(from: whole)
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text)
     }
 
     // MARK: Which meetings count
@@ -151,9 +167,13 @@ public enum MeetingCalendar {
         meeting.organizerAddress.caseInsensitiveCompare(me) == .orderedSame
     }
 
-    /// The user's answer to the invitation: `organizer` for their own
-    /// meetings, else their entry among the attendees (`none` when missing).
+    /// The user's answer to the invitation: the calendar's own when it
+    /// gives one; else `organizer` for their own meetings, else their entry
+    /// among the attendees (`none` when missing).
     public static func myResponse(_ meeting: CalendarMeeting, me: String) -> String {
+        if let answer = meeting.myResponse {
+            return answer
+        }
         if isOrganizer(meeting, me: me) {
             return "organizer"
         }
@@ -359,92 +379,162 @@ public struct MeetingReminderQueue: Sendable {
     }
 }
 
-/// Reads today's meetings with the `m365-calendar` CLI (its own sign-in and
-/// token cache; untype never sees the token).
-public struct OutlookCalendarCLI: Sendable {
-    public let executable: URL
+/// The calendar command (Settings → Meetings → Calendar, FR-87): a shell
+/// command line in which `{from}` and `{to}` are replaced by the first and
+/// last day (YYYY-MM-DD, local time, both included) and which prints the
+/// calendar as JSON (`MeetingCalendar.parseDocument`), e.g.
+///
+///     /full/path/m365mail calendar export --from {from} --to {to} --no-description
+///
+/// It runs through `/bin/sh -c`; untype never sees a sign-in or a token.
+/// Apps started from the Dock have a short PATH, so the program is given
+/// with its full path.
+public struct CalendarCommand: Sendable {
+    /// Longest one run may take.
+    public static let timeoutSeconds: TimeInterval = 45
 
-    public init(executable: URL) {
-        self.executable = executable
+    public let template: String
+
+    public init(template: String) throws {
+        let line = template.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else {
+            throw UntypeError.invalidConfiguration("No calendar command is set (Settings → Meetings → Calendar).")
+        }
+        guard line.contains("{from}"), line.contains("{to}") else {
+            throw UntypeError.invalidConfiguration("The calendar command must contain {from} and {to}; they are replaced by the first and last day (YYYY-MM-DD).")
+        }
+        self.template = line
     }
 
-    /// The `m365-calendar` binary installed with the Claude Code plugin, newest
-    /// version first; nil when it is not installed.
-    public static func discover(home: URL = FileManager.default.untypeHomeDirectory) -> URL? {
-        let cache = home.appendingPathComponent(".claude/plugins/cache", isDirectory: true)
-        let fm = FileManager.default
-        var found: [URL] = []
-        for marketplace in (try? fm.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil)) ?? [] {
-            let plugin = marketplace.appendingPathComponent("m365-calendar", isDirectory: true)
-            for version in (try? fm.contentsOfDirectory(at: plugin, includingPropertiesForKeys: nil)) ?? [] {
-                let binary = version.appendingPathComponent("bin/m365-calendar-mac-arm64")
-                if fm.fileExists(atPath: binary.path) {
-                    found.append(binary)
-                }
+    /// The command line for the days `from`…`to`.
+    public func commandLine(from: Date, to: Date, calendar: Calendar = .current) -> String {
+        template
+            .replacingOccurrences(of: "{from}", with: Self.day(from, calendar))
+            .replacingOccurrences(of: "{to}", with: Self.day(to, calendar))
+    }
+
+    static func day(_ date: Date, _ calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// The user's address and the meetings of the day `day` (local).
+    public func meetings(on day: Date, calendar: Calendar = .current) async throws -> (me: String, meetings: [CalendarMeeting]) {
+        let data = try await Self.run(commandLine(from: day, to: day, calendar: calendar), timeout: Self.timeoutSeconds)
+        return try MeetingCalendar.parseDocument(data)
+    }
+
+    /// Runs `line` with `/bin/sh -c` and returns what it printed. Both
+    /// pipes are read while it runs (a large calendar cannot stall it). On
+    /// the timeout the shell is stopped and the run fails at once, without
+    /// waiting for the pipes, which a child of the shell may still hold.
+    static func run(_ line: String, timeout: TimeInterval) async throws -> Data {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", line]
+        let output = Pipe()
+        let errors = Pipe()
+        process.standardOutput = output
+        process.standardError = errors
+        process.standardInput = FileHandle.nullDevice
+        let run = CalendarCommandRun()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                run.finishOutput()
+            } else {
+                run.appendOutput(chunk)
             }
         }
-        // The version folder decides (not the marketplace's name).
-        func version(_ binary: URL) -> String {
-            binary.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+            } else {
+                run.appendErrors(chunk)
+            }
         }
-        return found.max { version($0).compare(version($1), options: .numeric) == .orderedAscending }
-    }
-
-    /// The signed-in user's address.
-    public func signedInAddress() async throws -> String {
-        try MeetingCalendar.signedInAddress(try await run(["status", "--json"]))
-    }
-
-    /// The events of the day `day` (local), with their attendees.
-    public func meetings(on day: Date, calendar: Calendar = .current) async throws -> [CalendarMeeting] {
-        let start = calendar.startOfDay(for: day)
-        let next = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
-        // The CLI reads a bare date as midnight UTC, so the local day's
-        // bounds are given as exact UTC instants.
-        let ids = try MeetingCalendar.listedIDs(try await run(
-            ["calendar", "list"] + MeetingCalendar.listRange(from: start, to: next) + ["--top", "100", "--json"]
-        ))
-        var meetings: [CalendarMeeting] = []
-        for id in ids {
-            meetings.append(try MeetingCalendar.parseEvent(try await run(["calendar", "read", id, "--json"])))
-        }
-        return meetings
-    }
-
-    private func run(_ arguments: [String]) async throws -> Data {
-        let executable = executable
         return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = executable
-                process.arguments = arguments
-                let output = Pipe()
-                let errors = Pipe()
-                process.standardOutput = output
-                process.standardError = errors
-                process.standardInput = FileHandle.nullDevice
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: UntypeError.invalidConfiguration("The calendar CLI at \(executable.path) could not run: \(error.localizedDescription)"))
-                    return
-                }
-                let timeout = DispatchWorkItem { process.terminate() }
-                DispatchQueue.global().asyncAfter(deadline: .now() + 45, execute: timeout)
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                let errorText = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                process.waitUntilExit()
-                timeout.cancel()
-                switch process.terminationStatus {
-                case 0:
-                    continuation.resume(returning: data)
-                case 2:
-                    continuation.resume(throwing: UntypeError.invalidConfiguration("The calendar CLI is not signed in: run `\(executable.path) login` in a terminal."))
-                default:
-                    let detail = errorText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    continuation.resume(throwing: UntypeError.invalidConfiguration("The calendar CLI failed (\(arguments.prefix(2).joined(separator: " ")), exit \(process.terminationStatus)): \(detail.prefix(300))"))
-                }
+            run.continuation = continuation
+            process.terminationHandler = { process in
+                run.finishProcess(status: process.terminationStatus)
             }
+            do {
+                try process.run()
+            } catch {
+                output.fileHandleForReading.readabilityHandler = nil
+                errors.fileHandleForReading.readabilityHandler = nil
+                run.fail(UntypeError.invalidConfiguration("The calendar command could not be started: \(error.localizedDescription)"))
+                return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if process.isRunning {
+                    process.terminate()
+                }
+                run.fail(UntypeError.invalidConfiguration("The calendar command did not finish within \(Int(timeout)) s."))
+            }
+        }
+    }
+}
+
+/// One run of the calendar command: its output, and the continuation
+/// resumed once — when the process has ended and its output is complete,
+/// or on a failure.
+private final class CalendarCommandRun: @unchecked Sendable {
+    private let lock = NSLock()
+    private var output = Data()
+    private var errors = Data()
+    private var outputDone = false
+    private var status: Int32?
+    private var resumed = false
+    var continuation: CheckedContinuation<Data, Error>?
+
+    func appendOutput(_ chunk: Data) {
+        lock.lock(); output.append(chunk); lock.unlock()
+    }
+
+    func appendErrors(_ chunk: Data) {
+        lock.lock(); errors.append(chunk); lock.unlock()
+    }
+
+    func finishOutput() {
+        lock.lock(); outputDone = true; lock.unlock()
+        complete()
+    }
+
+    func finishProcess(status: Int32) {
+        lock.lock(); self.status = status; lock.unlock()
+        complete()
+    }
+
+    func fail(_ error: Error) {
+        lock.lock()
+        guard !resumed, let continuation else {
+            lock.unlock()
+            return
+        }
+        resumed = true
+        lock.unlock()
+        continuation.resume(throwing: error)
+    }
+
+    private func complete() {
+        lock.lock()
+        guard !resumed, outputDone, let status, let continuation else {
+            lock.unlock()
+            return
+        }
+        resumed = true
+        let output = output
+        let detail = String(decoding: errors, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        lock.unlock()
+        if status == 0 {
+            continuation.resume(returning: output)
+        } else {
+            continuation.resume(throwing: UntypeError.invalidConfiguration(
+                "The calendar command failed (exit \(status))" + (detail.isEmpty ? "." : ": \(detail.prefix(300))")
+            ))
         }
     }
 }

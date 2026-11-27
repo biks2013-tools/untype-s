@@ -230,6 +230,7 @@ struct UntypeSettingsView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showCredentialsEditor = false
     @State private var newDictionaryWord = ""
+    @State private var calendarCommandDraft = ""
     @State private var showOnboarding = false
     /// Remembers where each pane was scrolled to. A plain reference type held
     /// in @State: writing to it while the user scrolls must not re-render.
@@ -645,10 +646,21 @@ struct UntypeSettingsView: View {
         }
 
         Section {
-            Toggle("Use my Outlook calendar", isOn: Binding(
-                get: { model.settings.meeting.calendarCLIURL != nil },
-                set: { model.setCalendarEnabled($0) }
-            ))
+            TextField("Calendar command", text: $calendarCommandDraft,
+                      prompt: Text(verbatim: "/full/path/m365mail calendar export --from {from} --to {to} --no-description"))
+                .onSubmit { model.setCalendarCommand(calendarCommandDraft) }
+                .onAppear { calendarCommandDraft = model.settings.meeting.calendarCommand ?? "" }
+            HStack {
+                Spacer()
+                Button("Clear") {
+                    calendarCommandDraft = ""
+                    model.setCalendarCommand("")
+                }
+                .disabled(model.settings.meeting.calendarCommandLine == nil && calendarCommandDraft.isEmpty)
+                Button("Use") { model.setCalendarCommand(calendarCommandDraft) }
+                    .disabled(calendarCommandDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        == (model.settings.meeting.calendarCommandLine ?? ""))
+            }
             if !model.calendarStatus.isEmpty {
                 LabeledContent("Status") {
                     Text(model.calendarStatus)
@@ -660,7 +672,7 @@ struct UntypeSettingsView: View {
         } header: {
             Text("Calendar")
         } footer: {
-            caption("Read through the m365-calendar CLI. The overlay says when a Teams meeting you accepted starts, with a Record button; a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
+            caption("A command that prints your calendar as JSON (the format of m365mail calendar export); {from} and {to} become the first and last day (YYYY-MM-DD). Give the program's full path: apps started from the Dock do not see your shell's PATH. Empty: no calendar. With it, the overlay says when an online meeting you accepted starts, with a Record button; a recording made during a meeting is named after it, its required participants listed at the top of the transcript.")
         }
 
         Section("Permission") {

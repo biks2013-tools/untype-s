@@ -454,8 +454,8 @@ final class UntypeUIModel: ObservableObject {
     private var namingFolder: URL?
     private var namingLLM: LLMConfig?
 
-    /// Today's Outlook meetings (Settings → Meeting recording → "Use my
-    /// Outlook calendar"), refreshed every few minutes.
+    /// Today's meetings from the calendar command (Settings → Meetings →
+    /// Calendar), refreshed every few minutes.
     private(set) var calendarMeetings: [CalendarMeeting] = []
     /// What the calendar is doing, for Settings ("6 meetings today", an error).
     @Published private(set) var calendarStatus = ""
@@ -3225,7 +3225,7 @@ final class UntypeUIModel: ObservableObject {
             overlay?.showNotice(headline)
             return
         }
-        guard settings.meeting.calendarCLIURL != nil, let startedAt,
+        guard settings.meeting.calendarCommandLine != nil, let startedAt,
               MeetingNaming.title(of: folder.lastPathComponent) == nil else {
             showSavedNotice(folder, headline: headline)
             saveToAppleNotes(folder)
@@ -3292,7 +3292,7 @@ final class UntypeUIModel: ObservableObject {
         return title.isEmpty ? plain : title
     }
 
-    // MARK: Outlook calendar (reminders and names)
+    // MARK: Calendar (reminders and names)
 
     /// Starts (or stops, when the calendar is off) reading the calendar and
     /// checking for meetings that start.
@@ -3302,7 +3302,7 @@ final class UntypeUIModel: ObservableObject {
         calendarMeetings = []
         calendarMe = nil
         calendarRefreshedAt = nil
-        guard settings.meeting.calendarCLIURL != nil else {
+        guard settings.meeting.calendarCommandLine != nil else {
             calendarStatus = ""
             if overlay?.reminderMeetingID != nil {
                 overlay?.hideNow()
@@ -3335,7 +3335,7 @@ final class UntypeUIModel: ObservableObject {
     }
 
     func refreshCalendar() async {
-        guard let url = settings.meeting.calendarCLIURL, !calendarRefreshing else {
+        guard let line = settings.meeting.calendarCommandLine, !calendarRefreshing else {
             return
         }
         calendarRefreshing = true
@@ -3343,15 +3343,13 @@ final class UntypeUIModel: ObservableObject {
             calendarRefreshing = false
             calendarRefreshedAt = Date()
         }
-        let cli = OutlookCalendarCLI(executable: url)
         do {
-            if calendarMe == nil {
-                calendarMe = try await cli.signedInAddress()
-            }
-            let meetings = try await cli.meetings(on: Date())
-            guard settings.meeting.calendarCLIURL == url else {
+            let day = try await CalendarCommand(template: line).meetings(on: Date())
+            guard settings.meeting.calendarCommandLine == line else {
                 return
             }
+            calendarMe = day.me
+            let meetings = day.meetings
             calendarMeetings = meetings
             calendarStatus = calendarSummary(meetings)
         } catch {
@@ -3433,20 +3431,24 @@ final class UntypeUIModel: ObservableObject {
         overlay?.hideNow()
     }
 
-    /// Settings → Meeting recording → "Use my Outlook calendar". Turning it
-    /// on finds the `m365-calendar` CLI of the Claude Code plugin.
-    func setCalendarEnabled(_ enabled: Bool) {
+    /// Settings → Meetings → Calendar → Calendar command (FR-87): saved
+    /// trimmed (empty: the calendar is off), then read again.
+    func setCalendarCommand(_ line: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         var meeting = settings.meeting
-        if enabled {
-            guard let cli = OutlookCalendarCLI.discover() else {
-                calendarStatus = "The m365-calendar CLI was not found: install the m365-calendar Claude Code plugin and sign in."
+        guard meeting.calendarCommandLine != (trimmed.isEmpty ? nil : trimmed) else {
+            return
+        }
+        if !trimmed.isEmpty {
+            do {
+                _ = try CalendarCommand(template: trimmed)
+            } catch {
+                calendarStatus = error.localizedDescription
                 appendEvent("diagnostic.warning: [untype] calendar: \(calendarStatus)")
                 return
             }
-            meeting.calendarCLI = cli.path
-        } else {
-            meeting.calendarCLI = nil
         }
+        meeting.calendarCommand = trimmed.isEmpty ? nil : trimmed
         setMeetingPreferences(meeting)
         startCalendarWatch()
     }

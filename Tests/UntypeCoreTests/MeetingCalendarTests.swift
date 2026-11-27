@@ -23,7 +23,7 @@ private func meeting(
     online: Bool = true,
     organizer: String = "boss@example.com",
     myResponse: String? = "accepted",
-    others: [CalendarAttendee] = [CalendarAttendee(name: "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΙΑΝΝΗΣ", address: "k@example.com", required: true, response: "accepted")]
+    others: [CalendarAttendee] = [CalendarAttendee(name: "ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΙΑΝΝΗΣ", address: "g@example.com", required: true, response: "accepted")]
 ) -> CalendarMeeting {
     var attendees = others
     if let myResponse {
@@ -32,16 +32,24 @@ private func meeting(
     return CalendarMeeting(id: id, subject: subject, start: start, end: end, online: online, organizerName: "BOSS", organizerAddress: organizer, attendees: attendees)
 }
 
-@Test func parsesAGraphEventFromTheCLI() throws {
+@Test func parsesTheCalendarCommandsDocument() throws {
     let json = """
-    {"data":{"id":"A1","subject":"📊 QUARTERLY PLANNING | internal call","isOnlineMeeting":true,
-     "start":{"dateTime":"2026-11-11T10:00:00.0000000","timeZone":"Europe/Athens"},
-     "end":{"dateTime":"2026-11-11T11:00:00.0000000","timeZone":"Europe/Athens"},
-     "organizer":{"emailAddress":{"name":"ALEX DOE","address":"alex.doe@example.com"}},
-     "attendees":[{"type":"optional","status":{"response":"none"},"emailAddress":{"name":"Jane Smith","address":"j@partner.example"}},
-                  {"type":"required","status":{"response":"accepted"},"emailAddress":{"name":"ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΙΑΝΝΗΣ","address":"k@example.com"}}]}}
+    {"owner":{"name":"Alex Doe","address":"alex.doe@example.com"},"timeZone":"Europe/Athens",
+     "events":[
+      {"id":"A1","subject":"📊 QUARTERLY PLANNING | internal call","allDay":false,
+       "start":"2026-11-11T10:00:00+02:00","end":"2026-11-11T11:00:00+02:00",
+       "myResponse":"organizer","onlineMeeting":{"joinUrl":"https://teams.example.com/j/1"},"teamsMeeting":true,
+       "organizer":{"name":"ALEX DOE","address":"alex.doe@example.com"},
+       "attendees":[{"type":"optional","response":"none","name":"Jane Smith","address":"j@partner.example"},
+                    {"type":"required","response":"accepted","name":"ΠΑΠΑΔΟΠΟΥΛΟΣ ΓΙΑΝΝΗΣ","address":"g@example.com"}]},
+      {"id":"H1","subject":"Holiday","allDay":true,"start":"2026-11-11","end":"2026-11-12"},
+      {"subject":"In the room","start":"2026-11-11T12:00:00.000+02:00","end":"2026-11-11T12:30:00.000+02:00",
+       "myResponse":"tentativelyAccepted","teamsMeeting":false,"attendees":[]}]}
     """
-    let event = try MeetingCalendar.parseEvent(Data(json.utf8))
+    let document = try MeetingCalendar.parseDocument(Data(json.utf8))
+    #expect(document.me == me)
+    #expect(document.meetings.map(\.subject) == ["📊 QUARTERLY PLANNING | internal call", "In the room"])
+    let event = document.meetings[0]
     #expect(event.id == "A1")
     #expect(event.online)
     #expect(event.start == at(10))
@@ -49,16 +57,54 @@ private func meeting(
     #expect(event.attendees.map(\.required) == [false, true])
     #expect(MeetingCalendar.myResponse(event, me: me) == "organizer")
     #expect(MeetingCalendar.participants(event, me: me) == ["Παπαδοπουλος Γιαννης"])
-    #expect(try MeetingCalendar.listedIDs(Data(#"{"data":[{"id":"A1"},{"id":"B2"}]}"#.utf8)) == ["A1", "B2"])
-    #expect(try MeetingCalendar.signedInAddress(Data(#"{"data":{"email":"x@example.com","status":"authenticated"}}"#.utf8)) == "x@example.com")
+    let room = document.meetings[1]
+    #expect(!room.online)
+    #expect(room.start == at(12))
+    #expect(room.id == "In the room@\(Int(at(12).timeIntervalSince1970))")
+    #expect(MeetingCalendar.myResponse(room, me: me) == "tentativelyAccepted")
 }
 
-@Test func theCalendarIsAskedForTheLocalDayInExactInstants() {
+@Test func aCalendarDocumentWithoutItsOwnerOrDatesIsAnError() {
+    #expect(throws: UntypeError.self) {
+        try MeetingCalendar.parseDocument(Data(#"{"events":[]}"#.utf8))
+    }
+    #expect(throws: UntypeError.self) {
+        try MeetingCalendar.parseDocument(Data(#"[{"subject":"x"}]"#.utf8))
+    }
+    #expect(throws: UntypeError.self) {
+        try MeetingCalendar.parseDocument(Data(#"{"owner":{"address":"a@b.c"},"events":[{"subject":"x","start":"tomorrow","end":"later"}]}"#.utf8))
+    }
+    #expect(throws: UntypeError.self) {
+        try MeetingCalendar.parseDocument(Data("not json".utf8))
+    }
+}
+
+@Test func theCalendarCommandNeedsBothDaysAndIsAskedForTheLocalDay() throws {
+    #expect(throws: UntypeError.self) { try CalendarCommand(template: "  ") }
+    #expect(throws: UntypeError.self) { try CalendarCommand(template: "cal --from {from}") }
     var athens = Calendar(identifier: .gregorian)
     athens.timeZone = TimeZone(identifier: "Europe/Athens")!
-    let start = athens.startOfDay(for: at(0, 10))
-    let next = athens.date(byAdding: .day, value: 1, to: start)!
-    #expect(MeetingCalendar.listRange(from: start, to: next) == ["--start", "2026-11-10T22:00:00Z", "--end", "2026-11-11T22:00:00Z"])
+    let command = try CalendarCommand(template: " /bin/cal export --from {from} --to {to} ")
+    // 00:10 in Athens is still the previous day in UTC: the local day is asked.
+    #expect(command.commandLine(from: at(0, 10), to: at(0, 10), calendar: athens)
+        == "/bin/cal export --from 2026-11-11 --to 2026-11-11")
+}
+
+@Test func theCalendarCommandRunsThroughTheShell() async throws {
+    let json = #"{"owner":{"address":"alex.doe@example.com"},"events":[{"subject":"S","start":"2026-11-11T10:00:00+02:00","end":"2026-11-11T11:00:00+02:00"}]}"#
+    let command = try CalendarCommand(template: "printf '%s' '\(json)' # {from} {to}")
+    let day = try await command.meetings(on: at(10))
+    #expect(day.me == me)
+    #expect(day.meetings.map(\.subject) == ["S"])
+
+    await #expect(throws: UntypeError.self) {
+        _ = try await CalendarCommand.run("echo oops >&2; exit 3", timeout: 10)
+    }
+    let started = Date()
+    await #expect(throws: UntypeError.self) {
+        _ = try await CalendarCommand.run("sleep 5 | cat", timeout: 0.5)
+    }
+    #expect(Date().timeIntervalSince(started) < 3)
 }
 
 @Test func onlyAcceptedOrOwnMeetingsWithOtherPeopleCount() {
@@ -138,17 +184,13 @@ private func meeting(
     #expect(MeetingCalendar.reminderDetail(small, me: me) == "Teams · 3 people")
 }
 
-/// Reads today's real calendar with the installed m365-calendar CLI
-/// (`UNTYPE_LIVE_CALENDAR_TEST=1`).
-@Test(.enabled(if: ProcessInfo.processInfo.environment["UNTYPE_LIVE_CALENDAR_TEST"] == "1"))
+/// Runs the calendar command given in `UNTYPE_LIVE_CALENDAR_COMMAND` for
+/// today (opt-in; prints counts only, no meeting text).
+@Test(.enabled(if: ProcessInfo.processInfo.environment["UNTYPE_LIVE_CALENDAR_COMMAND"] != nil))
 func liveCalendarReadsTodaysMeetings() async throws {
-    let executable = try #require(OutlookCalendarCLI.discover())
-    let cli = OutlookCalendarCLI(executable: executable)
-    let address = try await cli.signedInAddress()
-    let meetings = try await cli.meetings(on: Date())
-    for meeting in meetings.sorted(by: { $0.start < $1.start }) {
-        let attended = MeetingCalendar.isAttended(meeting, me: address)
-        print("[live] \(meeting.start) attended=\(attended) online=\(meeting.online) \(MeetingCalendar.plainTitle(meeting, me: address)) | \(MeetingCalendar.reminderDetail(meeting, me: address))")
-    }
-    #expect(!address.isEmpty)
+    let line = try #require(ProcessInfo.processInfo.environment["UNTYPE_LIVE_CALENDAR_COMMAND"])
+    let day = try await CalendarCommand(template: line).meetings(on: Date())
+    let attended = day.meetings.filter { MeetingCalendar.isAttended($0, me: day.me) }
+    print("[live] \(day.meetings.count) events today, \(attended.count) attended, \(attended.filter(\.online).count) online")
+    #expect(!day.me.isEmpty)
 }

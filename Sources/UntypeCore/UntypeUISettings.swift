@@ -1467,9 +1467,12 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
     public var silenceMinutes: Int
     /// Folder of the meeting folders (nil: `~/Documents/untype Meetings`).
     public var folder: String?
-    /// The `m365-calendar` CLI that reads the Outlook calendar (nil: the calendar
-    /// is not used — no meeting names from the calendar, no reminders).
-    public var calendarCLI: String?
+    /// The calendar command (FR-87): a shell command line that prints the
+    /// calendar of `{from}`…`{to}` (days, YYYY-MM-DD) as JSON — the format
+    /// of `m365mail calendar export`, see `CalendarCommand`. Nil or empty:
+    /// the calendar is not used — no meeting names from the calendar, no
+    /// reminders.
+    public var calendarCommand: String?
     /// `MeetingAudioSources` raw value: which audio is saved next to the
     /// transcript (nil: the default, the microphone and the system audio).
     public var audioSources: String?
@@ -1496,7 +1499,7 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         language: String = MeetingTranscriptLanguage.english.rawValue,
         silenceMinutes: Int = Self.defaultSilenceMinutes,
         folder: String? = nil,
-        calendarCLI: String? = nil,
+        calendarCommand: String? = nil,
         audioSources: String? = nil,
         audioLayout: String? = nil,
         muteWhileDictating: Bool? = nil,
@@ -1509,7 +1512,7 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         self.language = language
         self.silenceMinutes = silenceMinutes
         self.folder = folder
-        self.calendarCLI = calendarCLI
+        self.calendarCommand = calendarCommand
         self.audioSources = audioSources
         self.audioLayout = audioLayout
         self.muteWhileDictating = muteWhileDictating
@@ -1554,12 +1557,10 @@ public struct MeetingPreferences: Codable, Equatable, Sendable {
         }
     }
 
-    /// The calendar CLI when the calendar is on.
-    public var calendarCLIURL: URL? {
-        guard let calendarCLI, !calendarCLI.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: (calendarCLI as NSString).expandingTildeInPath)
+    /// The calendar command line when the calendar is on (nil: off).
+    public var calendarCommandLine: String? {
+        let line = calendarCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return line.isEmpty ? nil : line
     }
 
     public var transcriptLanguage: MeetingTranscriptLanguage {
