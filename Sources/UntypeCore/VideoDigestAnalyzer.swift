@@ -70,6 +70,30 @@ public struct VideoDigestAnalyzer: Sendable {
         }
     }
 
+    /// Which of the numbered frames shows `moment` best (0-based); nil when
+    /// the model cannot look at images or gives no number.
+    public func chooseFrame(sheet: LLMImageAttachment, count: Int, moment: VideoDigestAnalysis.Moment) async -> Int? {
+        let config = LLMConfig(
+            enabled: true, provider: llm.provider, model: llm.model, systemPrompt: Self.framePrompt,
+            requestTimeoutMs: 120_000, providerConfig: llm.providerConfig, verbose: false,
+            maxOutputTokens: 2_000, reasoningEffort: llm.reasoningEffort, streamingEnabled: false
+        )
+        guard let client = try? LLMRefinerFactory.makeTranslator(config: config, systemPrompt: Self.framePrompt),
+              let looking = client as? ImageInputRefining else {
+            return nil
+        }
+        defer { client.dispose() }
+        let question = "The image shows \(count) numbered frames (1 to \(count)) of a video, in time order. The moment: \(moment.title). Why it matters: \(moment.why)\nWhich frame should go on a presentation slide for this moment? Answer with the number only."
+        guard let answer = try? await looking.refine(question, image: sheet, onProgress: nil),
+              let number = answer.split(whereSeparator: { !$0.isNumber }).first.flatMap({ Int($0) }),
+              (1...count).contains(number) else {
+            return nil
+        }
+        return number - 1
+    }
+
+    static let framePrompt = "You pick the best frame of a video for a presentation slide. Prefer the frame where the slide, diagram, chart, code or demo the moment is about is shown fully and legibly, filling as much of the frame as possible. Avoid frames in a transition, blurred, with the content cut off, or showing only the speaker or the audience, unless the moment is about the speaker or the scene itself. Answer with the frame's number only."
+
     // MARK: - Material
 
     /// Transcript lines of about 30 s each: `[m:ss] (Speaker 2) words`.

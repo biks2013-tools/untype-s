@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import UntypeCore
@@ -110,4 +111,16 @@ import Testing
     let html = document.html()
     #expect(html.contains("href=\"https://www.youtube.com/watch?v=abcdefghijk&amp;t=5s\""))
     #expect(html.contains("No screenshots"))
+}
+
+@Test func candidateFramesBecomeANumberedSheetFourToARow() throws {
+    let context = try #require(CGContext(data: nil, width: 64, height: 36, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+    context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.8, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 64, height: 36))
+    let image = try #require(context.makeImage())
+    let frame = try #require(VideoDigestPipeline.jpeg(image, quality: 0.8))
+    let sheet = try #require(VideoDigestPipeline.contactSheet(Array(repeating: frame, count: 6)))
+    #expect(sheet.pixelWidth == 4 * 480)
+    #expect(sheet.pixelHeight == 2 * 270)
+    #expect(sheet.mediaType == "image/jpeg")
 }

@@ -10,8 +10,10 @@ public protocol VideoMediaSource: Sendable {
     var canTakeScreenshots: Bool { get }
     /// The video's audio as an `.m4a` file at `destination`.
     func downloadAudio(_ video: VideoInfo, to destination: URL) async throws
-    /// A JPEG of the video around `seconds` (the sharpest of a few frames).
-    func screenshot(_ video: VideoInfo, at seconds: Int) async throws -> Data
+    /// JPEG frames of the video around `seconds` (a few seconds before to
+    /// some twenty after: a slide is often shown after it is announced),
+    /// in time order.
+    func frames(_ video: VideoInfo, around seconds: Int) async throws -> [Data]
 }
 
 /// What the device cannot do.
@@ -22,7 +24,7 @@ public struct CaptionsOnlyMediaSource: VideoMediaSource {
     public func downloadAudio(_ video: VideoInfo, to destination: URL) async throws {
         throw VideoDigestError.noTranscript("This video has no captions, and its audio can be downloaded only on the Mac. Send it to the Mac instead.")
     }
-    public func screenshot(_ video: VideoInfo, at seconds: Int) async throws -> Data {
+    public func frames(_ video: VideoInfo, around seconds: Int) async throws -> [Data] {
         throw VideoDigestError.source("Screenshots are taken on the Mac.")
     }
 }
@@ -205,7 +207,9 @@ public struct VideoDigestPipeline: Sendable {
                     if !folder.exists(file) {
                         progress("Screenshot \(index + 1) of \(analysis.moments.count)")
                         do {
-                            try await media.screenshot(video, at: moment.time).write(to: file, options: .atomic)
+                            let frames = try await media.frames(video, around: moment.time)
+                            let chosen = await choose(frames, for: moment)
+                            try chosen.write(to: file, options: .atomic)
                         } catch {
                             onEvent("video digest: screenshot \(index + 1) failed: \(error.localizedDescription)")
                             continue
@@ -276,6 +280,79 @@ public struct VideoDigestPipeline: Sendable {
             throw VideoDigestError.noTranscript("No speech was found in the video's audio.")
         }
         return (segments, .soniox)
+    }
+
+    /// The frame that shows the moment: chosen by the model from a numbered
+    /// contact sheet of the candidates; the sharpest when it cannot choose.
+    private func choose(_ frames: [Data], for moment: VideoDigestAnalysis.Moment) async -> Data {
+        let usable = frames.filter { Self.sharpness($0) > 2 }
+        let candidates = usable.isEmpty ? frames : usable
+        guard candidates.count > 1 else {
+            return candidates.first ?? Data()
+        }
+        let sharpest = candidates.max { Self.sharpness($0) < Self.sharpness($1) } ?? candidates[0]
+        guard let sheet = Self.contactSheet(candidates),
+              let index = await analyzer.chooseFrame(sheet: sheet, count: candidates.count, moment: moment),
+              candidates.indices.contains(index) else {
+            onEvent("video digest: frame for a moment chosen by sharpness")
+            return sharpest
+        }
+        return candidates[index]
+    }
+
+    /// The frames side by side, numbered from 1, four to a row.
+    static func contactSheet(_ frames: [Data]) -> LLMImageAttachment? {
+        let cellWidth = 480, cellHeight = 270, columns = min(4, frames.count)
+        let rows = (frames.count + columns - 1) / columns
+        let width = cellWidth * columns, height = cellHeight * rows
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else {
+            return nil
+        }
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        for (index, data) in frames.enumerated() {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+            let column = index % columns, row = index / columns
+            let cell = CGRect(x: column * cellWidth, y: height - (row + 1) * cellHeight, width: cellWidth, height: cellHeight)
+            context.draw(image, in: cell.insetBy(dx: 3, dy: 3))
+            let label = String(index + 1)
+            let box = CGRect(x: cell.minX + 8, y: cell.maxY - 52, width: 30 * CGFloat(label.count) + 14, height: 44)
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.85))
+            context.fill(box)
+            drawDigits(label, in: context, at: CGPoint(x: box.minX + 7, y: box.minY + 6))
+        }
+        guard let image = context.makeImage(), let jpeg = jpeg(image, quality: 0.8) else {
+            return nil
+        }
+        return LLMImageAttachment(data: jpeg, mediaType: "image/jpeg", pixelWidth: width, pixelHeight: height)
+    }
+
+    /// White seven-segment digits (no fonts needed, the same on macOS and iOS).
+    private static func drawDigits(_ text: String, in context: CGContext, at origin: CGPoint) {
+        let map: [Character: String] = ["0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc", "7": "abc", "8": "abcdefg", "9": "abcdfg"]
+        context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.setLineWidth(5)
+        context.setLineCap(.round)
+        let w: CGFloat = 18, h: CGFloat = 32
+        for (offset, character) in text.enumerated() {
+            let x = origin.x + CGFloat(offset) * 30, y = origin.y
+            let segments: [Character: (CGPoint, CGPoint)] = [
+                "a": (CGPoint(x: x, y: y + h), CGPoint(x: x + w, y: y + h)),
+                "b": (CGPoint(x: x + w, y: y + h), CGPoint(x: x + w, y: y + h / 2)),
+                "c": (CGPoint(x: x + w, y: y + h / 2), CGPoint(x: x + w, y: y)),
+                "d": (CGPoint(x: x, y: y), CGPoint(x: x + w, y: y)),
+                "e": (CGPoint(x: x, y: y + h / 2), CGPoint(x: x, y: y)),
+                "f": (CGPoint(x: x, y: y + h), CGPoint(x: x, y: y + h / 2)),
+                "g": (CGPoint(x: x, y: y + h / 2), CGPoint(x: x + w, y: y + h / 2))
+            ]
+            for segment in map[character] ?? "" {
+                guard let (from, to) = segments[segment] else { continue }
+                context.move(to: from)
+                context.addLine(to: to)
+            }
+            context.strokePath()
+        }
     }
 
     private func writeTranscript(_ segments: [MeetingSegment], video: VideoInfo, folder: VideoDigestFolder, exact: Bool, start: Date) throws {

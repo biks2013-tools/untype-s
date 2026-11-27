@@ -72,34 +72,33 @@ public struct YtDlpMediaSource: VideoMediaSource {
         try FileManager.default.moveItem(at: file, to: destination)
     }
 
-    /// Four seconds of the video at `seconds` (1080p at most), three frames
-    /// of it, the sharpest kept (no frame in a transition).
-    public func screenshot(_ video: VideoInfo, at seconds: Int) async throws -> Data {
+    /// About 24 s of the video around `seconds` (1080p at most), a frame
+    /// every 3 s, at most 8.
+    public func frames(_ video: VideoInfo, around seconds: Int) async throws -> [Data] {
         let work = try temporaryFolder()
         defer { try? FileManager.default.removeItem(at: work) }
+        let from = max(0, seconds - 4)
+        let to = video.durationSeconds > 0 ? min(video.durationSeconds, seconds + 20) : seconds + 20
         try await run(settings.ytDlp, [
             "--no-update", "--no-playlist", "--quiet", "--no-warnings",
             "--ffmpeg-location", settings.ffmpeg.path,
             "-f", "bv*[ext=mp4][height<=1080]/bv*[height<=1080]/b[height<=1080]",
-            "--download-sections", "*\(seconds)-\(seconds + 4)",
+            "--download-sections", "*\(from)-\(max(to, from + 2))",
             "-o", work.appendingPathComponent("clip.%(ext)s").path,
             video.url
         ])
         guard let clip = try FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil).first(where: { $0.lastPathComponent.hasPrefix("clip.") }) else {
             throw VideoDigestError.source("yt-dlp did not give the video at \(VideoDigestTime.label(seconds)).")
         }
-        var best: (Double, Data)?
-        for (index, offset) in ["0.5", "1.5", "2.5"].enumerated() {
-            let frame = work.appendingPathComponent("frame\(index).jpg")
-            try? await run(settings.ffmpeg, ["-v", "error", "-y", "-ss", offset, "-i", clip.path, "-frames:v", "1", "-q:v", "2", frame.path])
-            guard let data = try? Data(contentsOf: frame) else { continue }
-            let score = VideoDigestPipeline.sharpness(data)
-            if best == nil || score > best!.0 { best = (score, data) }
-        }
-        guard let best else {
+        try await run(settings.ffmpeg, ["-v", "error", "-y", "-ss", "1", "-i", clip.path, "-vf", "fps=1/3", "-frames:v", "8", "-q:v", "2", work.appendingPathComponent("frame-%02d.jpg").path])
+        let frames = try FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("frame-") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .compactMap { try? Data(contentsOf: $0) }
+        guard !frames.isEmpty else {
             throw VideoDigestError.source("ffmpeg took no frame at \(VideoDigestTime.label(seconds)).")
         }
-        return best.1
+        return frames
     }
 
     private func temporaryFolder() throws -> URL {
