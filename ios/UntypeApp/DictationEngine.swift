@@ -73,6 +73,11 @@ final class DictationEngine: ObservableObject {
             current = ""
             partials = 0
 
+            // During a call iOS gives the microphone to the call alone.
+            if PhoneCall.isActive {
+                Self.log.info("dictation not started: a call is in progress")
+                throw AppError(PhoneCall.dictationBlocked)
+            }
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .default)
             try session.setActive(true)
@@ -112,7 +117,7 @@ final class DictationEngine: ObservableObject {
         } catch {
             Self.log.error("dictation could not start: \(error.localizedDescription, privacy: .public)")
             await tearDown()
-            fail(error.localizedDescription)
+            fail(PhoneCall.isActive ? PhoneCall.dictationBlocked : error.localizedDescription)
         }
     }
 

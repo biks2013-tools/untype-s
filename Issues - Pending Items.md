@@ -2,6 +2,9 @@
 
 ## Pending Items
 
+### P2 - iPhone: recording a call on speaker failed without a reason - explained in build 6, not checked during a call (2026-11-27)
+**Problem** (user): untype on the iPhone was used to record a call in progress on the same iPhone, on speaker; it failed. On the device `Documents/Meetings` had changed at 17:52 and was empty. **Cause**: iOS gives the microphone to the call alone during a phone, FaceTime or VoIP call (speaker or not); no third-party app can record it, and untype started anyway and failed with a generic error, or not at all visibly. **Fix** (FR-84 addition, design "Meetings on the iPhone and iPad" → Calls): `PhoneCall` (CallKit `CXCallObserver`); meetings and dictation do not start during a call and say why, pointing to the call screen's record button (iOS 18.1+) and to untype on the Mac with the iPhone on speaker (which recorded the same call correctly at 17:53); a recording paused by a call shows a banner. Built for the simulator (a meeting without a call still saves) and installed on the iPhone as build 6. **Pending**: check on the iPhone during a real call: start a meeting (message, no folder), start dictation (message), and a call arriving during a recording (banner, then resume).
+
 ### P2 - Video digest: Mac installed (build 96), iPhone installed (build 5, with the share extension) (2026-11-27)
 **Request** (user): give a YouTube video and get the key points, what is said and how, screenshots of the moments for presentations, HTML (DOCX on request), in the video's language unless changed; on the iPhone itself or through iCloud on the Mac. FR-86, plan-080, design "Video digest".
 

@@ -73,6 +73,12 @@ final class MeetingSession: ObservableObject {
             guard await MeetingMicrophone.permission() else {
                 throw AppError("untype may not use the microphone. Allow it in Settings → Privacy & Security → Microphone.")
             }
+            // During a call iOS gives the microphone to the call alone: say so
+            // before anything is created, instead of an empty recording.
+            if PhoneCall.isActive {
+                Self.log.info("meeting recording not started: a call is in progress")
+                throw AppError(PhoneCall.meetingBlocked)
+            }
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .default)
             try session.setActive(true)
@@ -118,7 +124,9 @@ final class MeetingSession: ObservableObject {
             pipe = nil
             files = nil
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            problem = error.localizedDescription
+            // A call that started while untype was starting fails the audio
+            // session or the microphone with a generic error.
+            problem = PhoneCall.isActive ? PhoneCall.meetingBlocked : error.localizedDescription
             phase = .idle
         }
     }
@@ -284,6 +292,9 @@ final class MeetingSession: ObservableObject {
         switch type {
         case .began:
             interrupted = true
+            if PhoneCall.isActive {
+                problem = PhoneCall.meetingPaused
+            }
             Self.log.info("meeting recording interrupted")
         case .ended:
             do {
@@ -291,6 +302,9 @@ final class MeetingSession: ObservableObject {
                 microphone?.stop()
                 try microphone?.start()
                 interrupted = false
+                if problem == PhoneCall.meetingPaused {
+                    problem = nil
+                }
                 Self.log.info("meeting recording resumed")
             } catch {
                 problem = "The microphone could not be started again: \(error.localizedDescription)"
