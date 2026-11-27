@@ -1,6 +1,6 @@
 # plan-080 — Video digest (αποδελτίωση βίντεο)
 
-Status: **in progress** (2026-11-27): the shared core and the Mac command line work end to end; the Mac window, the iCloud path and the iPhone are next.
+Status: **done** (2026-11-27): Mac (build 96), iPhone (build 5, share extension), untype studio (FR-STU-30). Open items in `Issues - Pending Items.md`.
 
 ## Request (user, 2026-11-27)
 
@@ -89,7 +89,7 @@ So, on the iPhone alone: captions, the analysis, HTML and DOCX work; audio of a 
 
 ## Next
 
-1. ~~Better screenshots~~ done. 2–4 done (Mac build 96; iPhone build 5 with the share extension). 2. Mac: "Digest a video…" window (address, language, DOCX, progress, open the result) and the iCloud request inbox. 3. iPhone: a Videos tab (address or paste, language, DOCX, "on this iPhone" / "on my Mac"), the library folder chosen once (iCloud Drive/untype/Videos, kept as a bookmark), captions-only processing kept in the foreground. 4. Share extension. 5. untype studio: the iCloud library. 6. Docs: FR, design, configuration guide (`UNTYPE_VIDEO_LIBRARY`, `UNTYPE_YTDLP_PATH`, `UNTYPE_FFMPEG_PATH`, `UNTYPE_DENO_PATH`), issues.
+1–5 done: screenshots, Mac (build 96), iPhone (build 5, share extension; confirmed by the user), untype studio (`<library>/Videos` linked to iCloud Drive/untype/Videos; the scanner follows linked folders; the digest files listed as attachments; untype-studio commit 491a6e9). 2. Mac: "Digest a video…" window (address, language, DOCX, progress, open the result) and the iCloud request inbox. 3. iPhone: a Videos tab (address or paste, language, DOCX, "on this iPhone" / "on my Mac"), the library folder chosen once (iCloud Drive/untype/Videos, kept as a bookmark), captions-only processing kept in the foreground. 4. Share extension. 5. untype studio: the iCloud library. 6. Docs: FR, design, configuration guide (`UNTYPE_VIDEO_LIBRARY`, `UNTYPE_YTDLP_PATH`, `UNTYPE_FFMPEG_PATH`, `UNTYPE_DENO_PATH`), issues.
 
 ## Open questions (answered above)
 
