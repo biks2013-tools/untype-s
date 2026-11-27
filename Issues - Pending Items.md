@@ -2,6 +2,38 @@
 
 ## Pending Items
 
+### P1 - The meeting assistant does not answer a question in a reopened conversation (found 2026-11-26, not fixed)
+A conversation that already has a question and answer, opened again by a new agent process (`serve`, `open`, then `ask`), never starts a run: no `run_start`, no error, for 200 s. It happens with the installed agent (build 93) and with the repo's, on `azure` and on `azure-anthropic`, so it is not about the provider. A new conversation answers, and several questions in one process answer. In the app this is the path after untype restarts, or after the assistant's model is changed (the agent is started again and calls `configure`). Found with a test driver on a scratch `UNTYPE_AGENT_HOME`, not yet seen in the app; to check there, and in `main.ts` `open()` / `conversation.submit(... whenBusy: "steer")` against pi-durable's state of a reopened conversation.
+
+### P2 - The meeting assistant can use Claude on Azure Foundry - done in the repo, not installed (2026-11-26)
+**Request** (user): the agent configuration must support Azure-deployed OpenAI and Anthropic models with the keys and endpoints of the shell environment, without stopping the running untype.
+
+**Done.** Azure OpenAI needed no change: pi-ai's `azure` provider already reads `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_BASE_URL` / `AZURE_OPENAI_RESOURCE_NAME`, and `~/.tool-agents/untype/.env` already held the shell's values (compared by hash). Claude on Foundry is the new provider `azure-anthropic` (`agent/src/azure-anthropic.ts`), on the variables `.env` already has (`ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_RESOURCE`; the shell's `ANTHROPIC_FOUNDRY_ENDPOINT` points at the same resource). `.env` was not changed, and the assistant's chosen model (`UNTYPE_AGENT_LLM_PROVIDER` / `UNTYPE_AGENT_LLM_MODEL`) was left as it was.
+
+**Not done, on purpose:** the shell's `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` was not copied: its target was not among the deployments the resource listed, so it would send `gpt-5.5` to a deployment that does not exist (the resource has a `gpt-5.5` deployment of its own). Azure deployments of models that pi-ai 1.5.2 does not list (the gpt-6 family, DeepSeek on Azure) are not offered; offering them needs their metadata (context window, output limit, reasoning) or a newer pi-ai.
+
+Verified: one-turn calls and full assistant questions with tool calls on `azure/gpt-5.4-mini` and `azure-anthropic/claude-haiku-5-5` (two questions in one process); the installed agent's `catalog` already lists `azure` as configured.
+
+**Not in the running app yet:** the agent runs from inside untype.app, so `azure-anthropic` reaches it with the next install (quit and replace). Until then do not choose it in Settings → Assistant (the running agent would not know it); Azure OpenAI models can be chosen now.
+
+### P2 - Meeting recording on the iPhone and iPad - done, checked in the simulator, not on a device (2026-11-26)
+**Request** (user): record a meeting on iOS quickly and easily; optionally a live transcript, switchable during the recording; while it runs, either follow the meeting or scroll freely; easy export in the desktop format, to use it in untype studio.
+
+**Done** (FR-84, design: "Meetings on the iPhone and iPad"). Meetings tab with one big Record button and a remembered Live transcript switch; "Record meeting" App Shortcut and Control Center button (widget extension `UntypeControls`, installed as build 3 on the iPhone, 2026-11-26); full-screen recording view (time, level, transcript switch, live transcript with Follow / Follow live, Stop and save); the saved meeting opens at once, with Send folder / ZIP / Copy, Rename and Delete. Files in the Mac's layout plus `<stem>.studio.json` (`audioStart`).
+
+Verified in the iPhone 17 Pro simulator: 25 s with the transcript (a spoken sentence came back as one line, Speaker 1, `en`; all files written; audio 25.7 s AAC 16 kHz) and 6 s audio only. Mac `swift build` and 572/572 tests.
+
+**Not verified:** on a real iPhone (background recording with the screen locked, a phone call interruption, AirDrop of the folder to the Mac), switching the transcript off and on during a recording, the App Shortcut and the Control Center button, and opening a phone meeting in untype studio. **Known limits:** no English pass on the phone (the Mac translates at the end); `MeetingAudioWriter` duplicates the Mac's `MeetingAudioFileWriter` (that one is macOS-only, inside the meeting recorder's file), worth sharing if either changes.
+
+### P2 - The Transcript tab of the untype window is removed - done, not installed (2026-11-25)
+**Request** (user): remove the old Transcript option/window; two places called "transcript" (this tab and the meeting Transcription window) were confusing.
+
+**Done.** The `Transcript` tab is gone from the untype window, with its entries in the Window menu, the menu-bar dropdown and the status item menu (⌘1; ⌘1 is not used now, History stays ⌘2). The window opens at History, which is built from the same timeline: what was said, the output, session issues (the Soniox billing and low balance rows of build 92 land there) and the live text. History got the LIVE badge and the Copy and Save buttons of the session. `selectedMonitorTab` is `history` or `events`; a state file saved with `transcript` opens History (`normalizeMonitorTab`). Removed code: `transcriptPane`, `transcriptActionRow`, `timelineTurnView`, `timelineBubbleView`, `livePartialView`, `audioLevelLabel` in `NativeUntypeUILauncher.swift` (about 300 lines).
+
+**Not in the window any more:** the operator chips and the level meter of the full window. The operators are in the menu-bar dropdown, the overlay and compact mode.
+
+Verified: `swift build`, 572/572 tests (new: `uiSettingsOpenHistoryForTheRemovedTranscriptTab`). Not verified: the window by hand, and a push-to-talk release with `focused_input.ok=true` on a build that has the change. Rollback point: tag `pre-transcript-pane-removal`.
+
 ### P1 - Soniox "Organization balance exhausted": push-to-talk re-warmed once a minute forever and the user saw no reason - fixed in build 92 (2026-11-25; fix of 2026-11-24)
 **Problem** (user, build 91): recording "does not work"; meeting recordings stop after about 1 s with empty transcripts and push-to-talk never records. `~/.tool-agents/untype/events.log` held 1,068 `push-to-talk session ended unexpectedly (soniox_protocol: Organization balance exhausted. Please either add funds manually or enable autopay.)` lines in ~27 h, one per minute; the user was never told. **Cause**: a regression of the 2026-05-25 FR-14 rule ("a fatal transcriber error such as `organization_balance_exhausted` skips the warm restart"). Build 25 added `WarmSessionRecovery` with backoff, which spares configuration/auth errors only at startup; Soniox sends the balance error on the already open socket, and `SonioxTranscriber.serverError` mapped it to the generic, retryable `soniox_protocol`, so `hotkeySessionEndedUnexpectedly` re-warmed it with the delay capped at 60 s.
 
