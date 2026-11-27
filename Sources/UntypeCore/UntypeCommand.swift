@@ -51,6 +51,11 @@ public struct UntypeCommand {
             stdout.write("\(Self.version)\n")
             return ExitCode.success.rawValue
         }
+        #if os(macOS)
+        if argv.first == "video-digest" {
+            return await videoDigest(Array(argv.dropFirst()))
+        }
+        #endif
         if argv.first == "ui" {
             do {
                 return try await uiLauncher()
@@ -175,5 +180,83 @@ public struct UntypeCommand {
       $ untype ui
 
     """
+}
+#endif
+
+#if os(macOS)
+extension UntypeCommand {
+    static let videoDigestUsage = """
+    usage: untype video-digest <YouTube address> --llm-provider <provider> --llm-model <model> [--language <name>] [--docx]
+           untype video-digest --resume <folder> --llm-provider <provider> --llm-model <model>
+
+    Digests a video (plan-080): key points, how it is said, sections, quotes, the moments worth
+    showing with screenshots, as <folder>/<stem>.digest.html (and .docx with --docx). The folder
+    goes in UNTYPE_VIDEO_LIBRARY; yt-dlp, ffmpeg and deno come from UNTYPE_YTDLP_PATH,
+    UNTYPE_FFMPEG_PATH and UNTYPE_DENO_PATH; SONIOX_API_KEY transcribes videos without captions.
+    --language: the digest's language (default: the language spoken in the video).
+
+    """
+
+    /// `untype video-digest …`: the digest from the command line.
+    func videoDigest(_ argv: [String]) async -> Int32 {
+        var url: String?
+        var resume: String?
+        var language: String?
+        var docx = false
+        var llmArguments = ["--refine"]
+        var index = 0
+        func value() -> String? {
+            index += 1
+            return index < argv.count ? argv[index] : nil
+        }
+        while index < argv.count {
+            switch argv[index] {
+            case "--language": language = value()
+            case "--docx": docx = true
+            case "--resume": resume = value()
+            case "--llm-provider", "--llm-model":
+                let flag = argv[index]
+                if let given = value() { llmArguments += [flag, given] }
+            default:
+                if url == nil, !argv[index].hasPrefix("--") { url = argv[index] } else {
+                    stderr.write(Self.videoDigestUsage)
+                    return ExitCode.configuration.rawValue
+                }
+            }
+            index += 1
+        }
+        guard url != nil || resume != nil, llmArguments.contains("--llm-provider"), llmArguments.contains("--llm-model") else {
+            stderr.write(Self.videoDigestUsage)
+            return ExitCode.configuration.rawValue
+        }
+        do {
+            let environment = try MeetingAssistantSettings.environment()
+            let settings = try VideoDigestMacSettings.load(environment)
+            let config = try ConfigResolver(requireProtocolOutputForHybrid: false).resolve(argv: llmArguments)
+            let soniox = environment["SONIOX_API_KEY"].flatMap { $0.isEmpty ? nil : SonioxFileTranscriber(apiKey: $0, languageHints: []) }
+            let pipeline = VideoDigestPipeline(
+                media: YtDlpMediaSource(settings: settings),
+                analyzer: VideoDigestAnalyzer(llm: config.llm),
+                transcriber: soniox,
+                device: "mac",
+                onEvent: { line in FileHandle.standardError.write(Data("\(line)\n".utf8)) }
+            )
+            let progress: @Sendable (String) -> Void = { line in FileHandle.standardError.write(Data("… \(line)\n".utf8)) }
+            let folder: VideoDigestFolder
+            if let resume {
+                folder = try await pipeline.resume(VideoDigestFolder(url: URL(fileURLWithPath: (resume as NSString).expandingTildeInPath)), progress: progress)
+            } else {
+                try FileManager.default.createDirectory(at: settings.library, withIntermediateDirectories: true)
+                folder = try await pipeline.run(VideoDigestRequest(url: url!, language: language, docx: docx), library: settings.library, progress: progress)
+            }
+            stdout.write("\(folder.html.path)\n")
+            return ExitCode.success.rawValue
+        } catch let error as UntypeError {
+            return fail(error)
+        } catch {
+            stderr.write("video-digest: \(error.localizedDescription)\n")
+            return ExitCode.unknown.rawValue
+        }
+    }
 }
 #endif
