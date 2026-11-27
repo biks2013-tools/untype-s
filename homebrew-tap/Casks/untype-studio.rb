@@ -1,6 +1,6 @@
 cask "untype-studio" do
-  version "0.9.0"
-  sha256 "905d1ff926680c4e717ff15614d3b44bdc85559833b74e46a6810d9971ecea0d"
+  version "0.9.1"
+  sha256 "52df85e8e168d7458eaf8c9eba803699e5a293ff629f1c10afc10c4cdcbdc41a"
 
   url "https://github.com/biks2013-tools/untype-studio/releases/download/v#{version}/untype-studio-#{version}.zip"
   name "untype studio"
