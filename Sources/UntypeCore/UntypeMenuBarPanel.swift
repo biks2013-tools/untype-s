@@ -11,7 +11,6 @@ import SwiftUI
 @MainActor
 struct UntypeMenuBarPanel: View {
     @ObservedObject var model: UntypeUIModel
-    var openTranscript: () -> Void
     var openHistory: () -> Void
     var openSettings: () -> Void
     var quit: () -> Void
@@ -55,8 +54,6 @@ struct UntypeMenuBarPanel: View {
             .padding(.vertical, 12)
             Divider()
             VStack(spacing: 0) {
-                actionRow("Transcript", systemImage: "text.alignleft", shortcut: "⌘1", action: openTranscript)
-                    .keyboardShortcut("1", modifiers: [.command])
                 actionRow("History", systemImage: "clock.arrow.circlepath", shortcut: "⌘2", action: openHistory)
                     .keyboardShortcut("2", modifiers: [.command])
                 actionRow("Transcription window", systemImage: "captions.bubble", shortcut: "⌘3", action: { model.showTranscriptionWindow?() })

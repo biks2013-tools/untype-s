@@ -2,7 +2,7 @@ import Foundation
 
 /// What to tell the user when the speech provider refuses to work until they
 /// act (empty balance, rejected key, missing configuration). Shown as a macOS
-/// notification, a notice on the overlay and a row in the Transcript tab, so
+/// notification, a notice on the overlay and a row in History, so
 /// the user learns it even with the untype window closed. Pure, so the text
 /// and the rules are testable apart from the UI.
 public struct ProviderAccountAlert: Equatable, Sendable {

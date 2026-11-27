@@ -189,10 +189,6 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         menuBar?.showWindow()
     }
 
-    @objc private func showTranscriptFromMenu() {
-        showMainWindow(tab: "transcript")
-    }
-
     @objc private func showHistoryFromMenu() {
         showMainWindow(tab: "history")
     }
@@ -313,9 +309,6 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         let windowItem = NSMenuItem()
         mainMenu.addItem(windowItem)
         let windowMenu = NSMenu(title: "Window")
-        let transcriptItem = NSMenuItem(title: "Transcript", action: #selector(showTranscriptFromMenu), keyEquivalent: "1")
-        transcriptItem.target = self
-        windowMenu.addItem(transcriptItem)
         let historyItem = NSMenuItem(title: "History", action: #selector(showHistoryFromMenu), keyEquivalent: "2")
         historyItem.target = self
         windowMenu.addItem(historyItem)
@@ -390,7 +383,7 @@ final class UntypeUIModel: ObservableObject {
     @Published var audioStatus = "idle"
     /// Bumped whenever a prompt file changes on disk, so open editors refresh.
     @Published private(set) var promptRevision = 0
-    /// Opens the main window at a monitor tab ("transcript", "history", "events").
+    /// Opens the main window at a monitor tab ("history", "events").
     var showMainWindow: ((String) -> Void)?
     /// Opens the Settings window, optionally at a tab ("general", "prompts").
     var showSettingsWindow: ((String?) -> Void)?
@@ -1139,7 +1132,7 @@ final class UntypeUIModel: ObservableObject {
     }
 
     /// Reads the Soniox balance and, below the user's threshold, writes a
-    /// warning row in the Transcript (and a macOS notification). Without
+    /// warning row in History (and a macOS notification). Without
     /// `force` it is skipped when the last read is recent.
     func checkSonioxBalance(force: Bool = false) {
         guard settings.balanceAlert.isOn else {
@@ -2629,7 +2622,7 @@ final class UntypeUIModel: ObservableObject {
     }
 
     /// Tells the user about a provider problem they must fix, also with the
-    /// untype window closed: a Transcript row and a notice on the overlay
+    /// untype window closed: a History row and a notice on the overlay
     /// every time (the answer to the press), and a macOS notification at most
     /// once per `AlertThrottle.interval` for the same problem.
     private func alertUser(_ alert: ProviderAccountAlert) {
@@ -3517,7 +3510,6 @@ private struct UntypeRootView: View {
     @ObservedObject var model: UntypeUIModel
     @State private var showOnboarding: Bool = false
     private static let titlebarControlHeight: CGFloat = 54
-    private static let transcriptOperatorLabelMinimumContentWidth: CGFloat = 760
 
     var body: some View {
         Group {
@@ -3811,8 +3803,7 @@ private struct UntypeRootView: View {
             UntypeSectionHeader("Monitor")
                 .padding(.horizontal, 12)
                 .padding(.top, 6)
-            sidebarRow("Transcript", systemImage: "text.alignleft", tag: "transcript", liveTone: model.isRunning ? .recording : nil)
-            sidebarRow("History", systemImage: "clock.arrow.circlepath", tag: "history")
+            sidebarRow("History", systemImage: "clock.arrow.circlepath", tag: "history", liveTone: model.isRunning ? .recording : nil)
             sidebarRow("Events", systemImage: "list.bullet.indent", tag: "events")
 
             UntypeSectionHeader("Status")
@@ -3846,7 +3837,7 @@ private struct UntypeRootView: View {
                     .font(.system(size: 13, weight: model.settings.selectedMonitorTab == tag ? .semibold : .medium))
                     .foregroundStyle(model.settings.selectedMonitorTab == tag ? Color.primary : Color.secondary)
                 Spacer()
-                if let liveTone, tag == "transcript" {
+                if let liveTone {
                     Text("LIVE")
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(liveTone.color)
@@ -3887,197 +3878,14 @@ private struct UntypeRootView: View {
         VStack(alignment: .leading, spacing: 12) {
             statusStrip
             switch model.settings.selectedMonitorTab {
-            case "history":
-                historyPane
             case "events":
                 eventsPane
             default:
-                transcriptPane
+                historyPane
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-    }
-
-    private var transcriptPane: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Transcript")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text(model.timeline.visibleItemCount == 0 ? "No transcript yet" : "\(model.timeline.visibleItemCount) transcript items")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                HStack(spacing: 8) {
-                    UntypeWaveformView(isActive: model.isRunning, barCount: 24, height: 22)
-                    Text(audioLevelLabel)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(model.isRunning ? UntypeDesignTokens.recordingRed : .secondary)
-                }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-
-            GeometryReader { geometry in
-                transcriptActionRow(
-                    showsOperatorLabels: geometry.size.width >= Self.transcriptOperatorLabelMinimumContentWidth
-                )
-            }
-            .frame(height: 34)
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(model.timeline.turns) { turn in
-                            timelineTurnView(turn)
-                                .id(turn.id)
-                        }
-                        if let partial = model.timeline.partial {
-                            livePartialView(partial)
-                                .id(partial.id)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                }
-                .onChange(of: model.timeline.visibleItemCount) { _, _ in
-                    if let partial = model.timeline.partial {
-                        proxy.scrollTo(partial.id, anchor: .bottom)
-                    } else if let last = model.timeline.turns.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
-            }
-            .frame(minHeight: 180)
-            .background(Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-    }
-
-    private func transcriptActionRow(showsOperatorLabels: Bool) -> some View {
-        HStack(spacing: 8) {
-            UntypeOperatorChip(
-                letter: "R",
-                label: "Refine",
-                isOn: model.settings.refine,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.refine)
-            }
-            UntypeOperatorChip(
-                letter: "T",
-                label: "Translate",
-                isOn: model.settings.translate,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.translate)
-            }
-            UntypeOperatorChip(
-                letter: "A",
-                label: "Ask",
-                isOn: model.settings.ask,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.ask)
-            }
-            if model.settings.experimentalOperators {
-                UntypeOperatorChip(
-                    letter: "F",
-                    label: "Follow-up",
-                    isOn: model.settings.followup,
-                    isRecording: model.isRunning,
-                    showsLabel: showsOperatorLabels
-                ) {
-                    model.toggleOperator(.followup)
-                }
-            }
-            if model.settings.experimentalOperators {
-                UntypeOperatorChip(
-                    letter: "S",
-                    label: "Selection",
-                    isOn: model.settings.selection,
-                    isRecording: model.isRunning,
-                    showsLabel: showsOperatorLabels
-                ) {
-                    model.toggleOperator(.selection)
-                }
-            }
-            UntypeOperatorChip(
-                letter: "L",
-                label: "Alt LLM",
-                isOn: model.settings.alternative,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.alternative)
-            }
-            if model.settings.experimentalOperators {
-                UntypeOperatorChip(
-                    letter: "W",
-                    label: "Screenshot",
-                    isOn: model.settings.screenshot,
-                    isRecording: model.isRunning,
-                    showsLabel: showsOperatorLabels
-                ) {
-                    model.toggleOperator(.screenshot)
-                }
-            }
-            if model.settings.experimentalOperators {
-                UntypeOperatorChip(
-                    letter: "X",
-                    label: "Window text",
-                    isOn: model.settings.windowText,
-                    isRecording: model.isRunning,
-                    showsLabel: showsOperatorLabels
-                ) {
-                    model.toggleOperator(.windowText)
-                }
-            }
-            UntypeOperatorChip(
-                letter: "C",
-                label: "Clipboard",
-                isOn: model.settings.clipboard,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.clipboard)
-            }
-            UntypeOperatorChip(
-                letter: "I",
-                label: "Input",
-                isOn: model.settings.focusedInput,
-                isRecording: model.isRunning,
-                showsLabel: showsOperatorLabels
-            ) {
-                model.toggleOperator(.input)
-            }
-            Spacer()
-            Button {
-                model.copyTranscriptExport()
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .disabled(!model.canExportTranscript)
-            Button {
-                model.saveTranscriptExport()
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-            }
-            .disabled(!model.canExportTranscript)
-            Button {
-                model.clearTranscriptTimeline()
-            } label: {
-                Label("Clear", systemImage: "trash")
-            }
-            .disabled(model.timeline.visibleItemCount == 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var eventsPane: some View {
@@ -4223,6 +4031,18 @@ private struct UntypeRootView: View {
                 }
                 Spacer()
                 Button {
+                    model.copyTranscriptExport()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .disabled(!model.canExportTranscript)
+                Button {
+                    model.saveTranscriptExport()
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
+                }
+                .disabled(!model.canExportTranscript)
+                Button {
                     model.clearTranscriptTimeline()
                 } label: {
                     Label("Clear", systemImage: "trash")
@@ -4258,27 +4078,6 @@ private struct UntypeRootView: View {
                 RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerMedium, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.06))
             )
-        }
-    }
-
-    private func timelineTurnView(_ turn: UntypeUITimelineTurn) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(turn.time)
-                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text(turn.sealed ? "closed" : "open")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(turn.sealed ? Color.secondary : UntypeDesignTokens.accentAmber)
-            }
-            .frame(width: 44, alignment: .trailing)
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(turn.bubbles) { bubble in
-                    timelineBubbleView(bubble)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -4409,72 +4208,6 @@ private struct UntypeRootView: View {
         return .secondary
     }
 
-    private func timelineBubbleView(_ bubble: UntypeUITimelineBubble) -> some View {
-        Group {
-            switch bubble.kind {
-            case .raw:
-                HStack(alignment: .top, spacing: 8) {
-                    Text("RAW")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Text(bubble.text)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    transcriptSectionCopyButton(text: bubble.text, kind: .raw)
-                }
-            case .processed:
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if !bubble.label.isEmpty || !bubble.status.isEmpty {
-                            HStack(spacing: 6) {
-                                Text(bubble.label)
-                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(UntypeDesignTokens.accentAmber)
-                                    .textCase(.uppercase)
-                                Text(bubble.status)
-                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Text(bubble.text)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    transcriptSectionCopyButton(text: bubble.text, kind: .processed)
-                }
-                .padding(.leading, 10)
-                .overlay(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(UntypeDesignTokens.accentAmber)
-                        .frame(width: 2)
-                }
-            case .error:
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(UntypeDesignTokens.warnGold)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(bubble.label.isEmpty ? "Issue" : bubble.label)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(UntypeDesignTokens.warnGold)
-                            .textCase(.uppercase)
-                        Text(bubble.text)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.primary)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(9)
-                .background(UntypeDesignTokens.warnGold.opacity(0.12), in: RoundedRectangle(cornerRadius: UntypeDesignTokens.cornerSmall, style: .continuous))
-            }
-        }
-    }
-
     @ViewBuilder
     private func transcriptSectionCopyButton(
         text: String,
@@ -4493,38 +4226,6 @@ private struct UntypeRootView: View {
             .help("Copy \(kind.displayName)")
             .accessibilityLabel("Copy \(kind.displayName)")
         }
-    }
-
-    private func livePartialView(_ partial: UntypeUILivePartial) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .center, spacing: 0) {
-                UntypeStatusDot(tone: model.isRunning ? .recording : .off, size: 7)
-                    .padding(.top, 5)
-            }
-            .frame(width: 44, alignment: .trailing)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.isRunning ? "LIVE · PARTIAL" : "IDLE · WAITING")
-                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(model.isRunning ? UntypeDesignTokens.recordingRed : .secondary)
-                    .tracking(0.7)
-                Text(partial.text.isEmpty ? "Press the hotkey or click Start Listening to begin." : partial.text)
-                    .font(.system(size: 14))
-                    .italic(partial.text.isEmpty)
-                    .foregroundStyle(partial.text.isEmpty ? Color.secondary : Color.primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var audioLevelLabel: String {
-        let lower = model.audioStatus.lowercased()
-        if let percentRange = lower.range(of: #"\d+%"#, options: .regularExpression) {
-            return String(lower[percentRange])
-        }
-        if model.isRunning { return "live" }
-        return "silent"
     }
 }
 

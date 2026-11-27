@@ -1,6 +1,6 @@
 import Foundation
 
-/// Settings → Speech → Soniox balance: warn in the Transcript when the
+/// Settings → Speech → Soniox balance: warn in History when the
 /// Soniox credit drops below an amount the user chose.
 public struct BalanceAlertPreferences: Codable, Equatable, Sendable {
     /// Warn below this many US dollars (nil or 0: off).
@@ -119,7 +119,7 @@ public struct BalanceWarningPolicy: Sendable {
     }
 
     /// A macOS notification is posted only when the balance is used up (a low
-    /// balance is told in the Transcript alone): once, and again only after a
+    /// balance is told in History alone): once, and again only after a
     /// top-up has been spent.
     public mutating func shouldNotifyUsedUp(_ balance: SonioxBalance) -> Bool {
         guard balance.exhausted || balance.availableUsd <= 0 else {

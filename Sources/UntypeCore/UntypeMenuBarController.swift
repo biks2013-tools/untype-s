@@ -54,7 +54,6 @@ final class UntypeMenuBarController: NSObject, NSPopoverDelegate {
         popover.delegate = self
         let panel = UntypeMenuBarPanel(
             model: model,
-            openTranscript: { [weak self] in self?.choose { $0.openTab("transcript") } },
             openHistory: { [weak self] in self?.choose { $0.openTab("history") } },
             openSettings: { [weak self] in self?.choose { $0.openSettings() } },
             quit: { NSApp.terminate(nil) }
@@ -125,7 +124,6 @@ final class UntypeMenuBarController: NSObject, NSPopoverDelegate {
 
     private func showMenu() {
         let menu = NSMenu()
-        menu.addItem(menuItem("Transcript", #selector(openTranscriptFromMenu), key: "1"))
         menu.addItem(menuItem("History", #selector(openHistoryFromMenu), key: "2"))
         menu.addItem(menuItem("Settings…", #selector(openSettingsFromMenu), key: ","))
         menu.addItem(.separator())
@@ -139,10 +137,6 @@ final class UntypeMenuBarController: NSObject, NSPopoverDelegate {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
         return item
-    }
-
-    @objc private func openTranscriptFromMenu() {
-        openTab("transcript")
     }
 
     @objc private func openHistoryFromMenu() {

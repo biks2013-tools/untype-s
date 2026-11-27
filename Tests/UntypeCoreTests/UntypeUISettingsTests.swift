@@ -233,6 +233,17 @@ import Testing
     #expect(loaded.selectedMonitorTab == "history")
 }
 
+@Test func uiSettingsOpenHistoryForTheRemovedTranscriptTab() throws {
+    // The Transcript tab was removed in build 93: a state file saved with
+    // it selected opens History, and History is the tab of a new install.
+    let migrated = try UntypeUISettings.default.merged(UntypeUISettingsPatch(
+        selectedMonitorTab: "transcript"
+    ))
+
+    #expect(migrated.selectedMonitorTab == "history")
+    #expect(UntypeUISettings.default.selectedMonitorTab == "history")
+}
+
 @Test func uiSettingsLoadForUIPreservesPersistedWindowAndMonitorState() throws {
     let temp = UITemporaryDirectory()
     let settings = try UntypeUISettings.default.merged(UntypeUISettingsPatch(

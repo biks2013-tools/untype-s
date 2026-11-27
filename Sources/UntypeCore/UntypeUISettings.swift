@@ -149,7 +149,7 @@ public struct UntypeUISettings: Codable, Equatable, Sendable {
         windowHeight: 760,
         monitorSidebarExpanded: true,
         settingsExpanded: true,
-        selectedMonitorTab: "transcript",
+        selectedMonitorTab: "history",
         selectedEventsFilter: "all",
         compactWindow: false,
         appearance: "system",
@@ -1303,10 +1303,15 @@ private func normalizeHotkeyKey(_ value: String) throws -> String {
 
 private func normalizeMonitorTab(_ value: String) throws -> String {
     let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized == "transcript" || normalized == "history" || normalized == "events" {
+    if normalized == "history" || normalized == "events" {
         return normalized
     }
-    throw UntypeError.invalidConfiguration("selectedMonitorTab must be transcript, history, or events. Got: \(value).")
+    // The Transcript tab was removed in build 93; History shows the same
+    // turns, so a file saved with it opens there.
+    if normalized == "transcript" {
+        return "history"
+    }
+    throw UntypeError.invalidConfiguration("selectedMonitorTab must be history or events. Got: \(value).")
 }
 
 private func normalizeEventsFilter(_ value: String) throws -> String {

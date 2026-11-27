@@ -6,7 +6,7 @@ import Foundation
 /// menu-bar app, so a banner is the one place the user sees a problem with
 /// the main window closed. macOS asks for permission the first time; if the
 /// user declines, posting does nothing and the overlay notice and the
-/// Transcript row still tell them.
+/// History row still tell them.
 final class UntypeUserNotifier: @unchecked Sendable {
     static let shared = UntypeUserNotifier()
 
