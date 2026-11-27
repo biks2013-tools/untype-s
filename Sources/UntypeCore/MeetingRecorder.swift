@@ -50,9 +50,15 @@ public struct MeetingRecordingOptions: Sendable {
     /// The microphone's transcript keeps only the speaker of this voice
     /// sample (nil: everything the microphone hears is transcribed).
     public let voiceSample: VoiceSample?
+    /// The people the microphone hears are told apart ("You", "Person 2", …)
+    /// instead of all being written as the user: `voiceSample` then only
+    /// tells which of them is the user, and nobody is dropped. False: only
+    /// the speaker of `voiceSample` is kept (Only my voice).
+    public let roomSpeakers: Bool
 
-    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false, voiceSample: VoiceSample? = nil) {
+    public init(apiKey: String, model: String, endpoint: URL, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, llm: LLMConfig, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false, voiceSample: VoiceSample? = nil, roomSpeakers: Bool = false) {
         self.voiceSample = voiceSample
+        self.roomSpeakers = roomSpeakers
         self.apiKey = apiKey
         self.model = model
         self.endpoint = endpoint
@@ -66,7 +72,7 @@ public struct MeetingRecordingOptions: Sendable {
 
     /// Soniox key, model and endpoint from untype's configuration, plus the
     /// meeting settings.
-    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false, voiceSample: VoiceSample? = nil) throws {
+    public init(config: ResolvedConfig, folderRoot: URL, silenceMinutes: Int, language: MeetingTranscriptLanguage, audio: MeetingAudioSettings = .off, echoCancellation: Bool = false, voiceSample: VoiceSample? = nil, roomSpeakers: Bool = false) throws {
         if let voiceSample, voiceSample.sampleRate != MeetingRecorder.sampleRate {
             throw MeetingError.capture("the saved voice sample is at \(voiceSample.sampleRate) Hz but meetings are recorded at \(MeetingRecorder.sampleRate) Hz; learn your voice again (Settings → Speech → Learn)")
         }
@@ -86,7 +92,8 @@ public struct MeetingRecordingOptions: Sendable {
             llm: config.llm,
             audio: audio,
             echoCancellation: echoCancellation,
-            voiceSample: voiceSample
+            voiceSample: voiceSample,
+            roomSpeakers: roomSpeakers
         )
     }
 }
@@ -488,8 +495,9 @@ public final class MeetingRecorder {
         MeetingSonioxStream(
             side: side,
             options: options,
-            diarize: side == .call || options.voiceSample != nil,
+            diarize: side == .call || options.voiceSample != nil || options.roomSpeakers,
             voiceSample: side == .you ? options.voiceSample : nil,
+            roomSpeakers: side == .you && options.roomSpeakers,
             offsetMs: Int((ProcessInfo.processInfo.systemUptime - startUptime) * 1000),
             onSegment: { [weak self] segment in
                 dispatchMeeting { self?.add(segment) }
@@ -762,6 +770,7 @@ final class MeetingSonioxStream: @unchecked Sendable {
         options: MeetingRecordingOptions,
         diarize: Bool,
         voiceSample: VoiceSample? = nil,
+        roomSpeakers: Bool = false,
         offsetMs: Int,
         onSegment: @escaping @Sendable (MeetingSegment) -> Void,
         onSpeech: @escaping @Sendable () -> Void,
@@ -771,12 +780,12 @@ final class MeetingSonioxStream: @unchecked Sendable {
     ) {
         self.side = side
         self.voiceSample = voiceSample
-        voiceFilter = voiceSample.map { MeetingUserVoiceFilter(leadMs: $0.leadMs) }
+        voiceFilter = voiceSample.map { MeetingUserVoiceFilter(leadMs: $0.leadMs, keepsOthers: roomSpeakers) }
         self.onLiveText = onLiveText
         self.onInProgress = onInProgress
         socket = URLSessionRealtimeWebSocketClient(url: options.endpoint)
         configFrame = Self.configFrame(options: options, side: side, diarize: diarize)
-        aggregator = MeetingTokenAggregator(side: side, offsetMs: offsetMs)
+        aggregator = MeetingTokenAggregator(side: side, offsetMs: offsetMs, roomSpeakers: roomSpeakers)
         (audio, audioContinuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         self.onSegment = onSegment
         self.onSpeech = onSpeech
@@ -927,6 +936,11 @@ final class MeetingSonioxStream: @unchecked Sendable {
         defer { lock.unlock() }
         guard let voiceFilter else {
             return nil
+        }
+        if voiceFilter.keepsOthers {
+            return voiceFilter.userSpeaker == nil
+                ? "meeting, room speakers: your voice sample was not recognised, so nobody in the room is marked as you"
+                : "meeting, room speakers: you and \(voiceFilter.roomSpeakerCount) other \(voiceFilter.roomSpeakerCount == 1 ? "person" : "people") told apart in the microphone's transcript"
         }
         guard voiceFilter.userSpeaker != nil else {
             return "meeting, only my voice: your voice sample was not recognised, nothing was dropped from the microphone's transcript"

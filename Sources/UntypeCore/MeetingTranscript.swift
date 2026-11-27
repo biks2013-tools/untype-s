@@ -17,8 +17,9 @@ public struct MeetingSegment: Codable, Sendable, Equatable {
     public var startMs: Int
     public var endMs: Int
     public var side: MeetingSide
-    /// Soniox diarization label of the call side ("1", "2", …); nil for the
-    /// microphone.
+    /// Soniox diarization label of the call side ("1", "2", …). For the
+    /// microphone: nil is the user; with room speakers on (people around one
+    /// microphone), the number of another person in the room.
     public var speaker: String?
     /// ISO 639-1 language Soniox identified ("el", "en", …); nil when unknown.
     public var language: String?
@@ -121,11 +122,19 @@ public struct MeetingTokenAggregator: Sendable {
     /// Milliseconds between the meeting start and this stream's start, added
     /// to Soniox's stream-relative token times.
     public let offsetMs: Int
+    /// The microphone hears several people (a meeting in a room): its
+    /// segments end when the speaker changes and keep the speaker.
+    public let roomSpeakers: Bool
     private var pending: [MeetingToken] = []
 
-    public init(side: MeetingSide, offsetMs: Int = 0) {
+    public init(side: MeetingSide, offsetMs: Int = 0, roomSpeakers: Bool = false) {
         self.side = side
         self.offsetMs = offsetMs
+        self.roomSpeakers = roomSpeakers
+    }
+
+    private var keepsSpeakers: Bool {
+        side == .call || roomSpeakers
     }
 
     /// Adds the tokens of one result frame; returns the segments completed.
@@ -138,7 +147,7 @@ public struct MeetingTokenAggregator: Sendable {
                 }
                 continue
             }
-            if side == .call, let last = pending.last, let speaker = token.speaker, let lastSpeaker = last.speaker, speaker != lastSpeaker {
+            if let last = pending.last, speakerChanged(from: last, to: token) {
                 if let segment = flush() {
                     done.append(segment)
                 }
@@ -146,6 +155,19 @@ public struct MeetingTokenAggregator: Sendable {
             pending.append(token)
         }
         return done
+    }
+
+    /// On the call a token without a label continues the speaker before it.
+    /// In the room nil is a speaker too (the user), so nil against a number
+    /// is a change.
+    private func speakerChanged(from last: MeetingToken, to token: MeetingToken) -> Bool {
+        if side == .you {
+            return roomSpeakers && token.speaker != last.speaker
+        }
+        guard let speaker = token.speaker, let lastSpeaker = last.speaker else {
+            return false
+        }
+        return speaker != lastSpeaker
     }
 
     /// The words of the segment still being spoken: the settled ones held
@@ -203,7 +225,7 @@ public struct MeetingTokenAggregator: Sendable {
             startMs: start + offsetMs,
             endMs: end + offsetMs,
             side: side,
-            speaker: side == .call ? Self.majority(pending.compactMap(\.speaker)) : nil,
+            speaker: keepsSpeakers ? Self.majority(pending.compactMap(\.speaker)) : nil,
             language: Self.majority(pending.compactMap(\.language)),
             text: text
         )
@@ -223,17 +245,30 @@ public struct MeetingTokenAggregator: Sendable {
 /// speaker label Soniox gives it is the user's, and the tokens of every
 /// other speaker (the call heard from the loudspeakers, people in the room)
 /// are dropped. The microphone itself is not touched.
+///
+/// With `keepsOthers` (room speakers) nobody is dropped: the sample only
+/// tells which speaker is the user. The user's tokens lose their label (nil
+/// is "You") and the others are numbered from 2 in the order they first
+/// speak, whatever labels Soniox gave them.
 public struct MeetingUserVoiceFilter: Sendable, Equatable {
     /// Stream time at which the microphone's audio starts.
     public let leadMs: Int
+    public let keepsOthers: Bool
+    private var roomNumbers: [String: String] = [:]
     private var sampleSpeakers: [String: Int] = [:]
     private var pastSample = false
     /// Words kept and dropped so far (for the event log).
     public private(set) var keptWords = 0
     public private(set) var droppedWords = 0
 
-    public init(leadMs: Int) {
+    public init(leadMs: Int, keepsOthers: Bool = false) {
         self.leadMs = leadMs
+        self.keepsOthers = keepsOthers
+    }
+
+    /// How many other people have been heard in the room so far.
+    public var roomSpeakerCount: Int {
+        roomNumbers.count
     }
 
     /// The user's speaker label; nil while the sample is not recognised.
@@ -277,6 +312,21 @@ public struct MeetingUserVoiceFilter: Sendable, Equatable {
             token.endMs = token.endMs.map { $0 - leadMs }
             let user = userSpeaker ?? Self.most(pendingSample)
             let isWord = token.isFinal && spoken && token.text.first?.isWhitespace == true
+            if keepsOthers {
+                if let user, let speaker = token.speaker {
+                    if speaker == user {
+                        token.speaker = nil
+                    } else {
+                        if roomNumbers[speaker] == nil {
+                            roomNumbers[speaker] = String(roomNumbers.count + 2)
+                        }
+                        token.speaker = roomNumbers[speaker]
+                    }
+                }
+                keptWords += isWord ? 1 : 0
+                result.append(token)
+                continue
+            }
             if let user, let speaker = token.speaker, speaker != user {
                 droppedWords += isWord ? 1 : 0
                 continue
@@ -305,11 +355,15 @@ public enum MeetingTranscriptLanguage: String, Codable, Sendable, CaseIterable {
 
 /// Text formats of a meeting transcript.
 public enum MeetingTranscriptFormat {
-    /// "You" for the microphone, "Speaker N" for the people on the call.
+    /// "You" for the microphone (or "Person N" for someone else in the room,
+    /// with room speakers on), "Speaker N" for the people on the call.
     public static func speakerLabel(_ segment: MeetingSegment) -> String {
         switch segment.side {
         case .you:
-            return "You"
+            guard let speaker = segment.speaker, !speaker.isEmpty else {
+                return "You"
+            }
+            return "Person \(speaker)"
         case .call:
             guard let speaker = segment.speaker, !speaker.isEmpty else {
                 return "Call"
@@ -434,7 +488,8 @@ public struct MeetingSidecarLine: Codable, Sendable, Equatable {
         model = "soniox"
         durationSec = Double(max(0, segment.endMs - segment.startMs)) / 1000
         language = segment.language
-        // The microphone is one speaker, as in ntakker's own files.
+        // The user is speaker 1 of the microphone, as in ntakker's own
+        // files; other people in the room keep their numbers (2, 3, …).
         speaker = segment.speaker ?? (segment.side == .you ? "1" : nil)
     }
 

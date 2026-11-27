@@ -82,7 +82,7 @@ export function parseClock(value: string): number | undefined {
 }
 
 export function speaker(segment: Segment): string {
-  if (segment.side === "you") return "You";
+  if (segment.side === "you") return segment.speaker === undefined ? "You" : `Person ${segment.speaker}`;
   return segment.speaker === undefined ? "Call" : `Speaker ${segment.speaker}`;
 }
 

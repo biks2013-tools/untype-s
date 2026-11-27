@@ -2997,6 +2997,16 @@ final class UntypeUIModel: ObservableObject {
             appendEvent("diagnostic.warning: [untype] meeting: only my voice is on but your voice is not learned yet (Settings → Speech → Learn); everything the microphone hears is transcribed")
             overlay?.showNotice("Voice not learned: the microphone's transcript is not filtered")
         }
+        // The microphone's speakers are always told apart; Only my voice
+        // drops the others instead of naming them.
+        let roomSpeakers = !settings.meeting.keepsOnlyMyVoice
+        // Naming the user is optional: a sample that cannot be used (other
+        // sample rate) is left out rather than stopping the recording, as it
+        // does for Only my voice, which depends on it.
+        let sample = roomSpeakers && voiceSample?.sampleRate != MeetingRecorder.sampleRate ? nil : voiceSample
+        if roomSpeakers, sample == nil {
+            appendEvent("diagnostic.info: [untype] meeting: no usable voice sample (Settings → Speech → Learn), so the people at the microphone are numbered and nobody is marked as you")
+        }
         return try MeetingRecordingOptions(
             config: config,
             folderRoot: settings.meeting.folderURL,
@@ -3004,7 +3014,8 @@ final class UntypeUIModel: ObservableObject {
             language: try settings.meeting.transcriptLanguage,
             audio: try settings.meeting.audioSettings,
             echoCancellation: settings.meeting.removesSpeakerSound,
-            voiceSample: settings.meeting.keepsOnlyMyVoice ? voiceSample : nil
+            voiceSample: sample,
+            roomSpeakers: roomSpeakers
         )
     }
 
