@@ -70,6 +70,9 @@ struct RootView: View {
             MeetingsView()
                 .tabItem { Label("Meetings", systemImage: "person.2.wave.2") }
                 .tag("meetings")
+            VideosView()
+                .tabItem { Label("Videos", systemImage: "play.rectangle") }
+                .tag("videos")
         }
         .fullScreenCover(isPresented: Binding(
             get: { meetings.isActive },

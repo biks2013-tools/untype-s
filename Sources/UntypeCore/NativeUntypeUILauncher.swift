@@ -63,6 +63,7 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var settingsWindow: UntypeSettingsWindowController?
     private var transcriptionWindow: UntypeTranscriptionWindowController?
     private var assistantWindow: UntypeAssistantWindowController?
+    private var videoDigestWindow: VideoDigestWindowController?
     private var updateWindow: UntypeUpdateWindowController?
     private var wasCompactWindow: Bool = false
 
@@ -153,6 +154,22 @@ private final class UntypeAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             model?.prepareAssistantMeeting()
             assistantWindow?.show()
         }
+        // Video digests (plan-080): the analysis uses the model of Refine.
+        let videoDigestWindow = VideoDigestWindowController(model: model.videoDigest)
+        self.videoDigestWindow = videoDigestWindow
+        model.videoDigest.onEvent = { [weak model] line in
+            model?.appendEvent(line)
+        }
+        model.videoDigest.llmConfig = { [weak model] in
+            guard let model else {
+                throw VideoDigestError.configuration("untype is closing.")
+            }
+            return try model.videoDigestLLMConfig()
+        }
+        model.showVideoDigestWindow = { [weak videoDigestWindow] in
+            videoDigestWindow?.show()
+        }
+        model.videoDigest.start()
         let transcriptionWindow = UntypeTranscriptionWindowController(feed: model.transcriptFeed, openAssistant: { [weak model] in
             model?.showAssistantWindow?()
         })
@@ -411,6 +428,9 @@ final class UntypeUIModel: ObservableObject {
     /// recorded, or the last one (plan-078).
     let assistant = MeetingAssistantModel()
     var showAssistantWindow: (() -> Void)?
+    /// Digests of videos (plan-080): the window's and the iPhone's requests.
+    let videoDigest = VideoDigestModel()
+    var showVideoDigestWindow: (() -> Void)?
     /// Looks for newer releases of untype and installs them (plan-079).
     let updater = UntypeUpdateModel()
     /// Why an update cannot be offered or installed right now (nil: it can).
@@ -2989,6 +3009,12 @@ final class UntypeUIModel: ObservableObject {
     /// meeting being recorded when Settings → Meetings says so.
     private func updateMeetingMicrophoneMute() {
         meetingRecorder.setMicrophoneMuted(hotkeyPressed && settings.meeting.mutesMicrophoneWhileDictating)
+    }
+
+    /// The model of Refine, for the video digest (on even when Refine is off
+    /// for dictation).
+    fileprivate func videoDigestLLMConfig() throws -> LLMConfig {
+        try ConfigResolver(requireProtocolOutputForHybrid: false).resolve(argv: try settings.sessionArguments() + ["--refine"]).llm
     }
 
     private func meetingOptions() throws -> MeetingRecordingOptions {

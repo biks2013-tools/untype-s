@@ -194,6 +194,7 @@ extension UntypeCommand {
     goes in UNTYPE_VIDEO_LIBRARY; yt-dlp, ffmpeg and deno come from UNTYPE_YTDLP_PATH,
     UNTYPE_FFMPEG_PATH and UNTYPE_DENO_PATH; SONIOX_API_KEY transcribes videos without captions.
     --language: the digest's language (default: the language spoken in the video).
+    --captions-only: as the iPhone does it (captions only: no audio, no screenshots).
 
     """
 
@@ -203,6 +204,7 @@ extension UntypeCommand {
         var resume: String?
         var language: String?
         var docx = false
+        var captionsOnly = false
         var llmArguments = ["--refine"]
         var index = 0
         func value() -> String? {
@@ -213,6 +215,7 @@ extension UntypeCommand {
             switch argv[index] {
             case "--language": language = value()
             case "--docx": docx = true
+            case "--captions-only": captionsOnly = true
             case "--resume": resume = value()
             case "--llm-provider", "--llm-model":
                 let flag = argv[index]
@@ -235,10 +238,10 @@ extension UntypeCommand {
             let config = try ConfigResolver(requireProtocolOutputForHybrid: false).resolve(argv: llmArguments)
             let soniox = environment["SONIOX_API_KEY"].flatMap { $0.isEmpty ? nil : SonioxFileTranscriber(apiKey: $0, languageHints: []) }
             let pipeline = VideoDigestPipeline(
-                media: YtDlpMediaSource(settings: settings),
+                media: captionsOnly ? CaptionsOnlyMediaSource() as VideoMediaSource : YtDlpMediaSource(settings: settings),
                 analyzer: VideoDigestAnalyzer(llm: config.llm),
-                transcriber: soniox,
-                device: "mac",
+                transcriber: captionsOnly ? nil : soniox,
+                device: captionsOnly ? "iphone" : "mac",
                 onEvent: { line in FileHandle.standardError.write(Data("\(line)\n".utf8)) }
             )
             let progress: @Sendable (String) -> Void = { line in FileHandle.standardError.write(Data("… \(line)\n".utf8)) }

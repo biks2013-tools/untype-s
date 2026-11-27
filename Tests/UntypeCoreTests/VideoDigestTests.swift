@@ -124,3 +124,24 @@ import Testing
     #expect(sheet.pixelHeight == 2 * 270)
     #expect(sheet.mediaType == "image/jpeg")
 }
+
+#if os(macOS)
+@Test func anInboxRequestIsClaimedOnceAndEndsInDoneOrFailed() throws {
+    let library = FileManager.default.temporaryDirectory.appendingPathComponent("untype-inbox-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: library) }
+    let request = VideoDigestInboxRequest(url: "https://youtu.be/LCEmiRjPEtQ", language: nil, docx: true, from: "iphone")
+    try VideoDigestInbox.send(request, library: library)
+    let waiting = VideoDigestInbox.waiting(library)
+    #expect(waiting.count == 1)
+    let claimed = try #require(VideoDigestInbox.claim(waiting[0]))
+    #expect(claimed.0.id == request.id && claimed.0.url == request.url && claimed.0.docx && claimed.0.language == nil)
+    // A second Mac finds nothing to claim.
+    #expect(VideoDigestInbox.claim(waiting[0]) == nil)
+    #expect(VideoDigestInbox.waiting(library).isEmpty)
+    VideoDigestInbox.finish(claimed.0, claimed: claimed.1, folder: library.appendingPathComponent("T-recording-2026-11-27-10-55"), error: nil)
+    let done = VideoDigestInbox.folder(library).appendingPathComponent("done/\(request.id).json")
+    let result = try VideoDigestInbox.decoder.decode(VideoDigestInboxRequest.self, from: Data(contentsOf: done))
+    #expect(result.folder == "T-recording-2026-11-27-10-55")
+    #expect(!FileManager.default.fileExists(atPath: claimed.1.path))
+}
+#endif
