@@ -76,6 +76,9 @@ final class AppSettings: ObservableObject {
     @AppStorage("operators.refine") var refine = false
     @AppStorage("operators.translate") var translate = false
     @AppStorage("operators.target") var targetRaw = TargetLanguage.english.rawValue
+    /// Whether a meeting starts with the live transcript on; the switch
+    /// remembers the last choice.
+    @AppStorage("meeting.transcript") var meetingTranscript = true
 
     @Published private(set) var dictionary = UserDictionary.empty
     @Published var dictionaryProblem: String?

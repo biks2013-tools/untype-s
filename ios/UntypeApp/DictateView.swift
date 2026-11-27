@@ -6,6 +6,7 @@ import UIKit
 struct DictateView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var engine: DictationEngine
+    @EnvironmentObject private var meetings: MeetingSession
     @State private var showSettings = false
     @State private var copied = false
     @FocusState private var editing: Bool
@@ -190,7 +191,7 @@ struct DictateView: View {
                 }
             }
         }
-        .disabled(waiting)
+        .disabled(waiting || meetings.isActive)
         .accessibilityLabel(listening ? "Finish dictation" : "Start dictation")
     }
 

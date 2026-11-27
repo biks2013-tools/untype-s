@@ -1,5 +1,8 @@
-#if os(macOS)
 import Foundation
+
+// Shared by the Mac and the iPhone / iPad app: the iOS meeting recorder
+// writes its files with these formats, so untype studio opens them like
+// the Mac's.
 
 /// Which side of a call a meeting segment comes from: the user's own
 /// microphone, or the call's sound (system audio, every other app).
@@ -388,6 +391,13 @@ public struct MeetingFileNames: Sendable, Equatable {
     /// What was attached during the meeting, and when (plan-077).
     public var attachments: String { stem + ".attachments.json" }
 
+    /// The studio's own file: when the audio started, so the transcript
+    /// lines stay on their place in the audio after the files are copied
+    /// (a copy can change the audio file's creation date, which the studio
+    /// uses otherwise).
+    public var studioMetadata: String { stem + ".studio.json" }
+
+    #if os(macOS)
     /// The audio files a recording with `audio` writes.
     public func audioFiles(_ audio: MeetingAudioSettings) -> [String] {
         switch audio.sources {
@@ -397,6 +407,7 @@ public struct MeetingFileNames: Sendable, Equatable {
         case .both: return audio.isMixed ? [mixedAudio] : [microphoneAudio, systemAudio]
         }
     }
+    #endif
 }
 
 /// One line of a per-side transcript in the format ntakker writes and
@@ -704,4 +715,3 @@ public enum MeetingNaming {
     No date, no quotes, no trailing period, no slashes or colons. Output only the title.
     """
 }
-#endif

@@ -15,16 +15,25 @@ settings:
     DEVELOPMENT_TEAM: 9F9H8NCAUB
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "3"
 targets:
   untype:
     type: application
     platform: iOS
     sources:
       - path: UntypeApp
+    # Merged with the generated keys below: recording goes on with the screen
+    # locked, and the saved meetings are visible in the Files app.
+    info:
+      path: UntypeApp/Info.plist
+      properties:
+        UIBackgroundModes: [audio]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     dependencies:
       - package: untype-s
         product: UntypeCore
+      - target: UntypeControls
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.biks2013.untype
@@ -40,6 +49,27 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "untype listens to the microphone to write what you say."
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+  # The Control Center button "Record meeting" (iOS 18 controls).
+  UntypeControls:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: UntypeControls
+      - path: UntypeApp/RecordMeetingIntent.swift
+    info:
+      path: UntypeControls/Info.plist
+      properties:
+        CFBundleDisplayName: untype
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.biks2013.untype.controls
+        PRODUCT_NAME: UntypeControls
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
 schemes:
   untype:
     build:
