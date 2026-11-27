@@ -7,6 +7,7 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createRegistry, defineDoc, Harness, LiveDoc, type Conversation, type ConversationId, type ConversationView, type EntryRecord, type LiveState } from "@earendil-works/pi-durable";
 import { createNodePhotonImages } from "@earendil-works/pi-durable/images/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { azureAnthropicProvider } from "./azure-anthropic.js";
 import { meetingExtension, meetingNow, type DocumentHost, type MeetingState } from "./extension.js";
 
 /**
@@ -20,8 +21,10 @@ import { meetingExtension, meetingNow, type DocumentHost, type MeetingState } fr
  * Settings come from the environment untype gives it, none has a default:
  *   UNTYPE_AGENT_HOME          where the conversations are kept (SQLite)
  *   UNTYPE_AGENT_LLM_PROVIDER  a provider of the pi-ai catalog (azure, openai, anthropic, google, deepseek, …)
+ *                              or azure-anthropic (Claude on Azure Foundry, see azure-anthropic.ts)
  *   UNTYPE_AGENT_LLM_MODEL     a model of that provider
- * and the provider's own variables (its API key and, for Azure, AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME).
+ * and the provider's own variables (its API key and, for Azure, AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME;
+ * for Claude on Azure, ANTHROPIC_FOUNDRY_API_KEY and ANTHROPIC_FOUNDRY_RESOURCE or ANTHROPIC_FOUNDRY_BASE_URL).
  */
 
 const ctx = BACKGROUND_CONTEXT;
@@ -62,9 +65,16 @@ function adaptEnvironment(): void {
   delete process.env.AZURE_OPENAI_API_VERSION;
 }
 
+/** pi-ai's catalog plus the providers untype adds (Claude on Azure Foundry). */
+function assistantModels() {
+  const models = builtinModels();
+  models.setProvider(azureAnthropicProvider());
+  return models;
+}
+
 async function catalog(): Promise<void> {
   adaptEnvironment();
-  const models = builtinModels();
+  const models = assistantModels();
   const providers = await Promise.all(
     models.getProviders().map(async (p) => ({
       id: p.id,
@@ -147,7 +157,7 @@ async function serve(): Promise<void> {
   const provider = required("UNTYPE_AGENT_LLM_PROVIDER");
   const modelId = required("UNTYPE_AGENT_LLM_MODEL");
   adaptEnvironment();
-  const models = builtinModels();
+  const models = assistantModels();
   if (!models.getModel(provider, modelId)) throw new Error(`the assistant's model ${provider}/${modelId} is not one the assistant knows (Settings → Assistant)`);
   if (!(await models.checkAuth(provider))) throw new Error(`there is no API key for the assistant's provider "${provider}" (Settings → API keys)`);
 
