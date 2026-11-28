@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+// Deck tools — deterministic asset embedder.
+//
+// Replaces {{TOKEN}} placeholders in an HTML deck with the VERBATIM contents of the
+// matching bundled data-URI asset (<theme>-Design/assets/<token>.datauri.txt).
+//
+// Why this exists: pasting 200KB–860KB base64 blobs by hand is the step that fails in
+// non-interactive runs (e.g. `claude -p` over SSH). The model "approximates" a photo
+// with a gradient or substitutes a text/box logo. This script removes that judgement
+// call: author the deck with tokens, run this, and every asset is embedded exactly.
+//
+// The assets directory is resolved RELATIVE TO THIS SCRIPT (the skill root), never the
+// current working directory — so it works from any cwd and on any machine, including a
+// headless Linux box reached over SSH.
+//
+// Zero dependencies. Runs on any Node >= 16.
+
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SKILL_ROOT = resolve(__dirname, '..');                       // scripts/ -> skill root
+// theme -> the folders its tokens resolve from, in order.
+const THEMES = {
+  biks2013: ['BikS2013-Design'],
+};
+// A token may name the theme it comes from as its first segment: it resolves from that theme's own folder only.
+const THEME_TOKEN_RE = new RegExp(`^(${Object.keys(THEMES).map((t) => t.toUpperCase()).join('|')})_(.+)$`);
+const DEFAULT_ASSETS = resolve(SKILL_ROOT, THEMES.biks2013[0], 'assets');
+
+const USAGE = `Asset embedder
+Usage: node embed-assets.mjs <deck.html> [-o <out.html>] [--theme biks2013] [--assets <dir>]
+
+  <deck.html>     HTML deck containing {{TOKEN}} placeholders (e.g. {{LOGO_PRIMARY}}).
+  -o, --out       Output path (default: overwrite the input file in place).
+  --theme <name>  biks2013 (the only theme in this copy).
+  --assets <dir>  The assets directory (default: the theme's assets).
+
+Tokens map to files by lower-casing and turning '_' into '-', then adding '.datauri.txt':
+  {{LOGO_KNOCKOUT}} -> logo-knockout.datauri.txt`;
+
+function fail(msg) { console.error('embed-assets ERROR: ' + msg); process.exit(1); }
+
+function parseArgs(argv) {
+  const a = { _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const x = argv[i];
+    if (x === '-o' || x === '--out') a.out = argv[++i];
+    else if (x === '--assets') a.assets = argv[++i];
+    else if (x === '--theme') a.theme = argv[++i];
+    else if (x === '-h' || x === '--help') a.help = true;
+    else a._.push(x);
+  }
+  return a;
+}
+
+const tokenToFile = (name) => name.toLowerCase().replace(/_/g, '-') + '.datauri.txt';
+const TOKEN_RE = /\{\{([A-Z0-9_]+)\}\}/g;
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help || args._.length !== 1) { console.log(USAGE); process.exit(args.help ? 0 : 2); }
+
+  const input = resolve(process.cwd(), args._[0]);
+  const out = args.out ? resolve(process.cwd(), args.out) : input;
+  if (args.theme && !THEMES[args.theme]) fail(`unknown theme "${args.theme}" (known: ${Object.keys(THEMES).join(', ')})`);
+  const assetsDirs = args.assets ? [resolve(process.cwd(), args.assets)] : args.theme ? THEMES[args.theme].map((d) => resolve(SKILL_ROOT, d, 'assets')) : [DEFAULT_ASSETS];
+  const assetsDir = assetsDirs[0];
+
+  if (!existsSync(input)) fail(`input not found: ${input}`);
+  for (const d of assetsDirs) if (!existsSync(d)) fail(`assets directory not found: ${d}`);
+  if (!existsSync(assetsDir)) {
+    fail(`assets directory not found: ${assetsDir}\n` +
+         `  The theme's assets folder must travel with this script.\n` +
+         `  If you moved the skill, copy the WHOLE skill folder, not just SKILL.md.`);
+  }
+
+  let html = readFileSync(input, 'utf8');
+  const tokens = [...new Set([...html.matchAll(TOKEN_RE)].map((m) => m[1]))];
+  if (tokens.length === 0) {
+    fail('no {{TOKEN}} placeholders found in the deck.\n' +
+         '  Author the deck with image tokens (e.g. background-image:url("{{PHOTO_STREET}}")),\n' +
+         '  not hand-pasted data URIs. See SKILL.md "Deterministic embedding & verification".');
+  }
+
+  const report = [];
+  for (const tok of tokens) {
+    // A theme-prefixed token names its own folder; everything else walks the
+    // theme's search path, and the first folder that has the asset wins (its own folder comes first).
+    const scoped = args.assets ? null : THEME_TOKEN_RE.exec(tok);
+    const stem = scoped ? scoped[2] : tok;
+    const dirs = scoped ? [resolve(SKILL_ROOT, THEMES[scoped[1].toLowerCase()][0], 'assets')] : assetsDirs;
+    const dir = dirs.find((d) => existsSync(resolve(d, tokenToFile(stem))));
+    if (!dir) {
+      fail(`no asset for token {{${tok}}} (looked for ${tokenToFile(stem)} in ${dirs.join(', ')}).\n` +
+           `  Valid asset stems: ${[...new Set(dirs.flatMap((d) => existsSync(d) ? availableStems(d) : []))].join(', ') || '(none found)'}`);
+    }
+    const file = resolve(dir, tokenToFile(stem));
+    const uri = readFileSync(file, 'utf8').trim();
+    if (!uri.startsWith('data:image/') && !uri.startsWith('data:font/')) {
+      fail(`${tokenToFile(stem)} does not start with "data:image/" or "data:font/" (got ${JSON.stringify(uri.slice(0, 24))}).`);
+    }
+    const re = new RegExp(`\\{\\{${tok}\\}\\}`, 'g');
+    const count = (html.match(re) || []).length;
+    html = html.replace(re, uri);
+    report.push(`  {{${tok}}} -> ${tokenToFile(stem)}  (${count}x, ${uri.length.toLocaleString()} chars)`);
+  }
+
+  const leftover = [...new Set([...html.matchAll(TOKEN_RE)].map((m) => m[0]))];
+  if (leftover.length) fail(`unresolved tokens remain after embedding: ${leftover.join(', ')}`);
+
+  writeFileSync(out, html, 'utf8');
+  console.log(`Embedded ${tokens.length} asset(s) into ${out}`);
+  console.log(report.join('\n'));
+  console.log(`Output size: ${Buffer.byteLength(html, 'utf8').toLocaleString()} bytes`);
+}
+
+function availableStems(dir) {
+  try {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.datauri.txt'))
+      .map((f) => f.replace('.datauri.txt', ''));
+  } catch { return []; }
+}
+
+main();
